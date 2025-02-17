@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/notes-on-running-go-in-the-browser-with-webassembly/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:55:20 GMT -->
+<head>
+    <title>Notes on running Go in the browser with WebAssembly - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Notes on running Go in the browser with WebAssembly">
+                        Notes on running Go in the browser with WebAssembly
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> September 14, 2024 at 06:05</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/go.html">Go</a>
+        ,
+    <a href="../../tag/webassembly.html">WebAssembly</a>
+        ,
+    <a href="../../tag/javascript.html">JavaScript</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>Recently I've had to compile Go to WebAssembly to run in the browser in a couple
+of small projects (<a class="reference external" href="https://eliben.github.io/go-sudoku/">#1</a>,
+<a class="reference external" href="https://eliben.github.io/go-sentencepiece/">#2</a>), and in general spent some
+time <a class="reference external" href="../../tag/webassembly.html">looking at WebAssembly</a>.
+I find WebAssembly to be an exciting technology, both for the web and for
+other uses (e.g. with WASI); specifically, it's pretty great that we can take
+existing projects and components written in Go and run them in the browser.</p>
+<p>In this post, I will summarize some useful patterns in running Go in the browser
+via WebAssembly. All the patterns are demonstrated by small, self-contained
+programs you can find in <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook">this GitHub repository</a>.</p>
+<div class="section" id="basics-calling-go-from-js">
+<h2>Basics: calling Go from JS</h2>
+<p>This sample serves as the basis for other samples in this post: let's
+write a Go function that we'll call in the browser using JS. This function
+uses Go's <tt class="docutils literal">math/big</tt> stdlib package to calculate the sum of the
+<a class="reference external" href="https://en.wikipedia.org/wiki/Harmonic_series_(mathematics)">harmonic series</a>
+for some duration <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>, and returns the result with high precision:</p>
+<div class="highlight"><pre><span></span><span class="c1">// calcHarmonic calculates the harmonic series for approximately the given</span><span class="w"></span>
+<span class="c1">// number of seconds and returns the accumulated result in a string.</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">calcHarmonic</span><span class="p">(</span><span class="nx">nsecs</span><span class="w"> </span><span class="kt">float64</span><span class="p">)</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">d</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Duration</span><span class="p">(</span><span class="nx">nsecs</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nb">float64</span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Second</span><span class="p">))</span><span class="w"></span>
+<span class="w">  </span><span class="nx">start</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">r1</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">big</span><span class="p">.</span><span class="nx">NewRat</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w"> </span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">addend</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">big</span><span class="p">.</span><span class="nx">NewRat</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nb">int64</span><span class="p">(</span><span class="nx">i</span><span class="p">))</span><span class="w"></span>
+<span class="w">    </span><span class="nx">r1</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">r1</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="nx">r1</span><span class="p">,</span><span class="w"> </span><span class="nx">addend</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">i</span><span class="o">%</span><span class="mi">10</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">().</span><span class="nx">Sub</span><span class="p">(</span><span class="nx">start</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">d</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="k">break</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">r1</span><span class="p">.</span><span class="nx">FloatString</span><span class="p">(</span><span class="mi">40</span><span class="p">)</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>To export this function to JS in the browser, we add the following
+code:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// Export the name &quot;calcHarmonic&quot; to JS, with our wrapper as value</span><span class="w"></span>
+<span class="w">  </span><span class="nx">js</span><span class="p">.</span><span class="nx">Global</span><span class="p">().</span><span class="nx">Set</span><span class="p">(</span><span class="s">&quot;calcHarmonic&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">jsCalcHarmonic</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// The Go main function compiled to WASM is expected to block</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// indefinitely.</span><span class="w"></span>
+<span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="p">{}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+
+<span class="c1">// wrap calcHarmonic to be callable from JS</span><span class="w"></span>
+<span class="kd">var</span><span class="w"> </span><span class="nx">jsCalcHarmonic</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">FuncOf</span><span class="p">(</span><span class="kd">func</span><span class="p">(</span><span class="nx">this</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">,</span><span class="w"> </span><span class="nx">args</span><span class="w"> </span><span class="p">[]</span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"> </span><span class="kt">any</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">args</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nb">panic</span><span class="p">(</span><span class="s">&quot;want one argument&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">s</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">calcHarmonic</span><span class="p">(</span><span class="nx">args</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="nx">Float</span><span class="p">())</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">ValueOf</span><span class="p">(</span><span class="nx">s</span><span class="p">)</span><span class="w"></span>
+<span class="p">})</span><span class="w"></span>
+</pre></div>
+<p>This Go file is compiled to the WASM/js target with:</p>
+<div class="highlight"><pre><span></span>GOOS=js GOARCH=wasm go build -o harmonic.wasm harmonic.go
+</pre></div>
+<p>And load it from JS:</p>
+<div class="highlight"><pre><span></span><span class="c1">// Instantiate a new Go object (defined in from wasm_exec.js)</span><span class="w"></span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">go</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Go</span><span class="p">();</span><span class="w"></span>
+<span class="nx">WebAssembly</span><span class="p">.</span><span class="nx">instantiateStreaming</span><span class="p">(</span><span class="nx">fetch</span><span class="p">(</span><span class="s2">&quot;harmonic.wasm&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">go</span><span class="p">.</span><span class="nx">importObject</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="w"></span>
+<span class="w">    </span><span class="p">(</span><span class="nx">result</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">go</span><span class="p">.</span><span class="nx">run</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">instance</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="p">});</span><span class="w"></span>
+</pre></div>
+<img alt="Shows the UI of our &quot;calculate harmonic sum&quot; demo" class="align-center" src="../../images/2024/calc-harmonic-ui2.png" />
+<p>The JS code that calls <tt class="docutils literal">calcHarmonic</tt> is:</p>
+<div class="highlight"><pre><span></span><span class="kd">let</span><span class="w"> </span><span class="nx">buttonElement</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;submitButton&quot;</span><span class="p">);</span><span class="w"></span>
+<span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;submitButton&quot;</span><span class="p">).</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s2">&quot;click&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;timeInput&quot;</span><span class="p">).</span><span class="nx">value</span><span class="p">;</span><span class="w"></span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">calcHarmonic</span><span class="p">(</span><span class="nb">parseFloat</span><span class="p">(</span><span class="nx">input</span><span class="p">));</span><span class="w"></span>
+<span class="w">    </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;outputDiv&quot;</span><span class="p">).</span><span class="nx">innerText</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">;</span><span class="w"></span>
+<span class="p">});</span><span class="w"></span>
+</pre></div>
+<p>Finally, the <tt class="docutils literal">wasm_exec.js</tt> file from the Go distribution has to be included
+with something like:</p>
+<div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">script</span> <span class="na">src</span><span class="o">=</span><span class="s">&quot;wasm_exec.js&quot;</span><span class="p">&gt;&lt;/</span><span class="nt">script</span><span class="p">&gt;</span>
+</pre></div>
+<p>The easiest way to obtain this file is download it from the Go project's GitHub
+mirror (for the same Go version your Go code is compiled with); this is handled
+by the Makefile in our sample project:</p>
+<div class="highlight"><pre><span></span>wasm_exec.js:
+  wget https://raw.githubusercontent.com/golang/go/release-branch.go1.22/misc/wasm/wasm_exec.js
+</pre></div>
+<p>This is the basic recipe for invoking Go from JS in the browser: the Go code
+is platform-agnostic and presents some API and all the glue logic is done in JS.
+The next samples show some variations on this basic scheme.</p>
+<p><a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/basic-call-go-from-js">Link to the full code for this sample</a>.</p>
+</div>
+<div class="section" id="dom-manipulation-from-go">
+<h2>DOM manipulation from Go</h2>
+<p>In the previous example, Go implemented the <tt class="docutils literal">calcHarmonic</tt> function, but the
+rest of the program's logic was in JS - setting up an event listener for a
+button click, updating output, etc.</p>
+<p>We can move more of the code to Go, if we want. The <tt class="docutils literal">calcHarmonic</tt> remains
+unchanged, but our <tt class="docutils literal">main</tt> function in Go becomes:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">doc</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Global</span><span class="p">().</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;document&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">buttonElement</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">doc</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;getElementById&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;submitButton&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">inputElement</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">doc</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;getElementById&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;timeInput&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">outputElement</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">doc</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;getElementById&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;outputDiv&quot;</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">buttonElement</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;addEventListener&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;click&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">FuncOf</span><span class="p">(</span><span class="w"></span>
+<span class="w">    </span><span class="kd">func</span><span class="p">(</span><span class="nx">this</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">,</span><span class="w"> </span><span class="nx">args</span><span class="w"> </span><span class="p">[]</span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"> </span><span class="kt">any</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">input</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">inputElement</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;value&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="nx">inputFloat</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">ParseFloat</span><span class="p">(</span><span class="nx">input</span><span class="p">.</span><span class="nx">String</span><span class="p">(),</span><span class="w"> </span><span class="mi">64</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"></span>
+<span class="w">      </span><span class="nx">s</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">calcHarmonic</span><span class="p">(</span><span class="nx">inputFloat</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="nx">outputElement</span><span class="p">.</span><span class="nx">Set</span><span class="p">(</span><span class="s">&quot;innerText&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">s</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="w"></span>
+<span class="w">    </span><span class="p">}))</span><span class="w"></span>
+
+<span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="p">{}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>We obtain JS values from the <tt class="docutils literal">js.Global()</tt> context and can call functions
+or set attributes on them. If you squint, this looks very similar to JS code,
+but written in Go-ish.</p>
+<p>This code sample demonstrates some useful capabilities of DOM manipulation in Go:</p>
+<ul class="simple">
+<li>Adding event listeners on DOM elements, with Go callbacks</li>
+<li>Getting values from DOM elements</li>
+<li>Setting attributes on DOM elements</li>
+</ul>
+<p>The only code JS remaining in our <tt class="docutils literal">index.html</tt> is the WebAssembly loader:</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="nx">go</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Go</span><span class="p">();</span><span class="w"></span>
+<span class="nx">WebAssembly</span><span class="p">.</span><span class="nx">instantiateStreaming</span><span class="p">(</span><span class="nx">fetch</span><span class="p">(</span><span class="s2">&quot;harmonic.wasm&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">go</span><span class="p">.</span><span class="nx">importObject</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="w"></span>
+<span class="w">    </span><span class="p">(</span><span class="nx">result</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">go</span><span class="p">.</span><span class="nx">run</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">instance</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="p">});</span><span class="w"></span>
+</pre></div>
+<p>All the rest is done in Go! <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/dom-in-go">Link to the full code for this sample</a>.</p>
+<p>For a more full-featured sample, check out <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/go-canvas-gameoflife">this directory</a>.
+It implements a simple Game of Life running in the browser, entirely in Go. All
+the game logic, canvas manipulation and event management is done in Go; here
+too, the only JS code in the project is the few lines used to load the
+WebAssembly module.</p>
+<img alt="Game of Life screenshot" class="align-center" src="../../images/2024/gameoflife-go-wasm.png" />
+<p>I personally prefer keeping the UI logic in JS, but if you're interested in
+Go purity all the way - it's definitely feasible.</p>
+</div>
+<div class="section" id="using-tinygo-as-an-alternative-compiler">
+<h2>Using TinyGo as an alternative compiler</h2>
+<p>The Go compiler's support for WebAssembly is pretty good these days, but there's
+a small snag that may be important to users: the entire Go runtime is compiled
+into the WASM binary. On my machine, the <tt class="docutils literal">.wasm</tt> files produced for the
+sample Go code weigh in at around 2.5 MiB, which will take some time to load
+in the browser - especially on slow connections <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>.</p>
+<p>There's an alternative: <a class="reference external" href="https://tinygo.org/">TinyGo</a> is a Go toolchain
+&quot;for small places&quot;, specializing in embedded controllers; the same
+considerations apply to WASM. The TinyGo runtime is lightweight compared
+to Go, and the binaries are about 1/4 the size. Not everything is perfect with
+TinyGo, though: compilation is much slower, and the resulting code is a bit
+slower as well. Finally, TinyGo has <a class="reference external" href="https://tinygo.org/docs/reference/lang-support/stdlib/">some limitations</a>
+that make stdlib packages that rely on reflection not work; this can be painful
+when interacting with JS because <tt class="docutils literal">encoding/json</tt> relies on reflection - so
+you may need to look for an alternative JSON package.</p>
+<p>The <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/dom-in-go">dom-in-go sample directory</a>
+also shows how to build the project with TinyGo; take a look at the Makefile.
+Note that TinyGo has its own <tt class="docutils literal">wasm_exec.js</tt> support file - it won't work with
+the one taken from the standard Go distribution; the Makefile handles this too.</p>
+</div>
+<div class="section" id="keeping-the-main-thread-free-webassembly-in-a-web-worker">
+<h2>Keeping the main thread free: WebAssembly in a web worker</h2>
+<p>If we come back to the original sample and run the calculation for some
+non-trivial amount of time (say, 2 seconds or more) - you may notice something:
+the page appears &quot;frozen&quot; while the calculation is running. You can't interact
+with the UI in any way, can't select text with the mouse; if you try to add
+periodic <tt class="docutils literal">console.log</tt> printouts or some spinner animation - nothing will show
+until <tt class="docutils literal">calcHarmonic</tt> returns with the result.</p>
+<p>This is the expected behavior for JS when it calls a blocking, CPU-intensive
+function! Let's revisit the code again:</p>
+<div class="highlight"><pre><span></span><span class="w"> </span><span class="kd">let</span><span class="w"> </span><span class="nx">buttonElement</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;submitButton&quot;</span><span class="p">);</span><span class="w"></span>
+<span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;submitButton&quot;</span><span class="p">).</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s2">&quot;click&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">     </span><span class="kd">let</span><span class="w"> </span><span class="nx">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;timeInput&quot;</span><span class="p">).</span><span class="nx">value</span><span class="p">;</span><span class="w"></span>
+<span class="hll"><span class="w">     </span><span class="kd">let</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">calcHarmonic</span><span class="p">(</span><span class="nb">parseFloat</span><span class="p">(</span><span class="nx">input</span><span class="p">));</span><span class="w"></span>
+</span><span class="w">     </span><span class="nb">document</span><span class="p">.</span><span class="nx">getElementById</span><span class="p">(</span><span class="s2">&quot;outputDiv&quot;</span><span class="p">).</span><span class="nx">innerText</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">s</span><span class="p">;</span><span class="w"></span>
+<span class="w"> </span><span class="p">});</span><span class="w"></span>
+</pre></div>
+<p>The highlighted line will block the main thread for 2+ seconds, but the main
+thread in JS is also used for all the UI interaction. This is one of the
+most common manifestations of <a class="reference external" href="../../2018/go-hits-the-concurrency-nail-right-on-the-head/index.html">function coloring problem</a> - blocking
+is problematic. Luckily, all modern browsers support <em>Web Workers</em> - isolated
+threads that can execute concurrently.</p>
+<p>It's not hard to make web workers work with WebAssembly, which is what our
+next demo shows. The main HTML file includes, in addition to the UI logic:</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="nx">worker</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Worker</span><span class="p">(</span><span class="s2">&quot;worker.js&quot;</span><span class="p">);</span><span class="w"></span>
+<span class="nx">worker</span><span class="p">.</span><span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">({</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">action</span><span class="p">,</span><span class="w"> </span><span class="nx">payload</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">data</span><span class="p">;</span><span class="w"></span>
+<span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="nx">action</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s2">&quot;log&quot;</span><span class="o">:</span><span class="w"></span>
+<span class="w">            </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="sb">`worker.log: </span><span class="si">${</span><span class="nx">payload</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span><span class="w"></span>
+<span class="w">            </span><span class="k">break</span><span class="p">;</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s2">&quot;result&quot;</span><span class="o">:</span><span class="w"></span>
+<span class="w">            </span><span class="nx">resultReady</span><span class="p">(</span><span class="nx">payload</span><span class="p">);</span><span class="w"></span>
+<span class="w">            </span><span class="k">break</span><span class="p">;</span><span class="w"></span>
+<span class="w">        </span><span class="k">default</span><span class="o">:</span><span class="w"></span>
+<span class="w">            </span><span class="nx">console</span><span class="p">.</span><span class="nx">error</span><span class="p">(</span><span class="sb">`Unknown action: </span><span class="si">${</span><span class="nx">action</span><span class="si">}</span><span class="sb">`</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="p">};</span><span class="w"></span>
+</pre></div>
+<p>Where <tt class="docutils literal">worker.js</tt> is:</p>
+<div class="highlight"><pre><span></span><span class="nx">importScripts</span><span class="p">(</span><span class="s2">&quot;wasm_exec.js&quot;</span><span class="p">);</span><span class="w"></span>
+<span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Worker is running&quot;</span><span class="p">);</span><span class="w"></span>
+
+<span class="c1">// Load the WASM module with Go code.</span><span class="w"></span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">go</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">Go</span><span class="p">();</span><span class="w"></span>
+<span class="nx">WebAssembly</span><span class="p">.</span><span class="nx">instantiateStreaming</span><span class="p">(</span><span class="nx">fetch</span><span class="p">(</span><span class="s2">&quot;harmonic.wasm&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">go</span><span class="p">.</span><span class="nx">importObject</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="w"></span>
+<span class="w">    </span><span class="p">(</span><span class="nx">result</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">go</span><span class="p">.</span><span class="nx">run</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">instance</span><span class="p">);</span><span class="w"></span>
+<span class="w">        </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s2">&quot;Worker loaded WASM module&quot;</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="p">}).</span><span class="k">catch</span><span class="p">((</span><span class="nx">err</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">console</span><span class="p">.</span><span class="nx">error</span><span class="p">(</span><span class="s2">&quot;Worker failed to load WASM module: &quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="p">});</span><span class="w"></span>
+
+<span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">({</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">action</span><span class="p">,</span><span class="w"> </span><span class="nx">payload</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">data</span><span class="p">;</span><span class="w"></span>
+<span class="w">    </span><span class="nx">postMessage</span><span class="p">({</span><span class="w"></span>
+<span class="w">        </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;log&quot;</span><span class="p">,</span><span class="w"></span>
+<span class="w">        </span><span class="nx">payload</span><span class="o">:</span><span class="w"> </span><span class="sb">`Worker received message </span><span class="si">${</span><span class="nx">action</span><span class="si">}</span><span class="sb">: </span><span class="si">${</span><span class="nx">payload</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="p">});</span><span class="w"></span>
+<span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="nx">action</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="s2">&quot;calculate&quot;</span><span class="o">:</span><span class="w"></span>
+<span class="w">            </span><span class="kd">let</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">calcHarmonic</span><span class="p">(</span><span class="nx">payload</span><span class="p">);</span><span class="w"></span>
+<span class="w">            </span><span class="nx">postMessage</span><span class="p">({</span><span class="w"> </span><span class="nx">action</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;result&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">payload</span><span class="o">:</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="p">});</span><span class="w"></span>
+<span class="w">            </span><span class="k">break</span><span class="p">;</span><span class="w"></span>
+<span class="w">        </span><span class="k">default</span><span class="o">:</span><span class="w"></span>
+<span class="w">            </span><span class="k">throw</span><span class="w"> </span><span class="p">(</span><span class="sb">`unknown action &#39;</span><span class="si">${</span><span class="nx">action</span><span class="si">}</span><span class="sb">&#39;`</span><span class="p">);</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="p">};</span><span class="w"></span>
+</pre></div>
+<p>(The Go code remains unchanged.)</p>
+<p>We see that the worker does the WebAssembly loading now, meaning that the
+Go code executes in a separate thread and the UI thread is free to run while
+the computation is ongoing. This sample adds a spinner that animates until
+the web worker returns <tt class="docutils literal">calcHarmonic</tt>'s answer, to show the effect.</p>
+<img alt="Shows the UI of our &quot;calculate harmonic sum&quot; demo with a spinner" class="align-center" src="../../images/2024/calc-harmonic-spinner.png" />
+<p><a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/go-in-web-worker">Link to the full code for this sample</a>.</p>
+</div>
+<div class="section" id="talking-on-a-web-socket-with-go">
+<h2>Talking on a Web Socket with Go</h2>
+<p>A few years ago I <a class="reference external" href="../../2016/go-websocket-server-sample/index.html">published a sample</a>
+of a Go server talking via web sockets with JavaScript client code. Well, since
+the theme here is porting all client code to Go, how about we replace that
+JavaScript client with yet more Go?</p>
+<p>This turns out to be fairly simple - not much different from the &quot;DOM
+manipulation in Go&quot; section, in fact. But there are some nuances I want
+to cover.</p>
+<p>The application is simple - we display a box, and whenever there's mouse
+movement over the box, the client sends messages to the server via a web socket;
+the server echoes the message back and the client uses it to update a text div:</p>
+<img alt="Screenshot of wasm websocket sample" class="align-center" src="../../images/2024/wasm-websocket-go-screen.png" />
+<p>The server code is standard Go using the <tt class="docutils literal">golang.org/x/net/websocket</tt>
+package. On the client, however, we have to use browser APIs. Here's the
+interesting part of the code:</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="nx">wsServerAddress</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;ws://127.0.0.1:4050&quot;</span><span class="w"></span>
+
+<span class="c1">// These are equivalent to the following in JS:</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">//   ws = new WebSocket(addr) ...</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="nx">wsCtor</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Global</span><span class="p">().</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;WebSocket&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="nx">wsEcho</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">wsCtor</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">wsServerAddress</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;/wsecho&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="nx">wsTime</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">wsCtor</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">wsServerAddress</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;/wstime&quot;</span><span class="p">)</span><span class="w"></span>
+</pre></div>
+<p>To send on a web socket, we'll use this function:</p>
+<div class="highlight"><pre><span></span><span class="c1">// wsSend sends a message on a web socket; the web socket must be active and</span><span class="w"></span>
+<span class="c1">// open (otherwise wsSends logs an error and doesn&#39;t send anything).</span><span class="w"></span>
+<span class="c1">// The message will be serialized to JSON prior to sending.</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">wsSend</span><span class="p">(</span><span class="nx">sock</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="w"> </span><span class="kt">any</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">sock</span><span class="p">.</span><span class="nx">IsNull</span><span class="p">()</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">sock</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;readyState&quot;</span><span class="p">).</span><span class="nx">Equal</span><span class="p">(</span><span class="nx">js</span><span class="p">.</span><span class="nx">Global</span><span class="p">().</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;WebSocket&quot;</span><span class="p">).</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;OPEN&quot;</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">b</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Marshal</span><span class="p">(</span><span class="nx">msg</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">    </span><span class="nx">sock</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;send&quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">string</span><span class="p">(</span><span class="nx">b</span><span class="p">))</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;socket is not open&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>And here's how receiving looks, registering the <tt class="docutils literal">message</tt> event listener:</p>
+<div class="highlight"><pre><span></span><span class="nx">wsEcho</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;addEventListener&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;message&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">FuncOf</span><span class="p">(</span><span class="w"></span>
+<span class="w">  </span><span class="kd">func</span><span class="p">(</span><span class="nx">this</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">,</span><span class="w"> </span><span class="nx">args</span><span class="w"> </span><span class="p">[]</span><span class="nx">js</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"> </span><span class="kt">any</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">event</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"></span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">ev</span><span class="w"> </span><span class="nx">Event</span><span class="w"></span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">json</span><span class="p">.</span><span class="nx">Unmarshal</span><span class="p">([]</span><span class="nb">byte</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;data&quot;</span><span class="p">).</span><span class="nx">String</span><span class="p">()),</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">ev</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">    </span><span class="nx">coordMsg</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;Coordinates: (%v, %v)&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">ev</span><span class="p">.</span><span class="nx">X</span><span class="p">,</span><span class="w"> </span><span class="nx">ev</span><span class="p">.</span><span class="nx">Y</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="nx">outputElement</span><span class="p">.</span><span class="nx">Set</span><span class="p">(</span><span class="s">&quot;innerText&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">coordMsg</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="w"></span>
+<span class="w">  </span><span class="p">}))</span><span class="w"></span>
+</pre></div>
+<p>As before, this is just straightforward translation of JS into Go <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>. Note
+something interesting that's going on here: we have two different Go programs,
+talking over web sockets with each other using completely different underlying
+libraries. One uses a Go-native implementation of web sockets; the other uses
+the browser implementation, exposed via a JS API. In a realistic program, it
+would make sense to abstract over these details so the same code could be used
+to send/receive data over web sockets, whether it runs on the server or the
+client.</p>
+<p><a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/go-wasm-websockets">Link to the full code for this sample</a>.</p>
+</div>
+<div class="section" id="testing-locally-with-node-js">
+<h2>Testing locally with Node.js</h2>
+<p>This section isn't strictly about &quot;running in the browser&quot;, but it covers the
+important topic of local testing. Sometimes we don't want the browser in the
+loop for our tests; well, good news - we can leverage Node.js's ability to
+load and execute WebAssembly modules to run <tt class="docutils literal">GOOS=js GOARCH=wasm</tt> Go
+binaries locally!</p>
+<img alt="Node.js logo" class="align-center" src="../../images/2024/nodejs-logo.png" style="width: 200px;" />
+<p>The intersting tidbit here is that we can leverage special support implemented
+in the Go toolchain to make these invocations similar to running/testing
+regular Go programs.
+Here's an excerpt from <tt class="docutils literal">go help run</tt> describing it:</p>
+<div class="highlight"><pre><span></span>By default, &#39;go run&#39; runs the compiled binary directly: &#39;a.out arguments...&#39;.
+If the -exec flag is given, &#39;go run&#39; invokes the binary using xprog:
+  &#39;xprog a.out arguments...&#39;.
+If the -exec flag is not given, GOOS or GOARCH is different from the system
+default, and a program named go_$GOOS_$GOARCH_exec can be found
+on the current search path, &#39;go run&#39; invokes the binary using that program,
+for example &#39;go_js_wasm_exec a.out arguments...&#39;. This allows execution of
+cross-compiled programs when a simulator or other execution method is
+available.
+</pre></div>
+<p>The <tt class="docutils literal">Makefile</tt> in our sample handles this fully; we can run a test like
+this locally, without opening the browser:</p>
+<div class="highlight"><pre><span></span><span class="c1">//go:build js &amp;&amp; wasm</span><span class="w"></span>
+
+<span class="kn">package</span><span class="w"> </span><span class="nx">main</span><span class="w"></span>
+
+<span class="kn">import</span><span class="w"> </span><span class="p">(</span><span class="w"></span>
+<span class="w">  </span><span class="s">&quot;log&quot;</span><span class="w"></span>
+<span class="w">  </span><span class="s">&quot;syscall/js&quot;</span><span class="w"></span>
+<span class="w">  </span><span class="s">&quot;testing&quot;</span><span class="w"></span>
+<span class="p">)</span><span class="w"></span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">TestJSArr</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">log</span><span class="p">.</span><span class="nx">Println</span><span class="p">(</span><span class="s">&quot;hello from test in js/wasm&quot;</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">objs</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">js</span><span class="p">.</span><span class="nx">Global</span><span class="p">().</span><span class="nx">Call</span><span class="p">(</span><span class="s">&quot;eval&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">`({</span>
+<span class="s">arr: [41,42,43],</span>
+<span class="s">})`</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">arr</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">objs</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="s">&quot;arr&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">got</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">arr</span><span class="p">.</span><span class="nx">Length</span><span class="p">();</span><span class="w"> </span><span class="nx">got</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">t</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;got %#v, want %#v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">got</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">got</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">arr</span><span class="p">.</span><span class="nx">Index</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nx">Int</span><span class="p">();</span><span class="w"> </span><span class="nx">got</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">42</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">t</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;got %#v, want %#v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">got</span><span class="p">,</span><span class="w"> </span><span class="mi">42</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>With an invocation like:</p>
+<div class="highlight"><pre><span></span>GOOS=js GOARCH=wasm go test -exec=supportfiles/go_js_wasm_exec -v .
+</pre></div>
+<p><a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-wasm-js-cookbook/local-test-with-node">Link to the full code for this sample</a>.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>The harmonic series is known to diverge, but <em>very slowly</em>. You need
+over 200 million elements to get to the sum of 20, etc.
+(see <a class="reference external" href="https://oeis.org/A004080">A004080</a>).</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>There are some additional mitigations we can explore, like compressing
+the WASM binary. This is outside the scope of this post, and it applies
+to the TinyGo output as well.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>To be honest, this makes me appreciate JS as an extension language. It
+has such a simple ABI! Everything is an object, and we can get/set
+object properties (which can be other objects), and call
+functions/methods - that's all we need to access all of the browser
+APIs.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/notes-on-running-go-in-the-browser-with-webassembly/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:55:20 GMT -->
+</html>

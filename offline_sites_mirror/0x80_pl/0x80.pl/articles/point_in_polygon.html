@@ -1,0 +1,371 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/point_in_polygon.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:51 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Punkt wewnątrz wielokąta</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="punkt-wewnatrz-wielokata">
+<h1 class="title">Punkt wewnątrz wielokąta</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">26.10.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">21.02.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#regula-nieparzystosci" id="toc-entry-1">Reguła nieparzystości</a><ul>
+<li><a class="reference internal" href="#efektywnosc" id="toc-entry-2">Efektywność</a></li>
+<li><a class="reference internal" href="#warunki-brzegowe" id="toc-entry-3">Warunki brzegowe</a></li>
+<li><a class="reference internal" href="#funkcja-point-in-polygon" id="toc-entry-4">Funkcja <tt class="docutils literal">point_in_polygon</tt></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#punkt-wewnatrz-wielokata-wypuklego" id="toc-entry-5">Punkt wewnątrz wielokąta wypukłego</a><ul>
+<li><a class="reference internal" href="#punkt-wewnatrz-trojkata" id="toc-entry-6">Punkt wewnątrz trójkąta</a><ul>
+<li><a class="reference internal" href="#wspolrzedne-barycentryczne" id="toc-entry-7">Współrzędne barycentryczne</a></li>
+<li><a class="reference internal" href="#trojkaty-w-przestrzeni-3d" id="toc-entry-8">Trójkąty w przestrzeni 3D</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#inne-metody" id="toc-entry-9">Inne metody</a></li>
+</ul>
+</div>
+<div class="section" id="regula-nieparzystosci">
+<h1>Reguła nieparzystości</h1>
+<p>Załóżmy, że sprawdzany jest punkt <span class="math">P</span>.  Przeprowadzamy,
+<strong>w dowolnym kierunku</strong>, półprostą zaczepioną w tym punkcie i liczymy
+ilość przecięć z krawędziami wielokąta. Jeśli wynikiem jest liczba
+<strong>nieparzysta</strong> to punkt <span class="math">P</span> jest wewnątrz wielokąta.</p>
+<p>Proszę pamiętać, że istotnym jest stwierdzenie faktu przecięcia, nie jego
+współrzędne!</p>
+<img alt="grupa wielokątów" class="align-center" src="img/point_in_polygon/3.png" />
+<p>Niewątpliwą zaletą tej metody jest możliwość określenia przynależności
+punktu nie tylko do wielokąta, ale figury ograniczonej łamaną wiązana
+zamknięta (czyli samoprzecinająca się), krzywymi sklejanymi lub nawet
+zbioru tych obiektów. Mówiąc zbiór mam na myśli grupę np. kilku
+wielokątów &mdash; na rysunku przedstawiono przykład.</p>
+<p>Proszę zwrócić uwagę, że w ten sposób łatwo dokonywać operacji
+logicznych &mdash; umieszczenie jakiegoś wielokąta wewnątrz innego
+powoduje wycięcie &bdquo;dziury&rdquo;, z kolei umieszczenie obok &mdash; dodanie
+&bdquo;wiszącego&rdquo; kawałka.</p>
+<div class="section" id="efektywnosc">
+<h2>Efektywność</h2>
+<p>Teoretycznie półprostą można przeprowadzić w dowolnym kierunku, jednak ze
+względu na uciążliwe testowanie przecięć w ogólnych warunkach warto
+uprościć nieco zadanie. Najlepiej gdy półprosta jest pozioma lub pionowa,
+wtedy problem praktycznie upraszcza się do jednego wymiaru.</p>
+<img alt="przecięcia odcinków z półprostą" class="align-center" src="img/point_in_polygon/4.png" />
+<p>Odcinki <span class="math">A</span> oraz <span class="math">B</span> są odrzucane od razu jako nieprzecinające
+półprostej, podobnie odcinek <span class="math">C</span> jest natychmiast klasyfikowany jako
+przecinający półprostą. Dopiero odcinek <span class="math">D</span> wymaga bardziej
+zaawansowanych testów.</p>
+<p>Poniższy kod powinien rozwiać wszelkie wątpliwości.</p>
+<pre class="literal-block">
+# (x,y) - współrzędna punktu P
+# (x0,y0), (x1,y1) - początek i koniec odcinka
+
+def edge_cross_halfline(x,y, x0,y0, x1,y1):
+
+        # odcinek poziomy
+        if y1==y0:
+                return 0
+
+        # odcinek A
+        if y0 &gt; y xor y1 &gt; 0: # (y0&gt;y and y1&gt;y) or (y0&lt;y and y1&lt;y)
+                return 0
+
+        # odcinek B
+        if x0 &lt; x and x1 &lt; x:
+                return 0
+
+        # odcinek C
+        if x0 &gt;= x and x1 &gt;= x:
+                return 1
+
+        # odcinek D
+        # 1. liczymy punkt przecięcia (xp, yp)
+        t  = (y-y0)/float(y1-y0)
+        xp = x0 + t*(x1-x0)      # yp=y
+
+        # 2. klasyfikujemy
+        if xp &gt;= x:
+                return 1
+        else:
+                return 0
+</pre>
+</div>
+<div class="section" id="warunki-brzegowe">
+<h2>Warunki brzegowe</h2>
+<p>Testując przynależność punktu do wielokąta operacje dokonywane są na
+poziomie krawędzi (odcinków). Gdy półprosta przechodzi przez wierzchołek,
+to policzone zostaną dwa przecięcia, bowiem punkt ten należy do dwóch
+krawędzi z niego wychodzących.</p>
+<p><strong>Uwaga:</strong> zakłada się, że punkt nie należy do brzegu wielokąta!</p>
+<img alt="ilustracja warunków brzegowych" class="align-center" src="img/point_in_polygon/1.png" />
+<p>Tak więc punkty <span class="math">P1</span> (<span class="math">2 mod 2 = 0</span>) i <span class="math">2</span>
+(<span class="math">3 mod 2 = 1</span>) zostaną prawidłowo sklasyfikowane, okaże się
+natomiast, że punkt <span class="math">P3</span>  (<span class="math">2 mod 2 = 0</span>) leży poza
+wielokątem.</p>
+<p>Rozwiązaniem tego problemu jest przejęcie, że punkt należy tylko do
+jednej z krawędzi; przy czym krawędź do której nie należy znajduje się
+<strong>powyżej</strong> półprostej.</p>
+<p>I tak dla punktu <span class="math">P1</span> zostaną policzone dwa przecięcia,
+dla punktu <span class="math">P2</span> oraz <span class="math">P3</span> zliczone zostanie jedno przecięcie.</p>
+<p>Poniżej wymagane zmiany w funkcji <tt class="docutils literal">edge_cross_halfline</tt>.</p>
+<pre class="literal-block">
+# sortowanie: y0 &lt; y1
+if y0 &gt; y1:
+        x0,y0, x1,y1 = x1,y1, x0,y0
+
+# odcinek A
+if y0 &lt; y and y1 &lt;= y: # odcinek powyżej
+        return 0
+
+if y0 &gt; y and y1 &gt; y:  # odcinek poniżej półprostej
+        return 0
+# ...
+</pre>
+</div>
+<div class="section" id="funkcja-point-in-polygon">
+<h2>Funkcja <tt class="docutils literal">point_in_polygon</tt></h2>
+<p>Funkcja przejmuje wielokąt opisany listą krawędzi i wierzchołków. Każda
+krawędź to 2-elementowa krotka zawierająca indeksy do tablicy wierzchołków.
+Każdy wierzchołek to również krotka dwuelementowa która zawiera
+współrzędne punktu.</p>
+<pre class="literal-block">
+def point_in_polygon(x,y, edges_list, vertex_list):
+        count = 0
+
+        for e in edges_list:
+                a,b = e
+
+                x0, y0 = vertex_list[a]
+                x1, y1 = vertex_list[b]
+
+                count += edge_cross_halfline(x,y, x0,y0, x1,y1)
+
+        return count%2 == 1
+</pre>
+</div>
+</div>
+<div class="section" id="punkt-wewnatrz-wielokata-wypuklego">
+<h1>Punkt wewnątrz wielokąta wypukłego</h1>
+<p>Wielokąt wypukły o <span class="math"><i>n</i></span> bokach można traktować jako koniunkcję
+<span class="math"><i>n</i></span> półpłaszczyzn; granice tych półpłaszczyzn wyznaczają proste
+na których leżą krawędzie wielokąta.</p>
+<img alt="trójkąt" class="align-center" src="img/point_in_polygon/2.png" />
+<p>Przy założeniu, że wektory kierunkowe tych prostych są ułożone zgodnie
+(bądź przeciwnie) z kierunkiem wskazówek zegara, punkt znajdujący
+się we wnętrzu wielokąta będzie położony zawsze po tej samej stronie
+prostych &mdash; wystarczy więc sprawdzić ten fakt,</p>
+<p>Położenie punktu względem prostej określa znak funkcji
+<span class="math"><i>f</i>(<i>x</i>, <i>y</i>) = <i>ax</i> + <i>by</i> + <i>c</i></span>, gdzie <span class="math">[<i>a</i>, <i>b</i>]</span> to wektor normalny
+do prostej.  Jeśli krawędź wielokąta jest dana parą punktów
+<span class="math">A = (<i>x</i><sub><i>i</i></sub>, <i>y</i><sub><i>i</i></sub>), B = (<i>x</i><sub><i>j</i></sub>, <i>y</i><sub><i>j</i></sub>)</span>, to <span class="math"><i>a</i> = <i>y</i><sub><i>j</i></sub> &minus; <i>y</i><sub><i>i</i></sub></span>,
+oraz <span class="math"><i>b</i> =  &minus; (<i>x</i><sub><i>j</i></sub> &minus; <i>x</i><sub><i>i</i></sub>)</span>.</p>
+<p>Poniżej funkcja, która realizuje opisaną procedurę:</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">point_in_convex_polygon</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)):</span><span class="w">
+    </span><span class="sd">&quot;&quot;&quot;
+    Returns true if point (x,y) lie inside
+    of convex polygon given with points
+    &quot;&quot;&quot;</span><span class="w">
+</span>    <span class="n">side</span> <span class="o">=</span> <span class="kc">None</span><span class="w">
+</span>    <span class="n">n</span>    <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span><span class="w">
+</span>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="n">n</span><span class="p">):</span><span class="w">
+</span>        <span class="n">xi</span><span class="p">,</span> <span class="n">yi</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w">
+</span>        <span class="n">xj</span><span class="p">,</span> <span class="n">yj</span> <span class="o">=</span> <span class="n">points</span><span class="p">[(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">n</span><span class="p">]</span><span class="w">
+
+</span>        <span class="n">d</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="n">xi</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">yj</span> <span class="o">-</span> <span class="n">yi</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">y</span> <span class="o">-</span> <span class="n">yi</span><span class="p">)</span><span class="o">*</span><span class="p">(</span><span class="n">xj</span> <span class="o">-</span> <span class="n">xi</span><span class="p">)</span><span class="w">
+</span>        <span class="k">if</span> <span class="n">d</span> <span class="o">==</span> <span class="mf">0.0</span><span class="p">:</span><span class="w">
+</span>            <span class="k">continue</span><span class="w">
+</span>        <span class="k">else</span><span class="p">:</span><span class="w">
+</span>            <span class="k">if</span> <span class="n">side</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span><span class="w">
+</span>                <span class="n">side</span> <span class="o">=</span> <span class="n">d</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="w">
+
+</span>            <span class="c1"># point have to lie at the same side</span><span class="w">
+</span>            <span class="c1"># of all lines</span><span class="w">
+</span>            <span class="k">elif</span> <span class="p">(</span><span class="n">d</span> <span class="o">&gt;</span> <span class="mf">0.0</span><span class="p">)</span> <span class="o">!=</span> <span class="n">side</span><span class="p">:</span><span class="w">
+</span>                <span class="k">return</span> <span class="kc">False</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="kc">True</span>
+</pre>
+<div class="section" id="punkt-wewnatrz-trojkata">
+<h2>Punkt wewnątrz trójkąta</h2>
+<p>Trójkąt jest oczywiście figurą wypukłą, dlatego można z powodzeniem
+zastosować przedstawioną wyżej funkcję.  Można również wprost odwołać
+się do tych ledwie trzech prostych <span class="math">AB</span>, <span class="math">BC</span>, <span class="math">CA</span>:</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">point_in_triangle</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">xa</span><span class="p">,</span><span class="n">ya</span><span class="p">,</span> <span class="n">xb</span><span class="p">,</span><span class="n">yb</span><span class="p">,</span> <span class="n">xc</span><span class="p">,</span><span class="n">yc</span><span class="p">):</span><span class="w">
+
+</span>        <span class="k">def</span> <span class="nf">side</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span><span class="n">y0</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span><span class="n">y1</span><span class="p">):</span><span class="w">
+</span>                <span class="n">dx</span> <span class="o">=</span> <span class="n">x1</span><span class="o">-</span><span class="n">x0</span> <span class="c1"># przesunięcie odcinka</span><span class="w">
+</span>                <span class="n">dy</span> <span class="o">=</span> <span class="n">y1</span><span class="o">-</span><span class="n">y0</span> <span class="c1"># o wektor (-x0,-y0)</span><span class="w">
+</span>                 <span class="n">x</span> <span class="o">=</span>  <span class="n">x</span><span class="o">-</span><span class="n">x0</span><span class="w">
+</span>                 <span class="n">y</span> <span class="o">=</span>  <span class="n">y</span><span class="o">-</span><span class="n">y0</span><span class="w">
+
+</span>                <span class="c1"># f(x,y) = ax+by = dy*x - dx*y</span><span class="w">
+</span>                <span class="k">return</span> <span class="n">dy</span><span class="o">*</span><span class="n">x</span> <span class="o">-</span> <span class="n">dx</span><span class="o">*</span><span class="n">y</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="w">
+
+</span>        <span class="n">sideAB</span> <span class="o">=</span> <span class="n">side</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">xa</span><span class="p">,</span><span class="n">ya</span><span class="p">,</span> <span class="n">xb</span><span class="p">,</span><span class="n">yb</span><span class="p">)</span><span class="w">
+</span>        <span class="n">sideBC</span> <span class="o">=</span> <span class="n">side</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">xb</span><span class="p">,</span><span class="n">yb</span><span class="p">,</span> <span class="n">xc</span><span class="p">,</span><span class="n">yc</span><span class="p">)</span><span class="w">
+</span>        <span class="n">sideCA</span> <span class="o">=</span> <span class="n">side</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">xc</span><span class="p">,</span><span class="n">yc</span><span class="p">,</span> <span class="n">xa</span><span class="p">,</span><span class="n">ya</span><span class="p">)</span><span class="w">
+
+</span>        <span class="k">return</span> <span class="p">(</span><span class="n">sideAB</span> <span class="o">==</span> <span class="n">sideBC</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">sideAB</span> <span class="o">==</span> <span class="n">sideCA</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span><span class="n">sideBC</span> <span class="o">==</span> <span class="n">sideCA</span><span class="p">)</span><span class="w">
+</span>        <span class="c1"># albo:</span><span class="w">
+</span>        <span class="c1"># not ((sideAB xor sideBC) or (sideAB xor sideCA))</span>
+</pre>
+<p>W przypadku używania zmiennych całkowitych w funkcji <tt class="docutils literal">side</tt>
+rozsądnym zdaje się użycie MMX-owego rozkazu <tt class="docutils literal">pmaddwd</tt>.</p>
+<div class="section" id="wspolrzedne-barycentryczne">
+<h3>Współrzędne barycentryczne</h3>
+<p>Trzy niewspółliniowe punkty <span class="math">P<sub>0</sub></span>, <span class="math">P<sub>1</sub></span> i <span class="math">P<sub>2</sub></span>
+(wierzchołki trójkąta) mogą tworzyć bazę przestrzeni; każdemu z tych
+punktów przyporządkowana jest pewna waga &mdash; my przyjmiemy, że wszystkie wagi
+są równe 1.</p>
+<p>Dowolny punkt <span class="math">P</span> można wyrazić jako sumę ważoną</p>
+<p><span class="cmath">P = <i>t</i><sub>0</sub>P<sub>0</sub> + <i>t</i><sub>1</sub>P<sub>1</sub> + <i>t</i><sub>2</sub>P<sub>2</sub></span></p>
+<p>Współczynniki <span class="math"><i>t</i><sub>0</sub></span>, <span class="math"><i>t</i><sub>1</sub></span> i <span class="math"><i>t</i><sub>2</sub></span> są
+nazywane współrzędnymi barycentrycznymi; mają wartości z przedziału
+<span class="math">[0, 1]</span>, a ich suma jest równa <span class="math">1</span>.</p>
+<p>Po podstawieniu <span class="math"><i>t</i><sub>2</sub> = 1 &minus; <i>t</i><sub>0</sub> &minus; <i>t</i><sub>1</sub></span> wyrażenie upraszcza
+się do postaci:</p>
+<p><span class="cmath">P &minus; P<sub>2</sub> = <i>t</i><sub>0</sub>(P<sub>0</sub> &minus; P<sub>2</sub>) + <i>t</i><sub>1</sub>(P<sub>1</sub> &minus; P<sub>2</sub>)</span></p>
+<p>Wystarczy więc rozwiązać układ dwóch równań i sprawdzić czy suma rozwiązań
+<span class="math"><i>t</i><sub>0</sub></span> i <span class="math"><i>t</i><sub>1</sub></span> jest mniejsza od 1, oraz czy <span class="math"><i>t</i><sub>0</sub></span>,
+<span class="math"><i>t</i><sub>1</sub></span> są nie mniejsze od zera .</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">point_in_triangle</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span><span class="n">y0</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span><span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span><span class="n">y2</span><span class="p">):</span><span class="w">
+
+</span>        <span class="n">x</span>  <span class="o">-=</span> <span class="n">x2</span> <span class="c1"># przesunięcie wszystkich punktów</span><span class="w">
+</span>        <span class="n">x0</span> <span class="o">-=</span> <span class="n">x2</span> <span class="c1"># o wektor (-x2,-y2)</span><span class="w">
+</span>        <span class="n">x1</span> <span class="o">-=</span> <span class="n">x2</span><span class="w">
+
+</span>        <span class="n">y</span>  <span class="o">-=</span> <span class="n">y2</span><span class="w">
+</span>        <span class="n">y0</span> <span class="o">-=</span> <span class="n">y2</span><span class="w">
+</span>        <span class="n">y1</span> <span class="o">-=</span> <span class="n">y2</span><span class="w">
+
+</span>        <span class="c1"># rozwiązanie układu równań</span><span class="w">
+</span>        <span class="c1"># x = t0 x0 + t1 x1</span><span class="w">
+</span>        <span class="c1"># y = t0 y0 + t1 y1</span><span class="w">
+
+</span>        <span class="c1"># wyznacznik główny</span><span class="w">
+</span>        <span class="n">det</span> <span class="o">=</span> <span class="n">x0</span><span class="o">*</span><span class="n">y1</span> <span class="o">-</span> <span class="n">y0</span><span class="o">*</span><span class="n">x1</span><span class="w">
+
+</span>        <span class="c1"># ewentualnie, jeśli współrzędne mogą być podane</span><span class="w">
+</span>        <span class="c1"># jako całkowite:</span><span class="w">
+</span>        <span class="n">det</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">x0</span><span class="o">*</span><span class="n">y1</span> <span class="o">-</span> <span class="n">y0</span><span class="o">*</span><span class="n">x1</span><span class="p">)</span><span class="w">
+
+</span>        <span class="k">if</span>  <span class="nb">abs</span><span class="p">(</span><span class="n">det</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">epsilon</span><span class="p">:</span> <span class="c1"># brak rozwiązań</span><span class="w">
+</span>                <span class="k">return</span> <span class="kc">False</span><span class="w">
+
+</span>        <span class="n">t0</span> <span class="o">=</span> <span class="p">(</span> <span class="n">x</span><span class="o">*</span><span class="n">y1</span> <span class="o">-</span>  <span class="n">y</span><span class="o">*</span><span class="n">x1</span><span class="p">)</span><span class="o">/</span><span class="n">det</span><span class="w">
+</span>        <span class="n">t1</span> <span class="o">=</span> <span class="p">(</span><span class="n">x0</span><span class="o">*</span><span class="n">y</span>  <span class="o">-</span> <span class="n">y0</span><span class="o">*</span><span class="n">x</span> <span class="p">)</span><span class="o">/</span><span class="n">det</span><span class="w">
+
+</span>        <span class="k">if</span> <span class="n">t0</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">t1</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">t0</span><span class="o">+</span><span class="n">t1</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span><span class="w">
+</span>                <span class="k">return</span> <span class="kc">False</span><span class="w">
+</span>        <span class="k">else</span><span class="p">:</span><span class="w">
+</span>                <span class="k">return</span> <span class="kc">True</span>
+</pre>
+</div>
+<div class="section" id="trojkaty-w-przestrzeni-3d">
+<h3>Trójkąty w przestrzeni 3D</h3>
+<p>Aby zbadać czy punkt 3D leżący na tej samej płaszczyźnie co trójkąt
+znajduje się jego wnętrzu należy zrzutować punkt i trójkąt na płaszczyznę
+XY, ZX lub YZ. Wybierana jest ta, na której trójkąt ma największe pole (by
+zminimalizować błędy); należy więc &bdquo;pozbyć&rdquo; się jeden współrzędnej.</p>
+<p>Jeśli zdefiniuje się prostopadłościan otaczający, który jest równoległy do
+wyżej wymienionych płaszczyzn, to ów wybór jest prosty &mdash; pomijana jest
+ta współrzędna dla której prostopadłościan ma najmniejszą wysokość.</p>
+<pre class="code python literal-block">
+<span class="c1"># punkty to trzyelementowe krotki (x,y,z)</span><span class="w">
+</span><span class="k">def</span> <span class="nf">point_in_triangle3D</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">p0</span><span class="p">,</span><span class="n">p1</span><span class="p">,</span><span class="n">p2</span><span class="p">)</span><span class="w">
+</span>        <span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span><span class="n">z</span> <span class="o">=</span> <span class="n">p</span><span class="w">
+</span>        <span class="n">x0</span><span class="p">,</span><span class="n">y0</span><span class="p">,</span><span class="n">z0</span> <span class="o">=</span> <span class="n">p0</span><span class="w">
+</span>        <span class="n">x1</span><span class="p">,</span><span class="n">y1</span><span class="p">,</span><span class="n">z1</span> <span class="o">=</span> <span class="n">p1</span><span class="w">
+</span>        <span class="n">x2</span><span class="p">,</span><span class="n">y2</span><span class="p">,</span><span class="n">z2</span> <span class="o">=</span> <span class="n">p2</span><span class="w">
+
+</span>        <span class="n">dx</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">x0</span><span class="p">,</span><span class="n">x1</span><span class="p">,</span><span class="n">x2</span><span class="p">)</span> <span class="o">-</span> <span class="nb">min</span><span class="p">(</span><span class="n">x0</span><span class="p">,</span><span class="n">x1</span><span class="p">,</span><span class="n">x2</span><span class="p">)</span> <span class="c1"># wysokości</span><span class="w">
+</span>        <span class="n">dy</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">y0</span><span class="p">,</span><span class="n">y1</span><span class="p">,</span><span class="n">y2</span><span class="p">)</span> <span class="o">-</span> <span class="nb">min</span><span class="p">(</span><span class="n">y0</span><span class="p">,</span><span class="n">y1</span><span class="p">,</span><span class="n">y2</span><span class="p">)</span> <span class="c1"># prostopadłościanu</span><span class="w">
+</span>        <span class="n">dz</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">z0</span><span class="p">,</span><span class="n">z1</span><span class="p">,</span><span class="n">z2</span><span class="p">)</span> <span class="o">-</span> <span class="nb">min</span><span class="p">(</span><span class="n">z0</span><span class="p">,</span><span class="n">z1</span><span class="p">,</span><span class="n">z2</span><span class="p">)</span><span class="w">
+
+</span>        <span class="n">min_height</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">dx</span><span class="p">,</span><span class="n">dy</span><span class="p">,</span><span class="n">dz</span><span class="p">)</span><span class="w">
+
+</span>        <span class="k">if</span> <span class="n">dx</span> <span class="o">==</span> <span class="n">min_height</span><span class="p">:</span> <span class="c1"># płaszczyzna YZ: pomijamy wsp. x</span><span class="w">
+</span>                <span class="k">return</span> <span class="n">point_in_triangle</span><span class="p">(</span><span class="n">y</span><span class="p">,</span><span class="n">z</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span><span class="n">z0</span><span class="p">,</span> <span class="n">y1</span><span class="p">,</span><span class="n">z1</span><span class="p">,</span> <span class="n">y2</span><span class="p">,</span><span class="n">z2</span><span class="p">)</span><span class="w">
+
+</span>        <span class="k">if</span> <span class="n">dy</span> <span class="o">==</span> <span class="n">min_height</span><span class="p">:</span> <span class="c1"># płaszczyzna ZX: pomijamy wsp. y</span><span class="w">
+</span>                <span class="k">return</span> <span class="n">point_in_triangle</span><span class="p">(</span><span class="n">z</span><span class="p">,</span><span class="n">x</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span><span class="n">z0</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span><span class="n">z1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span><span class="n">z2</span><span class="p">)</span><span class="w">
+
+</span>        <span class="k">if</span> <span class="n">dz</span> <span class="o">==</span> <span class="n">min_height</span><span class="p">:</span> <span class="c1"># płaszczyzna XY: pomijamy wsp. z</span><span class="w">
+</span>                <span class="k">return</span> <span class="n">point_in_triangle</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="n">y</span><span class="p">,</span> <span class="n">x0</span><span class="p">,</span><span class="n">y0</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span><span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span><span class="n">y2</span><span class="p">)</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="inne-metody">
+<h1>Inne metody</h1>
+<p>Przedstawiona tutaj metoda to oczywiście nie jedyna, choć powszechnie
+znana.  Przegląd metod oraz kody źródłowe można znaleźć w artykule Erica
+Hainesa <em>Point in Polygon Strategies</em>:
+<a class="reference external" href="http://www.acm.org/pubs/tog/editors/erich/ptinpoly/">http://www.acm.org/pubs/tog/editors/erich/ptinpoly/</a>.</p>
+<p>Nie wspomniano tam jeszcze o <a class="reference external" href="http://pl.wikipedia.org/wiki/Drzewo_BSP">drzewach BSP</a>, za pomocą
+których można wielokąty opisywać i szybko (mniej więcej w czasie
+logarytmicznym) stwierdzać przynależność punktu do wielokąta.  Proces
+tworzenia drzew BSP nie jest zbyt szybki, toteż jest sens je stosować,
+gdy testuje się przynależność wielu punktów względem jednego wielokąta.</p>
+<p>Przykładowy program używający drzew BSP do określania przynależności
+punktów do dowolnego wielokąta:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/BSP-tree-tkdemo.py">BSP-tree-tkdemo.py</a></li>
+</ul>
+<p>(Wielokąty można rysować myszką, można również podać w linii poleceń
+listę współrzędnych).</p>
+<p>Opis drzew BSP, w tym algorytm budowania takiej struktury, znajduje się
+na Wikipedii &mdash; patrz hasło <a class="reference external" href="http://pl.wikipedia.org/wiki/Drzewo_BSP">Drzewo BSP</a>.  W przykładowym
+programie funkcja tworząca drzewo nosi nazwę <tt class="docutils literal">build_BSP</tt>.</p>
+<p>Algorytm stwierdzający przynależność punktu do wielokąta jest bardzo
+prosty -- funkcja <tt class="docutils literal">BSP_classify_point</tt>:</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">BSP_classify_point</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">P</span><span class="p">):</span><span class="w">
+</span>    <span class="k">assert</span> <span class="n">root</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="w">
+
+</span>    <span class="n">node</span> <span class="o">=</span> <span class="n">root</span><span class="w">
+</span>    <span class="k">while</span> <span class="n">node</span><span class="p">:</span><span class="w">
+</span>        <span class="n">inside</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">leaf</span><span class="w">
+</span>        <span class="k">if</span> <span class="n">inside</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span> <span class="k">break</span><span class="w">
+
+</span>        <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">side</span><span class="p">(</span><span class="n">P</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mf">0.0</span><span class="p">:</span><span class="w">
+</span>            <span class="n">node</span>   <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">left</span><span class="w">
+</span>        <span class="k">else</span><span class="p">:</span><span class="w">
+</span>            <span class="n">node</span>   <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">right</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="n">inside</span>
+</pre>
+<p>Bada się, począwszy od korzenia, po której stronie linii na której
+leży odcinek zapisany w węźle znajduje się testowany punkt
+i w zależności od tego sprawdza lewe, bądź prawe poddrzewo.  Istotna
+jest tutaj konsekwencja, by np. dodatnia strona linii była &bdquo;wewnątrz&rdquo;.
+Procedura kończy się wraz z dojściem do pustego wskazania, albo jak
+w przykładowym programie liścia o etykiecie <tt class="docutils literal">in</tt> lub <tt class="docutils literal">out</tt>.</p>
+<img alt="img/bsp-tree-tkdemo.png" class="align-center" src="img/bsp-tree-tkdemo.png" />
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/point_in_polygon.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:55 GMT -->
+</html>

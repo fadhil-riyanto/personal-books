@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2023-01-21-avx512-any-eq.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512: check if value belongs to a set</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512-check-if-value-belongs-to-a-set">
+<h1 class="title">AVX512: check if value belongs to a set</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2023-01-21</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>We want to check if a value belongs to a set. More formally, we
+want to evaluate the following expression: <cite>(x == word_0) or (x == word_1)
+or ... or (x == word_n)</cite>, where <cite>x</cite> is a vector of words, and <cite>word_i</cite> is
+a constant vector.</p>
+<p>For a four-element set, a naive version of AVX512 assembly code:</p>
+<pre class="literal-block">
+VPCMPD.BCST   $0, (AX),   Z1, K1        // K1 = Z1 == word_0
+VPCMPD.BCST   $0, 4(AX),  Z1, K2        // K2 = Z1 == word_1
+VPCMPD.BCST   $0, 8(AX),  Z1, K3        // K3 = Z1 == word_2
+VPCMPD.BCST   $0, 12(AX), Z1, K4        // K4 = Z1 == word_3
+KORW          K1, K2, K1                // K1 = K1 | K2
+KORW          K3, K4, K3                // K3 = K3 | K4
+KORW          K1, K3, K1                // K1 = K1 | K3
+</pre>
+<p>The above code tests a vector register <tt class="docutils literal">Z1</tt> against const values stored in
+an array pointed by <tt class="docutils literal">AX</tt>, and sets result in kreg <tt class="docutils literal">K1</tt>.</p>
+<p>The tool <a class="reference external" href="https://uica.uops.info/">uICA</a> reports the following timings (for Skylake-X):</p>
+<pre class="literal-block">
+Throughput (in cycles per iteration): 4.00
+Bottlenecks: Decoder, Ports
+
+┌───────────────────────┬────────┬───────┬───────────────────────────────────────────────────────────────────────┐
+│ MITE   MS   DSB   LSD │ Issued │ Exec. │ Port 0   Port 1   Port 2   Port 3   Port 4   Port 5   Port 6   Port 7 │
+├───────────────────────┼────────┼───────┼───────────────────────────────────────────────────────────────────────┤
+│  2                    │   2    │   2   │                     1                          1                      │ vpcmpeqd k1, zmm1, dword ptr [rax]{1to16}
+│  2                    │   2    │   2   │                              1                 1                      │ vpcmpeqd k2, zmm1, dword ptr [rax+0x4]{1to16}
+│  2                    │   2    │   2   │                     1                          1                      │ vpcmpeqd k3, zmm1, dword ptr [rax+0x8]{1to16}
+│  2                    │   2    │   2   │                              1                 1                      │ vpcmpeqd k4, zmm1, dword ptr [rax+0xc]{1to16}
+│  1                    │   1    │   1   │   1                                                                   │ korw k1, k2, k1
+│  1                    │   1    │   1   │   1                                                                   │ korw k3, k4, k3
+│  1                    │   1    │   1   │   1                                                                   │ korw k1, k3, k1
+├───────────────────────┼────────┼───────┼───────────────────────────────────────────────────────────────────────┤
+│  11                   │   11   │  11   │   3                 2        2                 4                      │ Total
+└───────────────────────┴────────┴───────┴───────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+<div class="section" id="another-approach">
+<h1>Another approach</h1>
+<p>Using the <a class="reference external" href="http://en.wikipedia.org/wiki/De_Morgan%27s_laws">de Morgan's Law</a> we may rewrite the expression
+<cite>(x == word_0) or (x == word_1) or ... or (x == word_n)</cite> into
+<cite>not ((x != word_0) and ... and (x != word_n))</cite>. Then, we can
+use the fact that the AVX512 masked comparison performs operation
+<tt class="docutils literal">mask and (comparison result)</tt>.</p>
+<p>Compared with the naive version, we get rid of most explicit
+k-reg operations. However, the performance of the snippet
+is not better than the naive version. We only decrease the
+number of upos by 2, that <em>might</em> have impact on the
+overall performance.</p>
+<pre class="literal-block">
+VPCMPD.BCST   $4, (AX),   Z1, K1        // K1 = Z1 != word_0
+VPCMPD.BCST   $4, 4(AX),  Z1, K1, K2    // K2 = Z1 != word_1 &amp;&amp; K1
+VPCMPD.BCST   $4, 8(AX),  Z1, K2, K3    // K3 = Z1 != word_2 &amp;&amp; K2
+VPCMPD.BCST   $4, 12(AX), Z1, K3, K4    // K4 = Z1 != word_3 &amp;&amp; K3
+KNOTW         K4, K1                    // K1 = ~K4
+</pre>
+<p>uICA results:</p>
+<pre class="literal-block">
+Throughput (in cycles per iteration): 4.00
+Bottlenecks: Decoder, Ports
+
+┌───────────────────────┬────────┬───────┬───────────────────────────────────────────────────────────────────────┐
+│ MITE   MS   DSB   LSD │ Issued │ Exec. │ Port 0   Port 1   Port 2   Port 3   Port 4   Port 5   Port 6   Port 7 │
+├───────────────────────┼────────┼───────┼───────────────────────────────────────────────────────────────────────┤
+│  2                    │   2    │   2   │                     1                          1                      │ vpcmpd k1, zmm1, dword ptr [rax]{1to16}, 0x4
+│  2                    │   2    │   2   │                              1                 1                      │ vpcmpd k2{k1}, zmm1, dword ptr [rax+0x4]{1to16}, 0x4
+│  2                    │   2    │   2   │                     1                          1                      │ vpcmpd k3{k2}, zmm1, dword ptr [rax+0x8]{1to16}, 0x4
+│  2                    │   2    │   2   │                              1                 1                      │ vpcmpd k4{k3}, zmm1, dword ptr [rax+0xc]{1to16}, 0x4
+│  1                    │   1    │   1   │   1                                                                   │ knotw k1, k4
+├───────────────────────┼────────┼───────┼───────────────────────────────────────────────────────────────────────┤
+│  9                    │   9    │   9   │   1                 2        2                 4                      │ Total
+└───────────────────────┴────────┴───────┴───────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+<div class="section" id="result-in-a-vector-register">
+<h1>Result in a vector register</h1>
+<p>This approach produces the result in a vector register.</p>
+<p>We use fact that the bit-xor of two values yields 0 if both
+values are equal, and a non-zero result otherwise.</p>
+<p>Then, we may convert any non-zero value into 1 by using
+expression <tt class="docutils literal"><span class="pre">min(xor-result,</span> 1)</tt>. This requires an extra
+register with preloaded 1.</p>
+<pre class="literal-block">
+VPXORD.BCST   (AX), Z1, Z2      // Z2 = (Z1 != word_0) ? non-zero : 0
+VPXORD.BCST  4(AX), Z1, Z3      // Z3 = (Z1 != word_1) ? non-zero : 0
+VPXORD.BCST  8(AX), Z1, Z4      // Z4 = (Z1 != word_2) ? non-zero : 0
+VPXORD.BCST 12(AX), Z1, Z5      // Z5 = (Z1 != word_3) ? non-zero : 0
+VPMINUD     Z2, Z3, Z2          // Z2 = min(Z2, Z3)
+VPMINUD     Z4, Z5, Z4          // Z4 = min(Z4, Z5)
+VPMINUD     Z4, Z2, Z2          // Z2 = min(Z2, Z4)
+VPTESTNMD   Z2, Z2, K1          // K1 = 1 if Z2[i] == 0
+</pre>
+<p>uICA results:</p>
+<pre class="literal-block">
+Throughput (in cycles per iteration): 4.00
+Bottleneck: Ports
+
+┌───────────────────────┬────────┬───────┬───────────────────────────────────────────────────────────────────────┐
+│ MITE   MS   DSB   LSD │ Issued │ Exec. │ Port 0   Port 1   Port 2   Port 3   Port 4   Port 5   Port 6   Port 7 │
+├───────────────────────┼────────┼───────┼───────────────────────────────────────────────────────────────────────┤
+│  1                    │   1    │   2   │   1                 1                                                 │ vpxord zmm2, zmm1, dword ptr [rax]{1to16}
+│  1                    │   1    │   2   │                              1                 1                      │ vpxord zmm3, zmm1, dword ptr [rax+0x4]{1to16}
+│  1                    │   1    │   2   │                     1                          1                      │ vpxord zmm4, zmm1, dword ptr [rax+0x8]{1to16}
+│  1                    │   1    │   2   │                              1                 1                      │ vpxord zmm5, zmm1, dword ptr [rax+0xc]{1to16}
+│  1                    │   1    │   1   │   1                                                                   │ vpminud zmm2, zmm3, zmm2
+│  1                    │   1    │   1   │   1                                                                   │ vpminud zmm4, zmm5, zmm4
+│  1                    │   1    │   1   │   1                                                                   │ vpminud zmm2, zmm2, zmm4
+│  1                    │   1    │   1   │                                                1                      │ vptestnmd k1, zmm2, zmm2
+├───────────────────────┼────────┼───────┼───────────────────────────────────────────────────────────────────────┤
+│  8                    │   8    │  12   │   4                 2        2                 4                      │ Total
+└───────────────────────┴────────┴───────┴───────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2023-01-21-avx512-any-eq.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

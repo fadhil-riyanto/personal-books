@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binop.php?f=orpd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:41 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/binop.php?f=orpd" />
+<link rel="alternate" hreflang="en" href="binop4a80.html?f=orpd" />
+<title>orpd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+
+<body>
+<h2>ORPD - OR Packed Double<br /></h2>
+ORPD<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2<br />
+<span class="intr">__m128d _mm_or_pd(__m128d a, __m128d b)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_1.png" /><br />
+<span style="padding-left: 110px">Calculate bitwise (1) | (2) and set the result to (3).</span><br />
+<div style="height: 30px"></div>
+VORPD<span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128d _mm_or_pd(__m128d a, __m128d b)</span><br />
+VORPD<span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m64bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+DQ+VL<br />
+<span class="intr">__m128d _mm_mask_or_pd(__m128d s, __mmask8 k, __m128d a, __m128d b)</span><br />
+<span class="intr">__m128d _mm_maskz_or_pd(__mmask8 k, __m128d a, __m128d b)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_23860.png?v=1" /><br />
+<span style="padding-left: 110px">Calculate bitwise (1) | (2) and set the result to (3).</span><br />
+<div style="height: 30px"></div>
+VORPD<span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m256d _mm256_or_pd(__m256d a, __m256d b)</span><br />
+VORPD<span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m64bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+DQ+VL<br />
+<span class="intr">__m256d _mm256_mask_or_pd(__m256d s, __mmask8 k, __m256d a, __m256d b)</span><br />
+<span class="intr">__m256d _mm256_maskz_or_pd(__mmask8 k, __m256d a, __m256d b)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_3.png" /><br />
+<span style="padding-left: 110px">Calculate bitwise (1) | (2) and set the result to (3).</span><br />
+<div style="height: 30px"></div>
+VORPD<span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m64bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+DQ<br />
+<span class="intr">__m512d _mm512_or_pd(__m512d a, __m512d b)</span><br />
+<span class="intr">__m512d _mm512_mask_or_pd(__m512d s, __mmask8 k, __m512d a, __m512d b)</span><br />
+<span class="intr">__m512d _mm512_maskz_or_pd(__mmask8 k, __m512d a, __m512d b)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_4.png" /><br />
+<span style="padding-left: 110px">Calculate bitwise (1) | (2) and set the result to (3).</span><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=orpd" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binop.php?f=orpd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:41 GMT -->
+</html>

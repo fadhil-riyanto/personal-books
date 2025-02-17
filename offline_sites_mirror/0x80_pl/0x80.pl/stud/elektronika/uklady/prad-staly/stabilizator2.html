@@ -1,0 +1,38 @@
+Regulowany stabilizator napiêcia (równoleg³y)
+* "Uk³ady pr±du sta³ego.pdf", str. 33
+* Wojciech Mu³a 11.10.2005
+*
+* U_wy = (Uz + Ube3) * (1 + R1/R2) ~= (4 + 0.6) * (1 + 0.5) ~= 6.9V
+
+
+* stabilizator
+* - wej¶cie: 6 0
+* = wyj¶cie: 2 0
+*
+R1	1 2	100
+R2	0 1	200
+Q1	2 5 0	t1 
+Q2	5 4 2	t2
+Q3	4 1 3	t3
+Dz	0 3	zener
+R	2 6	10
+
+.model t1 NPN
+.model t2 PNP
+.model t3 NPN
+.model zener D(Bv=4V)
+
+* zasilanie
+Vin	6 0	DC 10
+
+* obci±¿enie
+Ro	2 10	100
+Io	10 0	1m
+
+* zmiana obci±¿enia
+.DC Io -100m 100m 2m
+
+* wykresy: wyj¶cie, napiêcie na rezystorze Ro
+.print DC V(2) V(2,10)
+
+.end

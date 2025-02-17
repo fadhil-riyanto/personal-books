@@ -1,0 +1,24 @@
+Wtórnik napiêciowy
+* "Wzmacniacz operacyjny.pdf", str. 7
+* Wojciech Mu³a, 15.07.2005
+
+* Ku = 1
+
+* uk³ad:
+* - wej¶cie: 1 0
+* - wyj¶cie: 3 0
+X	1 2 3	opamp
+R	2 3	10k
+.include opamp.model
+
+* sygna³ wej¶ciowy
+Vin	1 0	1V
+
+
+* analiza
+.DC Vin 1u 100u 1u
+
+* wykres: wej¶cie, wyj¶cie
+.plot DC V(1) V(3)
+
+.end

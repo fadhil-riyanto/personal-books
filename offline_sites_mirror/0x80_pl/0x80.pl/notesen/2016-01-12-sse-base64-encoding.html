@@ -1,0 +1,1488 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-01-12-sse-base64-encoding.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Base64 encoding with SIMD instructions</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="base64-encoding-with-simd-instructions">
+<h1 class="title">Base64 encoding with SIMD instructions</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-01-12</td>
+</tr>
+<tr class="last-update field"><th class="docinfo-name">Last update:</th><td class="field-body">2017-01-25 (spelling)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#algorithm-outline" id="toc-entry-2">Algorithm outline</a></li>
+<li><a class="reference internal" href="#loading-data" id="toc-entry-3">Loading data</a><ul>
+<li><a class="reference internal" href="#sse-version" id="toc-entry-4">SSE version</a></li>
+<li><a class="reference internal" href="#avx2-version" id="toc-entry-5">AVX2 version</a><ul>
+<li><a class="reference internal" href="#sse-assisted-load" id="toc-entry-6">SSE assisted load</a></li>
+<li><a class="reference internal" href="#avx2-load" id="toc-entry-7">AVX2 load</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#splitting-bytes" id="toc-entry-8">Splitting bytes</a><ul>
+<li><a class="reference internal" href="#naive-simd-algorithm" id="toc-entry-9">Naive SIMD algorithm</a></li>
+<li><a class="reference internal" href="#improved-simd-algorithm" id="toc-entry-10">Improved SIMD algorithm</a></li>
+<li><a class="reference internal" href="#xop-version" id="toc-entry-11">XOP version</a></li>
+<li><a class="reference internal" href="#bmi2-version-with-sse-code" id="toc-entry-12">BMI2 version (with SSE code)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#branchless-code-for-lookup-table" id="toc-entry-13">Branchless code for lookup table</a><ul>
+<li><a class="reference internal" href="#naive-version" id="toc-entry-14">Naive version</a></li>
+<li><a class="reference internal" href="#improved-version" id="toc-entry-15">Improved version</a></li>
+<li><a class="reference internal" href="#improved-version-using-logic-instructions" id="toc-entry-16">Improved version using logic instructions</a></li>
+<li><a class="reference internal" href="#sse-avx2-versions" id="toc-entry-17">SSE &amp; AVX2 versions</a></li>
+<li><a class="reference internal" href="#pshufb-based-lookup-method" id="toc-entry-18">pshufb-based lookup method</a></li>
+<li><a class="reference internal" href="#single-pshufb-method-1" id="toc-entry-19">Single pshufb method</a></li>
+<li><a class="reference internal" href="#xop-variant" id="toc-entry-20">XOP variant</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-21">Sample code</a></li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-22">Experiments</a><ul>
+<li><a class="reference internal" href="#core-i5-results-westmere" id="toc-entry-23">Core i5 results (Westmere)</a></li>
+<li><a class="reference internal" href="#core-i7-results-haswell" id="toc-entry-24">Core i7 results (Haswell)</a></li>
+<li><a class="reference internal" href="#core-i7-results-skylake" id="toc-entry-25">Core i7 results (Skylake)</a></li>
+<li><a class="reference internal" href="#amd-bulldozer" id="toc-entry-26">AMD Bulldozer</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-27">See also</a></li>
+<li><a class="reference internal" href="#changelog" id="toc-entry-28">Changelog</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>I had supposed that SIMD-ization of a base64 encoder is not worth to bother
+with, and <strong>I was wrong</strong>. When compared to scalar code, an SSE code is
+<strong>2 times</strong> faster on Core i5 (Westmere), and around <strong>2.5 times</strong> faster
+on Core i7 (Haswell &amp; Skylake).  An AVX2 code is <strong>3.5 times</strong> faster on
+Core i7 (Skylake).</p>
+<p>2016-12-18 note: in the initial version of this text I wrongly assumed
+order of input words, <strong>Alfred Klomp</strong> noted that the standard imposes
+a specific order. Today's change fixes this error.</p>
+</div>
+<div class="section" id="algorithm-outline">
+<h1>Algorithm outline</h1>
+<ul class="simple">
+<li>In each step 12 (24 for AVX2) bytes are loaded.</li>
+<li>These bytes are transformed into 16 (32 for AVX2) 6-bit indices, each saved
+on a separate byte.</li>
+<li>Then these bytes are translated <strong>in parallel</strong> to proper ASCII codes,
+according to the base64 lookup table.</li>
+</ul>
+<p>So, the first problem is <strong>loading data</strong>. The next problem is <strong>splitting input
+bytes into these 6-bit indices</strong>.  This can be done quite fast using a naive
+approach. But also it's a place for the new
+<a class="reference external" href="http://en.wikipedia.org/wiki/Bit_Manipulation_Instruction_Sets">Bit Manipulation Instruction</a>
+<tt class="docutils literal">pdep</tt> instruction.</p>
+<p>The major problem with base64 encoding is the translation of 6-bit indices into
+ASCII characters. Normally it's done with a lookup table. In SIMD approach the
+lookup table have to be expressed as a program.</p>
+</div>
+<div class="section" id="loading-data">
+<h1>Loading data</h1>
+<p>The input 12 bytes have to be split into three-byte groups located into individual
+32-bit words.  These 4-byte words are processed in later steps.</p>
+<pre class="literal-block">
+input  = [????|WWWZ|ZZYY|YXXX]
+output = [0WWW|0ZZZ|0YYY|0XXX]
+</pre>
+<p>The Base64 standard sets order of bytes in group and also order of 6-bit words
+within a group to the big-endian order.  Words are stored starting from the least
+significant
+a, b, c and d.</p>
+<pre class="literal-block">
+[aaaa_aabb|bbbb_cccc|ccdd_dddd]
+  byte 0     byte 1    byte 2
+</pre>
+<p>On a little-endian CPU we got following layout:</p>
+<pre class="literal-block">
+[ccdd_dddd|bbbb_cccc|aaaa_aabb]
+  byte 2     byte 1    byte 0
+</pre>
+<div class="section" id="sse-version">
+<h2>SSE version</h2>
+<ol class="arabic simple">
+<li>Load 12-bytes, containing four 3-byte groups (X, Y, Z, W) &mdash; a simple load:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// packed_byte([xxxx|WWWZ|ZZYY|YXXX])
+</span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">load</span><span class="p">(</span><span class="n">ptr</span><span class="p">)</span>
+</pre>
+<ol class="arabic simple" start="2">
+<li>Move 3-byte groups into separate 32-bit lanes. This is done with one <tt class="docutils literal">pshufb</tt>:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// packed_byte([WWWW|ZZZZ|YYYY|XXXX])
+</span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pshufb</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">magic_constant</span><span class="p">)</span>
+</pre>
+<p>Each 32-bit lane contains four 6-bit indices: <tt class="docutils literal">aaaaaa</tt>, <tt class="docutils literal">BBbbbb</tt>,
+<tt class="docutils literal">ccccCC</tt> and <tt class="docutils literal">ddddd</tt>.  The order of bytes is 1, 0, 2, 1, to make
+unpacking easier:</p>
+<pre class="literal-block">
+[bbbbcccc|CCdddddd|aaaaaaBB|bbbbcccc]
+</pre>
+</div>
+<div class="section" id="avx2-version">
+<h2>AVX2 version</h2>
+<p>Unfortunately, a direct translation of the SSE version is not possible.
+The reason is that the AVX2 version of <tt class="docutils literal">pshufb</tt> works on 128-bit
+lanes rather the whole register. Also it is not possible to perform byte-wide
+shifts of AVX2 registers in order to move bytes across lanes.</p>
+<p>Two solutions are possible to overcome that limitations. Although performance
+tests on Core i7 (Skylake) didn't show <strong>any significant differences</strong>,
+I think both solutions are worth to describe.</p>
+<div class="section" id="sse-assisted-load">
+<h3>SSE assisted load</h3>
+<p>1a. Perform <strong>two loads</strong> into XMM registers:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lo = [xxxx|DDDC|CCBB|BAAA]
+// hi = [xxxx|HHHG|GGFF|FEEE]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">3</span><span class="p">));</span>
+</pre>
+<p>1b. Create an YMM vector from vectors <tt class="docutils literal">lo</tt> and <tt class="docutils literal">hi</tt>. (intrinsic <tt class="docutils literal">_mm256_set_m128i</tt>
+is translated into single instruction <tt class="docutils literal">vinsertf128</tt>):</p>
+<pre class="code cpp literal-block">
+<span class="c1">// joined = [xxxx|HHHG|GGFF|FEEE|xxxx|DDDC|CCBB|BAAA]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">joined</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set_m128i</span><span class="p">(</span><span class="n">hi</span><span class="p">,</span><span class="w"> </span><span class="n">lo</span><span class="p">);</span>
+</pre>
+<p>1c. Shuffle lower and higher lanes:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// in = [HHHH|GGGG|FFFF|EEEE[DDDD|CCCC|BBBB|AAAA]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_shuffle_epi8</span><span class="p">(</span><span class="n">joined</span><span class="p">,</span><span class="w"> </span><span class="n">shuf</span><span class="p">);</span>
+</pre>
+</div>
+<div class="section" id="avx2-load">
+<h3>AVX2 load</h3>
+<p>1a. Perform single load into a YMM register. Obvious drawback of this approach
+is reading 4 bytes off the input buffer:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// data = [????|HHHG|GGFF|FEEE|DDDC|CCBB|BAAA|????]
+//            128-bit lane    |   128-bit lane
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">4</span><span class="p">));</span>
+</pre>
+<p>1b. Shuffle data in 128-bit lanes:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// in = [HHHH|GGGG|FFFF|EEEE|DDDD|CCCC|BBBB|AAAA]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_shuffle_epi8</span><span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">shuf</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="splitting-bytes">
+<h1>Splitting bytes</h1>
+<p>Note: as SIMD algorithms presented below use simple bit-level instructions,
+they can be expressed using both SSE and AVX2 instructions. Examples use
+SSE instructions.</p>
+<p>Input to this step are 32-bit words, each having following layout:</p>
+<pre class="literal-block">
+[bbbbcccc|CCdddddd|aaaaaaBB|bbbbcccc]
+</pre>
+<p>where bits <tt class="docutils literal">aaaaaa</tt>, <tt class="docutils literal">BBbbbb</tt>, <tt class="docutils literal">ccccCC</tt> and <tt class="docutils literal">dddddd</tt> are 6-bit indices.
+The output of this step has to be:</p>
+<pre class="literal-block">
+[00dddddd|00ccccCC|00BBbbbb|00aaaaaa]
+</pre>
+<div class="section" id="naive-simd-algorithm">
+<h2>Naive SIMD algorithm</h2>
+<p>Following naive algorithm could be used.</p>
+<ol class="arabic simple">
+<li>Move each index into a separate byte:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// index_a = packed_dword([00000000|00000000|00000000|00aaaaaa] x 4)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">index_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">),</span><span class="w"> </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0x0000003f</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// index_a = packed_dword([00000000|00000000|00BBbbbb|00000000] x 4)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">index_b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_slli_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w">  </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0x00003f00</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// index_a = packed_dword([00000000|00ccccCC|00000000|00000000] x 4)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">index_c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">),</span><span class="w">  </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0x003f0000</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// index_a = packed_dword([00dddddd|00000000|00000000|00000000] x 4)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">index_d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_slli_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">),</span><span class="w">  </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0x3f000000</span><span class="p">));</span>
+</pre>
+<ol class="arabic simple" start="2">
+<li>Merge indices:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// indices = index_a | index_b | index_c | index_d
+// indices = packed_byte([00dddddd|00ccccCC|00BBbbbb|00aaaaaa] x 4);
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">index_a</span><span class="p">,</span><span class="w"> </span><span class="n">index_b</span><span class="p">),</span><span class="w"> </span><span class="n">index_c</span><span class="p">),</span><span class="w"> </span><span class="n">index_d</span><span class="p">);</span>
+</pre>
+<p>Number of operations:</p>
+<ul class="simple">
+<li>bit-shift: 4,</li>
+<li>bit-and: 4,</li>
+<li>bit-or: 3.</li>
+</ul>
+<p>This code could be also easily parallelized at instruction level by a CPU.
+The only serious dependency is caused by <tt class="docutils literal">pshufb</tt>, because its result
+is used in the next steps.</p>
+</div>
+<div class="section" id="improved-simd-algorithm">
+<h2>Improved SIMD algorithm</h2>
+<p>The improved algorithm expresses shifts using multiplication instructions.</p>
+<ol class="loweralpha simple">
+<li>Left indices a and c</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t0 = [0000cccc|CC000000|aaaaaa00|00000000]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="mh">0x0fc0fc00</span><span class="p">));</span>
+</pre>
+<ol class="loweralpha simple" start="2">
+<li>Shift right the field <tt class="docutils literal">c</tt> by 6, and the field <tt class="docutils literal">a</tt> by 10. This is done by instruction
+<tt class="docutils literal">PMULUH</tt> which multiplies unsigned 16-bit words and store the higher 16-bit
+of the result.  When we multiply a value by a power of two, this is equivalent to
+shifting the value left. In this case the instruction is used to evaluate expression
+<tt class="docutils literal">(x &lt;&lt; amount) &gt;&gt; 16</tt>. When <tt class="docutils literal">amount &gt; 16</tt> this is the same as <tt class="docutils literal">x &gt;&gt; (16 - amount)</tt>.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t1    = [00000000|00cccccc|00000000|00aaaaaa]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mulhi_epu16</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="mh">0x04000040</span><span class="p">));</span>
+</pre>
+<ol class="loweralpha simple" start="3">
+<li>Left indices <tt class="docutils literal">d</tt> and <tt class="docutils literal">b</tt>.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t2    = [00000000|00dddddd|000000bb|bbbb0000]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="mh">0x003f03f0</span><span class="p">));</span>
+</pre>
+<ol class="loweralpha simple" start="4">
+<li>Shift left the field d by 8, and the field b by 4. Again a multiplication instruction
+is used.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t3    = [00dddddd|00000000|00bbbbbb|00000000](
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mullo_epi16</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="mh">0x01000010</span><span class="p">));</span>
+</pre>
+<ol class="loweralpha simple" start="5">
+<li>Merge results of the previous steps:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// res   = [00dddddd|00cccccc|00bbbbbb|00aaaaaa] = t1 | t3
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">);</span>
+</pre>
+<p>Number of operations:</p>
+<ul class="simple">
+<li>multiplication: 2,</li>
+<li>bit-and: 2,</li>
+<li>bit-or: 1.</li>
+</ul>
+</div>
+<div class="section" id="xop-version">
+<h2>XOP version</h2>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/XOP_instruction_set">AMD XOP</a> extension provides variable shift instructions, where shift amounts
+are given per item. Moreover, it provides a condition move instruction, which
+makes merging bit-fields easy. Thanks to that we can simplify the previous
+procedure: multiplications are replaced by shifts and a single conditional move
+replace one bitwise or and bitwise and.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lane = [bbbb_cccc|ccdd_dddd|aaaa_aabb|bbbb_cccc]
+</span><span class="w">
+</span><span class="c1">// t0   = [0000_00bb|bbcc_cccc|cccc_bbbb|bbaa_aaaa] -- (c &gt;&gt; 6, a &gt;&gt; 10)
+//                     ^^^^^^^             ^^^^^^^
+//                a and c are on the correct positions
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shl_epi16</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0xfffafff6</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// t1   = [0000_0000|00cc_cccc|0000_0000|00aa_aaaa] -- left a and c fields
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">packed_word</span><span class="p">(</span><span class="mh">0x003f</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// t2   = [ccdd_dddd|0000_0000|ccbb_bbbb|aaaa_aa00] -- (d &lt;&lt; 8, b &lt;&lt; 4)
+//           ^^^^^^^             ^^^^^^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shl_epi16</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0x00080004</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// t3   = [00dd_dddd|00cc_cccc|00bb_bbbb|00aa_aaaa]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmov_si128</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">packed_word</span><span class="p">(</span><span class="mh">0x3f00</span><span class="p">));</span>
+</pre>
+</div>
+<div class="section" id="bmi2-version-with-sse-code">
+<h2>BMI2 version (with SSE code)</h2>
+<p>BMI2 has introduced instruction <tt class="docutils literal">pdep</tt> (<em>parallel deposit</em>), which performs
+in one step the points 3 and 4 of the above algorithm.</p>
+<p>The instruction <tt class="docutils literal">pdep</tt> operates on 64-bit words, thus two invocation of the
+instruction are needed in order to fill an XMM register. However, the order
+of fields and bytes require some byte-swaps.</p>
+<ol class="arabic simple">
+<li>Load 2 x 6 bytes.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// input = [????????|????????|ccdddddd|bbbbcccc|aaaaaabb|gghhhhhh|ffffgggg|eeeeeeff]
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">6</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="2">
+<li>Swap order of bytes to join bit-fields.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t     = [00000000|00000000|eeeeeeff|ffffgggg|gghhhhhh|aaaaaabb|bbbbcccc|ccdddddd]
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_bswap64</span><span class="p">(</span><span class="n">lo</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_bswap64</span><span class="p">(</span><span class="n">hi</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span>
+</pre>
+<ol class="arabic simple" start="3">
+<li>Expand fields using <tt class="docutils literal">pdep</tt>.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// exp   = [00eeeeee|00ffffff|00gggggg|00hhhhhh|00aaaaaa|00bbbbbb|00cccccc|00dddddd]
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">expanded_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pdep</span><span class="p">(</span><span class="n">lo</span><span class="p">,</span><span class="w"> </span><span class="mh">0x3f3f3f3f3f3f3f3flu</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">expanded_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pdep</span><span class="p">(</span><span class="n">hi</span><span class="p">,</span><span class="w"> </span><span class="mh">0x3f3f3f3f3f3f3f3flu</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">build_vector</span><span class="p">(</span><span class="n">expanded_hi</span><span class="p">,</span><span class="w"> </span><span class="n">expanded_lo</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="4">
+<li>Build a SSE vector:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// indices = [m n o p|i j k l|e f g h|a b c d]
+</span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices</span><span class="p">;</span><span class="w">
+
+</span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi64</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">expanded_lo</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">
+</span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi64</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">expanded_hi</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="5">
+<li>Swap order of words withing <tt class="docutils literal">expanded</tt> words, and then swap 32-bit words.
+This is done with single <tt class="docutils literal">pshufb</tt> instruction.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// indices = [l k j i|p o n m|d c b a|h g f e]
+</span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">magic_constant</span><span class="p">);</span>
+</pre>
+<p>There are:</p>
+<ul class="simple">
+<li>2 loads,</li>
+<li>2 <tt class="docutils literal">bswap</tt>,</li>
+<li>2 shifts</li>
+<li>2 <tt class="docutils literal">pdep</tt>.</li>
+<li>1 <tt class="docutils literal">pshufb</tt>,</li>
+<li>one <tt class="docutils literal">build_vector</tt> operation.</li>
+</ul>
+<p>The last operation is not a single CPU instruction. When an intrinsic <tt class="docutils literal">_mm_set_epi64x</tt>
+is used, then GCC 4.9.2 translates it into two instructions <tt class="docutils literal">movq</tt> and <tt class="docutils literal">movhlps</tt>
+(or <tt class="docutils literal">pinsrq</tt>, depending on architecture flags). To make the things worse,
+these instructions read data from <strong>a temporary memory</strong>. Disaster.</p>
+<p>So in the practice I've decided to insert two <tt class="docutils literal">pinsrq</tt> instructions. This made
+the code about <strong>15% faster</strong> (on Core i7).</p>
+</div>
+</div>
+<div class="section" id="branchless-code-for-lookup-table">
+<h1>Branchless code for lookup table</h1>
+<p>The standard base64 lookup table is a sequence of:</p>
+<ul class="simple">
+<li>capital letters A-Z,</li>
+<li>small letters a-z,</li>
+<li>digits 0-9,</li>
+<li>character plus (+),</li>
+<li>character slash (/).</li>
+</ul>
+<p>Let <tt class="docutils literal">i</tt> is a 6-bit index, then the lookup's output value could be described
+with following expressions. (Note: <tt class="docutils literal">ord</tt> returns an ASCII code of a
+character, in C/C++ it's not needed.)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="25%" />
+<col width="18%" />
+<col width="58%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">i</th>
+<th class="head">range</th>
+<th class="head">expression</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 25</td>
+<td>A-Z</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('A')</span></tt></td>
+</tr>
+<tr><td>26 .. 51</td>
+<td>a-z</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('a')</span> - 26</tt></td>
+</tr>
+<tr><td>52 .. 61</td>
+<td>0-9</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('0')</span> - 52</tt></td>
+</tr>
+<tr><td>62</td>
+<td>plus</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('+')</span> - 62</tt></td>
+</tr>
+<tr><td>63</td>
+<td>slash</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('/')</span> - 63</tt></td>
+</tr>
+</tbody>
+</table>
+<p>Basically the expression scheme is: <tt class="docutils literal">i</tt> plus a constant value (which I called &quot;shift&quot;.)
+Branched code implementing the table:</p>
+<pre class="code cpp literal-block">
+<span class="kt">char</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="n">assert</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">64</span><span class="p">);</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// ranage A-Z
+</span><span class="w">        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">26</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// range a-z
+</span><span class="w">        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'a'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// range 0-9
+</span><span class="w">        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w">
+        </span><span class="c1">// character plus
+</span><span class="w">        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'+'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w">
+        </span><span class="c1">// character slash
+</span><span class="w">        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'/'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">63</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">shift</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="naive-version">
+<span id="lookup-naive"></span><h2>Naive version</h2>
+<p>In a branchless version instead of if-statements masks are needed. Please note
+that building masks for ranges a-z and 0-9 requires two comparisons. However, in
+both exists a condition (respectively <tt class="docutils literal">i &gt;= 26</tt> and <tt class="docutils literal">i &gt;= 52</tt>) which is
+simply a negation of already calculated mask.</p>
+<p>SSE provides an instruction <tt class="docutils literal">pandn(a, b)</tt> which calculates bit-wise and with
+a negated argument <tt class="docutils literal">a</tt>, thus no explicit negation is required.</p>
+<p>Armed with above observations, a following branchless code is possible.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// functions cmp &amp; andnot work on masks.
+</span><span class="kt">char</span><span class="w"> </span><span class="nf">lookup_naive</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">less_26</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">26</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">less_52</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">52</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">less_62</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">62</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">equal_62</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">62</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">equal_63</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">63</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">range_AZ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">less_26</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">range_az</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="sc">'a'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">andnot</span><span class="p">(</span><span class="n">less_26</span><span class="p">,</span><span class="w"> </span><span class="n">less_52</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">range_09</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">andnot</span><span class="p">(</span><span class="n">less_52</span><span class="p">,</span><span class="w"> </span><span class="n">less_62</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">char_plus</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="sc">'+'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">equal_62</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">char_slash</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="sc">'/'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">equal_63</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">range_AZ</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">range_az</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">range_09</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">char_plus</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">char_slash</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>comparison: 5,</li>
+<li>bit-and: 5,</li>
+<li>bit-andnot: 2,</li>
+<li>bit-or: 4,</li>
+<li>add: 1.</li>
+</ul>
+<p>In total 17 simple instruction. Thus for 16-element SSE vector we have exactly
+<strong>1.0625 instructions</strong> per item.</p>
+<p>Many instructions in the function are independent (for example these calculating
+mask, calculating individual shifts), thanks to that a super-scalar CPU will
+have an opportunity to parallelize the code.</p>
+</div>
+<div class="section" id="improved-version">
+<span id="lookup-improved"></span><h2>Improved version</h2>
+<p>An improved calculation method gradually adjusts the shift value as it check
+how large the index value is. Initially the algorithm assumes that the index is
+in range 0..25 (A-Z), thus shift is <tt class="docutils literal"><span class="pre">ord('A')</span></tt>. Then it checks if index is
+larger than 25, and assumes that the is 26..51 (a-z). Then shift is adjusted by
+value <tt class="docutils literal"><span class="pre">ord('a')</span> - <span class="pre">ord('A')</span> = 6</tt>.  And this continue for the rest index's
+ranges.</p>
+<p>Sometimes an adjustment value is less than zero, but it's not a problem because
+the modulo arithmetic is used.</p>
+<p>Following code implements the idea:</p>
+<pre class="code cpp literal-block">
+<span class="kt">char</span><span class="w"> </span><span class="nf">lookup_version2</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">75</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">241</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">12</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Slightly different approach is SWAR friendly, as all constants are less than 128:</p>
+<pre class="code cpp literal-block">
+<span class="kt">char</span><span class="w"> </span><span class="nf">lookup_version2_swar</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">75</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">15</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions in the both variants:</p>
+<ul class="simple">
+<li>comparison: 4,</li>
+<li>bit-and: 4,</li>
+<li>bit-andnot: 0,</li>
+<li>bit-or: 0,</li>
+<li>add/sub: 5.</li>
+</ul>
+<p>In total 13 simple instruction. Thus for 16-element SSE vector it is exactly
+<strong>0.8125 instructions</strong> per item &mdash; less than one instruction.</p>
+<p>Like the naive version, this one has a nice instruction-level parallelism
+property.</p>
+</div>
+<div class="section" id="improved-version-using-logic-instructions">
+<h2>Improved version using logic instructions</h2>
+<p>This method uses the same pattern as the previous one, with one
+exception: <strong>binary xor</strong> is used to update the shift value. Of
+course the constants are different:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="n">lookup_version3</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="o">:</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ord</span><span class="p">(</span><span class="sc">'A'</span><span class="p">);</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">187</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">17</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">cmp</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">29</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">;</span>
+</pre>
+<p>The small drawback of the method is using a 8-bit constant, thus a SWAR
+algorithm can't be easily used.</p>
+<p>Properties of the method are not different from properties of the
+previous method. However, thanks to using binary operations this method
+is suitable for <a class="reference external" href="2015-03-22-avx512-ternary-functions.html">the AVX512 ternary logic instruction</a>.</p>
+</div>
+<div class="section" id="sse-avx2-versions">
+<h2>SSE &amp; AVX2 versions</h2>
+<p>All branchless algorithms can be easily translated one-to-one into SSE
+or AVX2 code, as they use only basic bit and arithmetic instructions.</p>
+</div>
+<div class="section" id="pshufb-based-lookup-method">
+<span id="lookup-2pshufb"></span><h2>pshufb-based lookup method</h2>
+<p>This method is completely different from the methods described above,
+the algorithm relies on <tt class="docutils literal">pshufb</tt> instruction. Basically it is a two-level
+lookup translating 6-bit values into shifts used to calculate the final
+ASCII codes.</p>
+<p>A 6-bit input value is split into two parts. A 4-bit subword is used as an
+index to the first <tt class="docutils literal">pshufb</tt>, which produces a 2-bit value. This 2-bit value
+is combined with remaining 2 bits of the input value, forming the new 4-bit
+index. And this new index is issued to <tt class="docutils literal">pshufb</tt> giving a shift value.
+And finally sum of the shift and the input value gives ASCII code.</p>
+<p>A scalar procedure:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">index1</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">get_first_index</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">row_number</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">lookup1</span><span class="p">[</span><span class="n">index1</span><span class="p">];</span><span class="w">               </span><span class="c1">// 2 higher bits
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">index2</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">get_second_index</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">       </span><span class="c1">// 2 lower bits
+</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift_index</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">row_number</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">index2</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="n">lookup2</span><span class="p">[</span><span class="n">shift_index</span><span class="p">];</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">shift</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The crucial element of the algorithm is choice which bits of input
+form <tt class="docutils literal">index1</tt> and <tt class="docutils literal">index2</tt>. I used brute-force to find the answer,
+a Python script which does the job is available in a repository, see
+<a class="reference internal" href="#sample-code">Sample code</a>. The first index are bits 1..4, and bits 0 and 5 form
+the second index.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">get_first_index</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x1e</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="nf">get_second_index_part</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x20</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x1</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Lookup table:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="29%" />
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">index1</th>
+<th class="head" colspan="4">index2</th>
+</tr>
+<tr><th class="head">0</th>
+<th class="head">1</th>
+<th class="head">2</th>
+<th class="head">3</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>1</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>2</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>3</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>4</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>5</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>6</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>7</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>8</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>9</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+</tr>
+<tr><td>10</td>
+<td>65</td>
+<td>65</td>
+<td>-4</td>
+<td>-4</td>
+</tr>
+<tr><td>11</td>
+<td>65</td>
+<td>65</td>
+<td>-4</td>
+<td>-4</td>
+</tr>
+<tr><td>12</td>
+<td>65</td>
+<td>65</td>
+<td>-4</td>
+<td>-4</td>
+</tr>
+<tr><td>13</td>
+<td>71</td>
+<td>71</td>
+<td>-4</td>
+<td>-4</td>
+</tr>
+<tr><td>14</td>
+<td>71</td>
+<td>71</td>
+<td>-4</td>
+<td>-4</td>
+</tr>
+<tr><td>15</td>
+<td>71</td>
+<td>71</td>
+<td>-19</td>
+<td>-16</td>
+</tr>
+</tbody>
+</table>
+<p>There are four different rows in the table:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="26%" />
+<col width="13%" />
+<col width="13%" />
+<col width="13%" />
+<col width="13%" />
+<col width="21%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">index1
+range</th>
+<th class="head" colspan="4">index2</th>
+<th class="head" rowspan="2">row
+number</th>
+</tr>
+<tr><th class="head">0</th>
+<th class="head">1</th>
+<th class="head">2</th>
+<th class="head">3</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 9</td>
+<td>65</td>
+<td>65</td>
+<td>71</td>
+<td>71</td>
+<td>0</td>
+</tr>
+<tr><td>10 .. 12</td>
+<td>65</td>
+<td>65</td>
+<td>-4</td>
+<td>-4</td>
+<td>1</td>
+</tr>
+<tr><td>13 .. 14</td>
+<td>71</td>
+<td>71</td>
+<td>-4</td>
+<td>-4</td>
+<td>2</td>
+</tr>
+<tr><td>15</td>
+<td>71</td>
+<td>71</td>
+<td>-19</td>
+<td>-16</td>
+<td>3</td>
+</tr>
+</tbody>
+</table>
+<p>So, the first lookup translates from <tt class="docutils literal">index1</tt> to a row number (0..3),
+and then <tt class="docutils literal">index2</tt> selects item in the row.</p>
+<p>SSE procedure:</p>
+<pre class="code cpp literal-block">
+<span class="kr">__m128i</span><span class="w"> </span><span class="n">lookup_pshufb</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row_LUT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="cm">/*  0 ..  9 */</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* 10 .. 12 */</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">1</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* 13 .. 14 */</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">2</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/*       15 */</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">3</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// input (byte): [00abcdef]
+</span><span class="w">    </span><span class="c1">//     bits_1_4: [000bcde0]
+</span><span class="w">    </span><span class="c1">//   bit_0_and5: [00a0000f]
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bits_1_4</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x1e</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bit_0_and_5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">bits_1_4</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">//       index1: [0000bcde]
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">index1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">bits_1_4</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// note: row_number is already shifted left
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row_number</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">row_LUT</span><span class="p">,</span><span class="w"> </span><span class="n">index1</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">//       index2: [000000af]
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">index2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_0_and_5</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">bit_0_and_5</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">//       index2: [0000XYaf] -- bits X, Y come from row_LUT
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shift_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">row_number</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">index2</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shift_LUT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mi">65</span><span class="p">,</span><span class="w"> </span><span class="mi">65</span><span class="p">,</span><span class="w">  </span><span class="mi">71</span><span class="p">,</span><span class="w">  </span><span class="mi">71</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mi">65</span><span class="p">,</span><span class="w"> </span><span class="mi">65</span><span class="p">,</span><span class="w">  </span><span class="mi">-4</span><span class="p">,</span><span class="w">  </span><span class="mi">-4</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mi">71</span><span class="p">,</span><span class="w"> </span><span class="mi">71</span><span class="p">,</span><span class="w">  </span><span class="mi">-4</span><span class="p">,</span><span class="w">  </span><span class="mi">-4</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mi">71</span><span class="p">,</span><span class="w"> </span><span class="mi">71</span><span class="p">,</span><span class="w"> </span><span class="mi">-19</span><span class="p">,</span><span class="w"> </span><span class="mi">-16</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">shift_LUT</span><span class="p">,</span><span class="w"> </span><span class="n">shift_index</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>comparison: 0,</li>
+<li>bit-and: 1,</li>
+<li>bit-andnot: 0,</li>
+<li>bit-or: 2,</li>
+<li>bit-xor: 1,</li>
+<li>shift: 2,</li>
+<li>add/sub: 1,</li>
+<li>pshufb: 2.</li>
+</ul>
+<p>In total 11 instructions, it's <strong>0.6875</strong> instruction per item.</p>
+<p>Unfortunately, building both <tt class="docutils literal">index1</tt> and <tt class="docutils literal">index2</tt> require some effort, which
+slows down the procedure. In result speed up is minimal.</p>
+</div>
+<div class="section" id="single-pshufb-method-1">
+<span id="lookup-1pshufb"></span><span id="single-pshufb-method"></span><h2>Single pshufb method</h2>
+<p>The method uses only <strong>one</strong> <tt class="docutils literal">pshufb</tt> instruction. The main idea is to
+reduce input's range, and then use <tt class="docutils literal">pshufb</tt> to select a proper shift.</p>
+<p>The first step of reduction is done with <strong>saturated subtract</strong>, which
+compresses values 0..52 (mapped to letters A-Z and a-z) into single
+value 0. Then one comparison is used to distinguish between input 0..25
+(A-Z) and 26..51 (a-z).</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="23%" />
+<col width="23%" />
+<col width="53%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">i</th>
+<th class="head">reduced</th>
+<th class="head">shift</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 25</td>
+<td>0</td>
+<td><tt class="docutils literal"><span class="pre">ord('A')</span></tt></td>
+</tr>
+<tr><td>52 .. 61</td>
+<td>1 .. 10</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('0')</span> - 52</tt></td>
+</tr>
+<tr><td>62</td>
+<td>11</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('+')</span> - 62</tt></td>
+</tr>
+<tr><td>63</td>
+<td>12</td>
+<td><tt class="docutils literal">i + <span class="pre">ord('/')</span> - 63</tt></td>
+</tr>
+<tr><td>26 .. 51</td>
+<td>13</td>
+<td><tt class="docutils literal"><span class="pre">ord('a')</span> - 26</tt></td>
+</tr>
+</tbody>
+</table>
+<p>The last step is single invocation of <tt class="docutils literal">pshufb</tt>, which translates
+from <tt class="docutils literal">reduced</tt> value into <tt class="docutils literal">shift</tt>.</p>
+<p>SSE procedure:</p>
+<pre class="code cpp literal-block">
+<span class="kr">__m128i</span><span class="w"> </span><span class="n">lookup_pshufb_improved</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="c1">// reduce  0..51 -&gt; 0
+</span><span class="w">    </span><span class="c1">//        52..61 -&gt; 1 .. 10
+</span><span class="w">    </span><span class="c1">//            62 -&gt; 11
+</span><span class="w">    </span><span class="c1">//            63 -&gt; 12
+</span><span class="w">    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_subs_epu8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">51</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// distinguish between ranges 0..25 and 26..51:
+</span><span class="w">    </span><span class="c1">//         0 .. 25 -&gt; remains 0
+</span><span class="w">    </span><span class="c1">//        26 .. 51 -&gt; becomes 13
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">less</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpgt_epi8</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">26</span><span class="p">),</span><span class="w"> </span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">less</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">13</span><span class="p">)));</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shift_LUT</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="sc">'a'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w">
+        </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="sc">'+'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">,</span><span class="w">
+        </span><span class="sc">'/'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">63</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// read shift
+</span><span class="w">    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">shift_LUT</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>comparison: 1,</li>
+<li>bit-and: 1,</li>
+<li>bit-andnot: 0,</li>
+<li>bit-or: 1,</li>
+<li>add/sub: 2,</li>
+<li>pshufb: 1.</li>
+</ul>
+<p>In total 6 instructions, it's <strong>0.375</strong> instruction per item.</p>
+</div>
+<div class="section" id="xop-variant">
+<h2>XOP variant</h2>
+<p>AMD XOP has got an extended <tt class="docutils literal">pshufb</tt>, the instruction <tt class="docutils literal">vpermb</tt> which
+accepts 5-bit indices. Aside of doing regular lookup it can perform seven
+different operations selected by three highest bits of the index (encoding
+doesn't need any of them.)</p>
+<p>We use the fact that the differences between adjacent ASCII codes used by
+base64 are 1; except difference between code of chars '+' and '/' which is 4.
+We get five higher bits of an 6-bit value and use it to translate directly into
+ASCII.  A lookup table contains a half of letters from base64 lookup, picked
+from even indices: &quot;ACEGIKMOQSUWYacegikmoqsuwy02468+&quot;.</p>
+<p>After translation, the least significant bit of input is added to the code,
+yielding correct code for &quot;odd&quot; items. The special care is needed for input
+values equal to 63, as the fix-up value is 4.</p>
+<pre class="code cpp literal-block">
+<span class="kr">__m128i</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">base64_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w">
+        </span><span class="sc">'Q'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'W'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">,</span><span class="w"> </span><span class="sc">'a'</span><span class="p">,</span><span class="w"> </span><span class="sc">'c'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">base64_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="sc">'g'</span><span class="p">,</span><span class="w"> </span><span class="sc">'i'</span><span class="p">,</span><span class="w"> </span><span class="sc">'k'</span><span class="p">,</span><span class="w"> </span><span class="sc">'m'</span><span class="p">,</span><span class="w"> </span><span class="sc">'o'</span><span class="p">,</span><span class="w"> </span><span class="sc">'q'</span><span class="p">,</span><span class="w"> </span><span class="sc">'s'</span><span class="p">,</span><span class="w"> </span><span class="sc">'u'</span><span class="p">,</span><span class="w">
+        </span><span class="sc">'w'</span><span class="p">,</span><span class="w"> </span><span class="sc">'y'</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="p">,</span><span class="w"> </span><span class="sc">'2'</span><span class="p">,</span><span class="w"> </span><span class="sc">'4'</span><span class="p">,</span><span class="w"> </span><span class="sc">'6'</span><span class="p">,</span><span class="w"> </span><span class="sc">'8'</span><span class="p">,</span><span class="w"> </span><span class="sc">'+'</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// input   = packed_byte(00ab_cdef)
+</span><span class="w">    </span><span class="c1">// bits15  = packed_byte(000a_bcde) -- five highest bits
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bits15</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shl_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">-1</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// bit0    = packed_byte(0000_000f) -- the LSB
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bit0</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x01</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// t0      = bits 5:1 translated into ASCII codes
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_perm_epi8</span><span class="p">(</span><span class="n">base64_lo</span><span class="p">,</span><span class="w"> </span><span class="n">base64_hi</span><span class="p">,</span><span class="w"> </span><span class="n">bits15</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t1      = the codes adjusted by 0th bit
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">bit0</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t3      = special fix-up for input == 63
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">63</span><span class="p">)),</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">3</span><span class="p">));</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>The sample code is <a class="reference external" href="https://github.com/WojciechMula/base64simd">available at github</a>, there are three programs:</p>
+<ul class="simple">
+<li><tt class="docutils literal">verify</tt> &mdash; verifies branchless procedures calculating the lookup table,
+both scalar and SIMD versions;</li>
+<li><tt class="docutils literal">check</tt> &mdash; checks if base64 encoders using different lookup procedures
+and splitting bytes methods work correctly;</li>
+<li><tt class="docutils literal">speed</tt> &mdash; allows to measure speed of all or selected base64 encoder;
+it encodes 192 MiB of artificial data 10 times, and then print the smallest
+measurement.</li>
+</ul>
+<p><strong>Important note</strong>: programs use three variants of SIMD-ized lookups:</p>
+<ul class="simple">
+<li><tt class="docutils literal">naive</tt> &mdash; <a class="reference internal" href="#lookup-naive">naive version</a> from this text;</li>
+<li><tt class="docutils literal">improved</tt> &mdash; <a class="reference internal" href="#lookup-improved">improved version</a> from this text;</li>
+<li><tt class="docutils literal">pshufb</tt> &mdash; <a class="reference internal" href="#lookup-2pshufb">pshufb-based</a> from this text;</li>
+<li><tt class="docutils literal">pshufb improved</tt> &mdash; <a class="reference internal" href="#lookup-1pshufb">pshufb improved</a> from this text;</li>
+<li><tt class="docutils literal">other improved</tt> &mdash; branchless method not described here; it is
+slower than version the improved version on Core i5.
+<strong>This method is not included in the experiments' results.</strong></li>
+</ul>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<p>The program <tt class="docutils literal">speed</tt> was compiled with GCC and was run 5 times.
+The minimum times were noted.</p>
+<div class="section" id="core-i5-results-westmere">
+<h2>Core i5 results (Westmere)</h2>
+<p>The CPU architecture: Westmere i5 M540 &#64; 2.53GHz</p>
+<p>GCC: 6.2.0 (Debian)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="47%" />
+<col width="12%" />
+<col width="11%" />
+<col width="31%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar (64 bit)</td>
+<td>0.19397</td>
+<td>1.00</td>
+<td>██████████</td>
+</tr>
+<tr><td>SWAR (64 bit)</td>
+<td>0.32158</td>
+<td>0.60</td>
+<td>██████</td>
+</tr>
+<tr><td>SSE (lookup: naive)</td>
+<td>0.09459</td>
+<td>2.05</td>
+<td>████████████████████▌</td>
+</tr>
+<tr><td>SSE (lookup: other improved)</td>
+<td>0.09102</td>
+<td>2.13</td>
+<td>█████████████████████▎</td>
+</tr>
+<tr><td>SSE (lookup: improved)</td>
+<td>0.08718</td>
+<td>2.22</td>
+<td>██████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based)</td>
+<td>0.08756</td>
+<td>2.22</td>
+<td>██████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved)</td>
+<td>0.08383</td>
+<td>2.31</td>
+<td>███████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: other improved, unrolled)</td>
+<td>0.08532</td>
+<td>2.27</td>
+<td>██████████████████████▋</td>
+</tr>
+<tr><td>SSE (lookup: improved, unrolled)</td>
+<td>0.08469</td>
+<td>2.29</td>
+<td>██████████████████████▉</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based, unrolled)</td>
+<td>0.08329</td>
+<td>2.33</td>
+<td>███████████████████████▎</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved unrolled)</td>
+<td>0.08276</td>
+<td>2.34</td>
+<td>███████████████████████▍</td>
+</tr>
+<tr><td>SSE (fully unrolled improved lookup)</td>
+<td>0.08416</td>
+<td>2.30</td>
+<td>███████████████████████</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="core-i7-results-haswell">
+<h2>Core i7 results (Haswell)</h2>
+<p>The CPU architecture: Haswell i7-4770 CPU &#64; 3.40GHz.</p>
+<p>GCC: 5.3.0 (Ubuntu)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="42%" />
+<col width="10%" />
+<col width="9%" />
+<col width="39%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar (64 bit)</td>
+<td>0.12198</td>
+<td>1.00</td>
+<td>██████████</td>
+</tr>
+<tr><td>SWAR (64 bit)</td>
+<td>0.16465</td>
+<td>0.74</td>
+<td>███████▍</td>
+</tr>
+<tr><td>SSE (lookup: naive)</td>
+<td>0.05572</td>
+<td>2.19</td>
+<td>█████████████████████▉</td>
+</tr>
+<tr><td>SSE (lookup: other improved)</td>
+<td>0.04953</td>
+<td>2.46</td>
+<td>████████████████████████▋</td>
+</tr>
+<tr><td>SSE (lookup: improved)</td>
+<td>0.04658</td>
+<td>2.62</td>
+<td>██████████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based)</td>
+<td>0.03786</td>
+<td>3.22</td>
+<td>████████████████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved)</td>
+<td>0.03534</td>
+<td>3.45</td>
+<td>██████████████████████████████████▌</td>
+</tr>
+<tr><td>SSE (lookup: other improved, unrolled)</td>
+<td>0.04428</td>
+<td>2.75</td>
+<td>███████████████████████████▌</td>
+</tr>
+<tr><td>SSE (lookup: improved, unrolled)</td>
+<td>0.04471</td>
+<td>2.73</td>
+<td>███████████████████████████▎</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based, unrolled)</td>
+<td>0.03869</td>
+<td>3.15</td>
+<td>███████████████████████████████▌</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved unrolled)</td>
+<td>0.03492</td>
+<td>3.49</td>
+<td>██████████████████████████████████▉</td>
+</tr>
+<tr><td>SSE (fully unrolled improved lookup)</td>
+<td>0.04503</td>
+<td>2.71</td>
+<td>███████████████████████████</td>
+</tr>
+<tr><td>SSE &amp; BMI2 (lookup: naive)</td>
+<td>0.05265</td>
+<td>2.32</td>
+<td>███████████████████████▏</td>
+</tr>
+<tr><td>SSE &amp; BMI2 (lookup: improved)</td>
+<td>0.04924</td>
+<td>2.48</td>
+<td>████████████████████████▊</td>
+</tr>
+<tr><td>SSE &amp; BMI2 (lookup: pshufb improved)</td>
+<td>0.03831</td>
+<td>3.18</td>
+<td>███████████████████████████████▊</td>
+</tr>
+<tr><td>AVX2 (lookup: improved)</td>
+<td>0.03499</td>
+<td>3.49</td>
+<td>██████████████████████████████████▊</td>
+</tr>
+<tr><td>AVX2 (lookup: improved, unrolled)</td>
+<td>0.03488</td>
+<td>3.50</td>
+<td>██████████████████████████████████▉</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb-based)</td>
+<td>0.03465</td>
+<td>3.52</td>
+<td>███████████████████████████████████▏</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb-based, unrolled)</td>
+<td>0.03474</td>
+<td>3.51</td>
+<td>███████████████████████████████████</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb improved)</td>
+<td>0.03469</td>
+<td>3.52</td>
+<td>███████████████████████████████████▏</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb unrolled improved)</td>
+<td>0.03481</td>
+<td>3.50</td>
+<td>███████████████████████████████████</td>
+</tr>
+<tr><td>AVX2 &amp; BMI (lookup: pshufb improved)</td>
+<td>0.04811</td>
+<td>2.54</td>
+<td>█████████████████████████▎</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="core-i7-results-skylake">
+<h2>Core i7 results (Skylake)</h2>
+<p>The CPU architecture: Skylake i7-6700 CPU &#64; 3.40GHz</p>
+<p>GCC: 5.3.0 (Ubuntu)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="39%" />
+<col width="9%" />
+<col width="8%" />
+<col width="43%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar (64 bit)</td>
+<td>0.12016</td>
+<td>1.00</td>
+<td>██████████</td>
+</tr>
+<tr><td>SWAR (64 bit)</td>
+<td>0.15264</td>
+<td>0.79</td>
+<td>███████▊</td>
+</tr>
+<tr><td>SSE (lookup: naive)</td>
+<td>0.05067</td>
+<td>2.37</td>
+<td>███████████████████████▋</td>
+</tr>
+<tr><td>SSE (lookup: other improved)</td>
+<td>0.04458</td>
+<td>2.70</td>
+<td>██████████████████████████▉</td>
+</tr>
+<tr><td>SSE (lookup: improved)</td>
+<td>0.04214</td>
+<td>2.85</td>
+<td>████████████████████████████▌</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based)</td>
+<td>0.03481</td>
+<td>3.45</td>
+<td>██████████████████████████████████▌</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved)</td>
+<td>0.03043</td>
+<td>3.95</td>
+<td>███████████████████████████████████████▍</td>
+</tr>
+<tr><td>SSE (lookup: other improved, unrolled)</td>
+<td>0.04717</td>
+<td>2.55</td>
+<td>█████████████████████████▍</td>
+</tr>
+<tr><td>SSE (lookup: improved, unrolled)</td>
+<td>0.04502</td>
+<td>2.67</td>
+<td>██████████████████████████▋</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based, unrolled)</td>
+<td>0.03360</td>
+<td>3.58</td>
+<td>███████████████████████████████████▊</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved unrolled)</td>
+<td>0.02947</td>
+<td>4.08</td>
+<td>████████████████████████████████████████▊</td>
+</tr>
+<tr><td>SSE (fully unrolled improved lookup)</td>
+<td>0.04621</td>
+<td>2.60</td>
+<td>██████████████████████████</td>
+</tr>
+<tr><td>SSE &amp; BMI2 (lookup: naive)</td>
+<td>0.05092</td>
+<td>2.36</td>
+<td>███████████████████████▌</td>
+</tr>
+<tr><td>SSE &amp; BMI2 (lookup: improved)</td>
+<td>0.04854</td>
+<td>2.48</td>
+<td>████████████████████████▊</td>
+</tr>
+<tr><td>SSE &amp; BMI2 (lookup: pshufb improved)</td>
+<td>0.03665</td>
+<td>3.28</td>
+<td>████████████████████████████████▊</td>
+</tr>
+<tr><td>AVX2 (lookup: improved)</td>
+<td>0.02913</td>
+<td>4.12</td>
+<td>█████████████████████████████████████████▏</td>
+</tr>
+<tr><td>AVX2 (lookup: improved, unrolled)</td>
+<td>0.02870</td>
+<td>4.19</td>
+<td>█████████████████████████████████████████▊</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb-based)</td>
+<td>0.02790</td>
+<td>4.31</td>
+<td>███████████████████████████████████████████</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb-based, unrolled)</td>
+<td>0.02772</td>
+<td>4.33</td>
+<td>███████████████████████████████████████████▎</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb improved)</td>
+<td>0.02744</td>
+<td>4.38</td>
+<td>███████████████████████████████████████████▊</td>
+</tr>
+<tr><td>AVX2 (lookup: pshufb unrolled improved)</td>
+<td>0.02733</td>
+<td>4.40</td>
+<td>███████████████████████████████████████████▉</td>
+</tr>
+<tr><td>AVX2 &amp; BMI (lookup: pshufb improved)</td>
+<td>0.04339</td>
+<td>2.77</td>
+<td>███████████████████████████▋</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="amd-bulldozer">
+<h2>AMD Bulldozer</h2>
+<p>The CPU architecture: Bulldozer FX-8150 CPU</p>
+<p>GCC: 4.8.4 (Ubuntu)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="41%" />
+<col width="10%" />
+<col width="9%" />
+<col width="39%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar (64 bit)</td>
+<td>0.21362</td>
+<td>1.00</td>
+<td>██████████</td>
+</tr>
+<tr><td>SWAR (64 bit)</td>
+<td>0.37459</td>
+<td>0.57</td>
+<td>█████▋</td>
+</tr>
+<tr><td>SSE (lookup: naive)</td>
+<td>0.07649</td>
+<td>2.79</td>
+<td>███████████████████████████▉</td>
+</tr>
+<tr><td>SSE (lookup: other improved)</td>
+<td>0.06856</td>
+<td>3.12</td>
+<td>███████████████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: improved)</td>
+<td>0.06641</td>
+<td>3.22</td>
+<td>████████████████████████████████▏</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based)</td>
+<td>0.06082</td>
+<td>3.51</td>
+<td>███████████████████████████████████</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved)</td>
+<td>0.05934</td>
+<td>3.60</td>
+<td>███████████████████████████████████▉</td>
+</tr>
+<tr><td>SSE (lookup: other improved, unrolled)</td>
+<td>0.06314</td>
+<td>3.38</td>
+<td>█████████████████████████████████▊</td>
+</tr>
+<tr><td>SSE (lookup: improved, unrolled)</td>
+<td>0.06381</td>
+<td>3.35</td>
+<td>█████████████████████████████████▍</td>
+</tr>
+<tr><td>SSE (lookup: pshufb-based, unrolled)</td>
+<td>0.06607</td>
+<td>3.23</td>
+<td>████████████████████████████████▎</td>
+</tr>
+<tr><td>SSE (lookup: pshufb improved unrolled)</td>
+<td>0.06371</td>
+<td>3.35</td>
+<td>█████████████████████████████████▌</td>
+</tr>
+<tr><td>SSE (fully unrolled improved lookup)</td>
+<td>0.06410</td>
+<td>3.33</td>
+<td>█████████████████████████████████▎</td>
+</tr>
+<tr><td>XOP (vpermb)</td>
+<td>0.06014</td>
+<td>3.55</td>
+<td>███████████████████████████████████▌</td>
+</tr>
+<tr><td>XOP (pshufb improved)</td>
+<td>0.05929</td>
+<td>3.60</td>
+<td>████████████████████████████████████</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2016-01-17-sse-base64-decoding.html">Base64 decoding with SIMD instructions</a> &mdash; decoding could also be boosted</li>
+<li><a class="reference external" href="2015-12-27-base64-encoding.html">Base64 encoding — implementation study</a> &mdash; different scalar method to
+split 3-byte groups to four 6-bit indices.</li>
+<li><a class="reference external" href="http://alfredklomp.com/programming/sse-base64/">Fast Base64 encoding/decoding with SSE vectorization</a> by <strong>Alfred Klomp</strong></li>
+<li><a class="reference external" href="https://news.ycombinator.com/item?id=10958381">Discussion on Hackers News</a></li>
+<li>C library <a class="reference external" href="https://github.com/aklomp/base64">base64</a> by <strong>Alfred Klomp</strong> &mdash; multiplatform, small and well tested lib;
+Alfred has employed techniques described here.</li>
+</ul>
+</div>
+<div class="section" id="changelog">
+<h1>Changelog</h1>
+<ul class="simple">
+<li>2016-12-31 &mdash; add description of XOP pack and lookup procedures</li>
+<li>2016-12-18 &mdash; align order of input words with the base64 spec</li>
+<li>2016-12-14 &mdash; added results from AMD Bulldozer</li>
+<li>2016-10-30 &mdash; syntax highlighting, wording</li>
+<li>2016-09-02 &mdash; new pshufb-based lookup, other approaches of the
+improved lookup, updated results</li>
+<li>2016-04-01 &mdash; new vector lookup method, updated results</li>
+<li>2016-03-17 &mdash; improved splitting bytes in SIMD, text reorganization,
+update experiment results including unrolled procedures</li>
+<li>2016-03-11 &mdash; AVX2 implementation, results from Core i7 (Skylake)</li>
+<li>2016-01-25 &mdash; minor fixes</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-01-12-sse-base64-encoding.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

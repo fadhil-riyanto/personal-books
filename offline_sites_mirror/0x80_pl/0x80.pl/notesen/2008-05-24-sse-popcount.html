@@ -1,0 +1,842 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2008-05-24-sse-popcount.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:29 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SSSE3: fast popcount</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="ssse3-fast-popcount">
+<h1 class="title">SSSE3: fast popcount</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2008-05-24</td>
+</tr>
+<tr class="last-update field"><th class="docinfo-name">Last update:</th><td class="field-body">2017-01-28 (link to the XOP variant), 2016-11-27 (link to the paper)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#vector-algorithm" id="toc-entry-2">Vector algorithm</a></li>
+<li><a class="reference internal" href="#further-improvements" id="toc-entry-3">Further improvements</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-4">Source code</a></li>
+<li><a class="reference internal" href="#experiments-64-bit-code" id="toc-entry-5">Experiments (64-bit code)</a><ul>
+<li><a class="reference internal" href="#core-i5-westmere" id="toc-entry-6">Core i5 (Westmere)</a></li>
+<li><a class="reference internal" href="#core-i7-haswell" id="toc-entry-7">Core i7 (Haswell)</a></li>
+<li><a class="reference internal" href="#core-i7-skylake" id="toc-entry-8">Core i7 (Skylake)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiments-32-bit-code-outdated" id="toc-entry-9">Experiments (32-bit code) &mdash; outdated</a></li>
+<li><a class="reference internal" href="#acknowledgments" id="toc-entry-10">Acknowledgments</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-11">See also</a></li>
+<li><a class="reference internal" href="#changelog" id="toc-entry-12">Changelog</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Population count is a procedure of counting number of ones in a bit string.
+Intel introduced instruction <tt class="docutils literal">popcnt</tt> with <a class="reference external" href="http://en.wikipedia.org/wiki/SSE4">SSE4.2</a> instruction
+set. The instruction operates on 32 or 64-bit words.</p>
+<p>However <a class="reference external" href="http://en.wikipedia.org/wiki/SSSE3">SSSE3</a> has powerful instruction <tt class="docutils literal">PSHUFB</tt>.  This instruction
+can be used to perform a <strong>parallel</strong> 16-way lookup; LUT has 16 entries and is
+stored in an XMM register, indexes are 4 lower bits of each byte stored in
+another XMM register.</p>
+</div>
+<div class="section" id="vector-algorithm">
+<h1>Vector algorithm</h1>
+<p>With help of <tt class="docutils literal">PSHUFB</tt> we can get a vector that contains population count
+for 16 nibbles.  To get a vector of population count for each 16 byte,
+instruction <tt class="docutils literal">PSHUFB</tt> have to be called twice on vectors of lower and higher
+nibbles, and finally added together.</p>
+<p>Following code shows the idea:</p>
+<pre class="literal-block">
+; xmm0 - input (16 bytes)
+; xmm7 - POPCOUNT_4bit  -- lookup table
+; xmm6 - MASK_bits03 = packed_byte(0x0f) -- mask 4 lower bits
+
+movdqa  %%xmm0, %%xmm1
+psrlw       $4, %%xmm1
+
+pand    %%xmm6, %%xmm0  ; xmm0 - lower nibbles
+pand    %%xmm6, %%xmm1  ; xmm1 - higher nibbles
+
+movdqa  %%xmm7, %%xmm2  ; since instruction pshufb modifies LUT
+movdqa  %%xmm7, %%xmm3  ; it must be saved for further use
+
+pshufb  %%xmm0, %%xmm2  ; xmm2 = vector of popcount for lower nibbles
+pshufb  %%xmm1, %%xmm3  ; xmm3 = vector of popcount for higher nibbles
+
+paddb   %%xmm3, %%xmm2  ; xmm2 += xmm3 -- vector of popcount for bytes
+</pre>
+<p>The last step is adding all bytes from vector.</p>
+<p>Instruction <tt class="docutils literal">PSADBW</tt> calculate sum of absolute differences of
+unsigned bytes &mdash; if the first arguments is full of zeros, then result is a
+sum of bytes from second argument.  Unfortunately <tt class="docutils literal">PSADBW</tt> invoked
+with 128-bits arguments calculate separate sums for bytes 0..7 and
+8..15, and finally stores them in the lower and the higher quad words.
+Because of that few additional instructions are needed:</p>
+<pre class="literal-block">
+pxor    %%xmm0, %%xmm0  ; xmm0 = packed_byte(0x00)
+psadbw  %%xmm0, %%xmm3  ; xmm3 = [popcount of bytes 0..7 | popcount of bytes 8..15]
+movhlps %%xmm3, %%xmm0  ; xmm0 = [         0             | popcount of bytes 0..7 ]
+paddd   %%xmm3, %%xmm0  ; xmm0 = [     not needed        | popcount of bytes 0..15]
+</pre>
+</div>
+<div class="section" id="further-improvements">
+<h1>Further improvements</h1>
+<p><tt class="docutils literal">PSADBW</tt> has 3 or 4 cycles latency, also additional instructions
+need some time to execute (I guess around 2 cycles).</p>
+<p><tt class="docutils literal">PSADBW</tt> doesn't need to be called in every iteration &mdash; since max
+values of popcount for single byte is 8, we can perform up to
+<tt class="docutils literal"><span class="pre">floor(255/8)=31</span></tt> parallel additions (<tt class="docutils literal">PADDB</tt>) without overflow.
+Moreover, partial sums returned by <tt class="docutils literal">PSADBW</tt> could be added together in
+the end.</p>
+<p>Pseudocode:</p>
+<pre class="literal-block">
+pxor %%xmm5, %%xmm5             // global accumulator
+
+while (bytes to end &gt; 0) {
+        pxor %%xmm4, %%xmm4     // local accumulator (for inner loop)
+
+        n = min(bytes to end/16, 31)    // up to 31 blocks
+        for (i=0; i &lt; n; i++) {
+                // calculate xmm3, a vector of popcount for bytes
+
+                paddb %%xmm3, %%xmm4    // xmm4 += xmm3 -- update local acc.
+        }
+
+        pxor   %%xmm0, %%xmm0
+        psadbw %%xmm4, %%xmm0   // xmm4 -- calculate two popcounts
+
+        // update global acc.
+        paddd  %%xmm4, %%xmm5
+}
+
+// add halfs of global accumulator
+movhlps %%xmm5, %%xmm0
+paddd   %%xmm5, %%xmm0
+movd    %%xmm0, %%eax   // eax = population count for all bytes
+</pre>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/sse-popcount">Github repository</a> contains the original code from 2008 and also the new C++11
+(2015, 2016), intrinsics-based implementation.</p>
+</div>
+<div class="section" id="experiments-64-bit-code">
+<h1>Experiments (64-bit code)</h1>
+<p>Program from the repository were run with default settings (<tt class="docutils literal">make run</tt> and
+<tt class="docutils literal">make run_avx2</tt>) and repeated several times. Minimal measurements were considered.</p>
+<p>Below is the list of procedures listed in here. The repository has more variants.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="25%" />
+<col width="75%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">implementation</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>lookup-8</td>
+<td>LUT-based procedure (<tt class="docutils literal">uint8_t[266]</tt>)</td>
+</tr>
+<tr><td>lookup-64</td>
+<td>LUT-based procedure (<tt class="docutils literal">uint8_t[266]</tt>), avoid zero-extend</td>
+</tr>
+<tr><td>bit-parallel</td>
+<td>well know method, described for example in <a class="reference external" href="https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel">Bit Twiddling Hacks</a></td>
+</tr>
+<tr><td>bit-parallel-optimized</td>
+<td>above + the trick from section &quot;Further improvements&quot;</td>
+</tr>
+<tr><td>harley-seal</td>
+<td><a class="reference external" href="http://en.wikipedia.org/wiki/Hamming_weight#Efficient_implementation">Harley-Seal</a> variant</td>
+</tr>
+<tr><td>sse-bit-parallel</td>
+<td>SSE variant of <tt class="docutils literal"><span class="pre">bit-parallel</span></tt></td>
+</tr>
+<tr><td>sse-lookup</td>
+<td><strong>the method described in this text</strong> using SSE instructions</td>
+</tr>
+<tr><td>sse-lookup</td>
+<td><strong>the method described in this text</strong> using AVX2 instructions</td>
+</tr>
+<tr><td>cpu</td>
+<td><tt class="docutils literal">popcnt</tt> instruction emitted via intrinsic</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="core-i5-westmere">
+<h2>Core i5 (Westmere)</h2>
+<p>The CPU architecture: Core i5 M540 &#64; 2.53GHz (Westmere)</p>
+<p>More details in <a class="reference external" href="https://github.com/WojciechMula/sse-popcount/blob/master/results/westmere/westmere-m540-gcc4.9.2-sse.rst">a separate file</a>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="19%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">32 B</th>
+<th class="head">64 B</th>
+<th class="head">128 B</th>
+<th class="head">256 B</th>
+<th class="head">512 B</th>
+<th class="head">1024 B</th>
+<th class="head">2048 B</th>
+<th class="head">4094 B</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>lookup-8</td>
+<td>2.29884</td>
+<td>2.20039</td>
+<td>2.15086</td>
+<td>2.12830</td>
+<td>3.40985</td>
+<td>3.38632</td>
+<td>3.37334</td>
+<td>3.36643</td>
+</tr>
+<tr><td>lookup-64</td>
+<td>2.29837</td>
+<td>2.19979</td>
+<td>2.15067</td>
+<td>2.12608</td>
+<td>3.40112</td>
+<td>3.38135</td>
+<td>3.37165</td>
+<td>3.36490</td>
+</tr>
+<tr><td>bit-parallel</td>
+<td>2.13645</td>
+<td>2.00652</td>
+<td>1.93406</td>
+<td>1.90567</td>
+<td>3.01241</td>
+<td>2.99661</td>
+<td>2.99112</td>
+<td>2.99828</td>
+</tr>
+<tr><td>bit-parallel-optimized</td>
+<td>1.37812</td>
+<td>1.23970</td>
+<td>1.16183</td>
+<td>1.13877</td>
+<td>1.79016</td>
+<td>1.77086</td>
+<td>1.75989</td>
+<td>1.78260</td>
+</tr>
+<tr><td>harley-seal</td>
+<td>1.47658</td>
+<td>1.29922</td>
+<td>0.79424</td>
+<td>0.63432</td>
+<td>0.90197</td>
+<td>0.86194</td>
+<td>0.83491</td>
+<td>0.85399</td>
+</tr>
+<tr><td>sse-bit-parallel</td>
+<td>2.69418</td>
+<td>2.40001</td>
+<td>1.40793</td>
+<td>0.95652</td>
+<td>1.17003</td>
+<td>1.00129</td>
+<td>0.92382</td>
+<td>0.86693</td>
+</tr>
+<tr><td>sse-lookup</td>
+<td>0.75528</td>
+<td>0.54195</td>
+<td>0.34942</td>
+<td>0.31078</td>
+<td>0.47211</td>
+<td>0.45694</td>
+<td>0.44650</td>
+<td>0.46007</td>
+</tr>
+<tr><td>cpu</td>
+<td><strong>0.49283</strong></td>
+<td><strong>0.37799</strong></td>
+<td><strong>0.32058</strong></td>
+<td><strong>0.29185</strong></td>
+<td><strong>0.44360</strong></td>
+<td><strong>0.43213</strong></td>
+<td><strong>0.42637</strong></td>
+<td><strong>0.36332</strong></td>
+</tr>
+</tbody>
+</table>
+<p>CPU <tt class="docutils literal">popcnt</tt> outperforms the code described here.</p>
+</div>
+<div class="section" id="core-i7-haswell">
+<h2>Core i7 (Haswell)</h2>
+<p>The CPU architecture: Haswell i7-4770 CPU &#64; 3.40GHz.</p>
+<p>More details in <a class="reference external" href="https://github.com/WojciechMula/sse-popcount/blob/master/results/haswell/haswell-i7-4770-gcc5.3.0-avx2.rst">a separate file</a>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="19%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">32 B</th>
+<th class="head">64 B</th>
+<th class="head">128 B</th>
+<th class="head">256 B</th>
+<th class="head">512 B</th>
+<th class="head">1024 B</th>
+<th class="head">2048 B</th>
+<th class="head">4094 B</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>lookup-8</td>
+<td>1.20408</td>
+<td>1.10938</td>
+<td>1.06312</td>
+<td>1.10722</td>
+<td>1.69922</td>
+<td>1.66315</td>
+<td>1.64113</td>
+<td>1.63397</td>
+</tr>
+<tr><td>lookup-64</td>
+<td>1.17775</td>
+<td>1.09994</td>
+<td>1.06374</td>
+<td>1.09102</td>
+<td>1.67579</td>
+<td>1.64548</td>
+<td>1.62390</td>
+<td>1.61094</td>
+</tr>
+<tr><td>bit-parallel</td>
+<td>1.26768</td>
+<td>1.10553</td>
+<td>1.05222</td>
+<td>1.02626</td>
+<td>1.62086</td>
+<td>1.61024</td>
+<td>1.60495</td>
+<td>1.61435</td>
+</tr>
+<tr><td>bit-parallel-optimized</td>
+<td>1.00233</td>
+<td>0.82545</td>
+<td>0.72246</td>
+<td>0.67454</td>
+<td>1.04113</td>
+<td>1.02366</td>
+<td>1.01708</td>
+<td>1.03801</td>
+</tr>
+<tr><td>harley-seal</td>
+<td>1.00260</td>
+<td>0.79597</td>
+<td>0.50116</td>
+<td>0.39440</td>
+<td>0.54553</td>
+<td>0.50277</td>
+<td>0.48139</td>
+<td>0.48978</td>
+</tr>
+<tr><td>sse-bit-parallel</td>
+<td>2.15206</td>
+<td>2.02008</td>
+<td>1.09393</td>
+<td>0.66777</td>
+<td>0.75717</td>
+<td>0.61179</td>
+<td>0.53791</td>
+<td>0.49923</td>
+</tr>
+<tr><td>sse-lookup</td>
+<td>0.53520</td>
+<td>0.33902</td>
+<td>0.21379</td>
+<td>0.18061</td>
+<td>0.26688</td>
+<td>0.25605</td>
+<td>0.25054</td>
+<td>0.25780</td>
+</tr>
+<tr><td>avx2-lookup</td>
+<td>0.53068</td>
+<td>0.33920</td>
+<td>0.21373</td>
+<td>0.13579</td>
+<td><strong>0.17133</strong></td>
+<td><strong>0.15500</strong></td>
+<td><strong>0.14293</strong></td>
+<td><strong>0.17005</strong></td>
+</tr>
+<tr><td>cpu</td>
+<td><strong>0.29480</strong></td>
+<td><strong>0.24051</strong></td>
+<td><strong>0.15478</strong></td>
+<td><strong>0.13270</strong></td>
+<td>0.20052</td>
+<td>0.19462</td>
+<td>0.20843</td>
+<td>0.21684</td>
+</tr>
+</tbody>
+</table>
+<p>AVX2 code is <strong>faster</strong> than the dedicated instruction for input size 512 bytes and larger.</p>
+</div>
+<div class="section" id="core-i7-skylake">
+<h2>Core i7 (Skylake)</h2>
+<p>The CPU architecture: Skylake i7-6700 CPU &#64; 3.40GHz</p>
+<p>More details in <a class="reference external" href="https://github.com/WojciechMula/sse-popcount/blob/master/results/skylake/skylake-i7-6700-gcc5.3.0-avx2.rst">a separate file</a>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="19%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">32 B</th>
+<th class="head">64 B</th>
+<th class="head">128 B</th>
+<th class="head">256 B</th>
+<th class="head">512 B</th>
+<th class="head">1024 B</th>
+<th class="head">2048 B</th>
+<th class="head">4094 B</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>lookup-8</td>
+<td>1.02956</td>
+<td>0.94836</td>
+<td>1.04671</td>
+<td>0.95623</td>
+<td>1.46018</td>
+<td>1.42373</td>
+<td>1.40633</td>
+<td>1.39675</td>
+</tr>
+<tr><td>lookup-64</td>
+<td>1.00704</td>
+<td>0.94387</td>
+<td>1.03233</td>
+<td>0.94744</td>
+<td>1.45629</td>
+<td>1.42371</td>
+<td>1.40747</td>
+<td>1.39947</td>
+</tr>
+<tr><td>bit-parallel</td>
+<td>1.05662</td>
+<td>0.95297</td>
+<td>0.90992</td>
+<td>0.88908</td>
+<td>1.40587</td>
+<td>1.39753</td>
+<td>1.39337</td>
+<td>1.41585</td>
+</tr>
+<tr><td>bit-parallel-optimized</td>
+<td>0.81278</td>
+<td>0.69091</td>
+<td>0.63329</td>
+<td>0.60453</td>
+<td>0.94443</td>
+<td>0.93320</td>
+<td>0.92760</td>
+<td>0.95122</td>
+</tr>
+<tr><td>harley-seal</td>
+<td>0.81283</td>
+<td>0.66397</td>
+<td>0.43348</td>
+<td>0.34035</td>
+<td>0.46871</td>
+<td>0.43077</td>
+<td>0.41181</td>
+<td>0.41767</td>
+</tr>
+<tr><td>sse-bit-parallel</td>
+<td>2.25432</td>
+<td>1.70980</td>
+<td>0.92443</td>
+<td>0.57618</td>
+<td>0.68189</td>
+<td>0.58220</td>
+<td>0.50169</td>
+<td>0.45568</td>
+</tr>
+<tr><td>sse-lookup</td>
+<td>0.40749</td>
+<td>0.29802</td>
+<td>0.18290</td>
+<td>0.15742</td>
+<td>0.23956</td>
+<td>0.23057</td>
+<td>0.22657</td>
+<td>0.23177</td>
+</tr>
+<tr><td>avx2-lookup</td>
+<td>0.43350</td>
+<td>0.26368</td>
+<td>0.17950</td>
+<td><strong>0.11587</strong></td>
+<td><strong>0.14881</strong></td>
+<td><strong>0.13729</strong></td>
+<td><strong>0.12798</strong></td>
+<td><strong>0.14222</strong></td>
+</tr>
+<tr><td>cpu</td>
+<td><strong>0.21676</strong></td>
+<td><strong>0.16256</strong></td>
+<td><strong>0.13546</strong></td>
+<td>0.12192</td>
+<td>0.18423</td>
+<td>0.22065</td>
+<td>0.19643</td>
+<td>0.20293</td>
+</tr>
+</tbody>
+</table>
+<p>Again AVX2 code is <strong>faster</strong> than the dedicated instruction for input size 256 bytes and larger.</p>
+</div>
+</div>
+<div class="section" id="experiments-32-bit-code-outdated">
+<h1>Experiments (32-bit code) &mdash; outdated</h1>
+<p><strong>Note 2016-03-13</strong>: this section refers to results from 2008.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/sse-popcount/blob/master/original/ssse3_popcount.c">ssse3_popcount.c</a> is a test program
+that contains implementations of following procedures:</p>
+<ul class="simple">
+<li><tt class="docutils literal">lookup</tt>  &mdash; popcount based on LUT with 256 entries;
+I tested GCC <tt class="docutils literal">__builtin_popcount</tt>, however it was much
+slower than my implementation</li>
+<li><tt class="docutils literal"><span class="pre">ssse3-1</span></tt> &mdash; straightforward SSSE3 implementation</li>
+<li><tt class="docutils literal"><span class="pre">ssse3-2</span></tt> &mdash; improved SSSE3 implementation</li>
+<li><tt class="docutils literal"><span class="pre">ssse3-unrl</span></tt> &mdash; <tt class="docutils literal"><span class="pre">ssse3-2</span></tt> with inner loop unrolled 4 times</li>
+<li><tt class="docutils literal"><span class="pre">sse2-1</span></tt> &mdash; SSE2 bit-level parallel implementation</li>
+<li><tt class="docutils literal"><span class="pre">sse2-2</span></tt> &mdash; improved SSE2 implementation (using the same tricks as SSSE3 version)</li>
+<li><tt class="docutils literal"><span class="pre">see2-unrl</span></tt> &mdash; <tt class="docutils literal"><span class="pre">ssee2-2</span></tt> with inner loop unrolled 4 times</li>
+</ul>
+<p>The first argument of the program is a function name, the second is the number of
+16-byte chunks processed by the selected procedure in one iteration
+and the third is the iterations number.</p>
+<p>The table shows results for different chunk count; <a class="reference external" href="https://github.com/WojciechMula/sse-popcount/blob/master/original/ssse3_popcount-test.sh">test script</a> I've used is
+available.  Program was compiled with following options:</p>
+<pre class="literal-block">
+gcc -O2 -DALIGN_DATA ssse3_popcount.c -o ssse3_popcount
+</pre>
+<p>Tests were run on my Linux box, with Core 2 Duo E8200;</p>
+<img alt="chart" class="align-center" src="2008-05-24-sse-popcount/ssse3_popcount_speedup.png" />
+<p>Results clearly show, that the method presented above brings significant
+speedup, which depends on the data size.</p>
+<p>The straightforward SSSE3 implementation is 2-2.8 times faster, the improved
+around 3 times, and the unrolled 4-5 times.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="20%" />
+<col width="34%" />
+<col width="16%" />
+<col width="13%" />
+<col width="17%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">number of 16-byte chunks</th>
+<th class="head">iterations</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="5">1</td>
+<td rowspan="5">20,000,000</td>
+<td>0.22</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>0.19</td>
+<td>115%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>0.20</td>
+<td>110%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>0.14</td>
+<td>157%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>0.16</td>
+<td>137%</td>
+</tr>
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="5">8</td>
+<td rowspan="5">20,000,000</td>
+<td>1.42</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>0.92</td>
+<td>154%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>0.79</td>
+<td>179%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>0.61</td>
+<td>232%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>0.52</td>
+<td>273%</td>
+</tr>
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="7">32</td>
+<td rowspan="7">2,000,000</td>
+<td>0.55</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>0.34</td>
+<td>161%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>0.30</td>
+<td>183%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-unrl</span></tt></td>
+<td>0.22</td>
+<td>250%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>0.22</td>
+<td>250%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>0.19</td>
+<td>289%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-unrl</span></tt></td>
+<td>0.12</td>
+<td>458%</td>
+</tr>
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="7">128</td>
+<td rowspan="7">200,000</td>
+<td>0.21</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>0.13</td>
+<td>161%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>0.11</td>
+<td>190%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-unrl</span></tt></td>
+<td>0.08</td>
+<td>262%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>0.08</td>
+<td>262%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>0.07</td>
+<td>299%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-unrl</span></tt></td>
+<td>0.04</td>
+<td>525%</td>
+</tr>
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="7">512</td>
+<td rowspan="7">200,000</td>
+<td>0.86</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>0.53</td>
+<td>162%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>0.45</td>
+<td>191%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-unrl</span></tt></td>
+<td>0.34</td>
+<td>252%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>0.34</td>
+<td>252%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>0.26</td>
+<td>330%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-unrl</span></tt></td>
+<td>0.18</td>
+<td>477%</td>
+</tr>
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="7">1024</td>
+<td rowspan="7">200,000</td>
+<td>1.73</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>1.07</td>
+<td>161%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>0.90</td>
+<td>192%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-unrl</span></tt></td>
+<td>0.68</td>
+<td>254%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>0.69</td>
+<td>250%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>0.52</td>
+<td>332%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-unrl</span></tt></td>
+<td>0.38</td>
+<td>455%</td>
+</tr>
+<tr><td><tt class="docutils literal">lookup</tt></td>
+<td rowspan="7">2048</td>
+<td rowspan="7">200,000</td>
+<td>3.47</td>
+<td>100%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-1</span></tt></td>
+<td>2.14</td>
+<td>162%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-2</span></tt></td>
+<td>1.80</td>
+<td>192%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sse2-unrl</span></tt></td>
+<td>1.37</td>
+<td>253%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-1</span></tt></td>
+<td>1.38</td>
+<td>251%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-2</span></tt></td>
+<td>1.06</td>
+<td>327%</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ssse3-unrl</span></tt></td>
+<td>0.76</td>
+<td>456%</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="acknowledgments">
+<h1>Acknowledgments</h1>
+<p><a class="reference external" href="http://lemire.me/">Daniel Lemire</a> has gave me access to computers with
+Haswell and Skylake processors, thanks to that I could play with AVX2 code
+and run tests. <a class="reference external" href="https://github.com/kimwalisch">Kim Walisch</a> contributed
+the Harley-Seal implementation. There were some fixes and enhancements
+to sample code by <a class="reference external" href="https://github.com/WojciechMula/sse-popcount/graphs/contributors">various people</a>. Thank you.</p>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul>
+<li><p class="first"><a class="reference external" href="2016-12-16-xop-popcnt.html">Population count using XOP instructions</a></p>
+</li>
+<li><p class="first">Paper by Daniel Lemire, Nathan Kurz and me: <a class="reference external" href="https://arxiv.org/abs/1611.07612">Faster Population Counts using AVX2 Instructions</a>.</p>
+</li>
+<li><p class="first"><a class="reference external" href="https://news.ycombinator.com/item?id=11277891">Hacker news discussion</a>.</p>
+</li>
+<li><p class="first"><a class="reference external" href="2015-04-13-faster-popcount-for-large-data.html">Speeding up bit-parallel population count</a> &mdash; delaying byte-wise
+sum (the trick with <tt class="docutils literal">PSADBW</tt>) applied for bit parallel method gives
+50% speedup over plain, <a class="reference external" href="http://en.wikipedia.org/wiki/SWAR">SWAR</a> 64-bit procedure.</p>
+</li>
+<li><p class="first"><a class="reference external" href="http://www.cs.stanford.edu/people/ihaque/#publications">Anatomy of High-Performance 2D Similarity Calculations</a> &mdash; paper contains
+interesting comparison of similarity calculations which heavily use popcount
+operation. The authors compared 4 basic methods: 1) hardware-based, i.e.
+<tt class="docutils literal">popcnt</tt> instruction, 2) simple LUT, 3) bit-level parallel method (SSE2
+procedure), and 4) the method described here. The most important observation,
+from my point of view of course, is that the speed of SSSE3 code is
+<strong>comparable</strong> to hardware <tt class="docutils literal">popcnt</tt>, it is just a bit
+slower.</p>
+<p>The authors published also the full source code and I noticed they manually
+unrolled inner loop. I did the same in my code and speedup increased
+from 3 to 4-5 &mdash; sources and article has been updated.</p>
+</li>
+<li><p class="first"><a class="reference external" href="http://www.strchr.com/crc32_popcnt">Benchmarking CRC32 and PopCnt instructions</a> &mdash; <strong>Peter Kankowski</strong>
+compared speed of SSE4.2 instructions <tt class="docutils literal">crc32</tt> and <tt class="docutils literal">popcnt</tt> against
+software implementations.  Hardware CRC32 is significantly faster, but
+population count is slightly <strong>slower</strong> than the algorithm presented here</p>
+</li>
+</ul>
+</div>
+<div class="section" id="changelog">
+<h1>Changelog</h1>
+<ul class="simple">
+<li>2016-03-16 &mdash; detailed results from Westmere, Haswell &amp; Skylake</li>
+<li>2016-03-13 &mdash; AVX2 implementation, results from Westmere and Skylake, wording</li>
+<li>2015-03-04 &mdash; link to github repo</li>
+<li>2011-10-22 &mdash; link to paper, unrolled loops</li>
+<li>2010-06-28 &mdash; link to Peter's site</li>
+<li>2010-03-27 &mdash; SSE2 procedures</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2008-05-24-sse-popcount.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:30 GMT -->
+</html>

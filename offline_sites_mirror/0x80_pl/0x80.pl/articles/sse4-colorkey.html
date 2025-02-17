@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse4-colorkey.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE4: colorkey</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse4-colorkey">
+<h1 class="title">SSE4: colorkey</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">3.05.2008</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Color key</strong> &mdash; nakładanie obrazu na tło, z pominięciem pikseli obrazu
+o określonym kolorze.</p>
+<div class="section" id="mmx-i-sse">
+<h1>MMX i SSE</h1>
+<p><strong>Color key</strong> dla obrazów 32bpp, bez kanału alpha:</p>
+<pre class="literal-block">
+; xmm7 - 4 piksele o określonym kolorze (colorkey)
+; eax  -&gt; nakładany obraz
+; ebx  -&gt; tło
+
+0:
+        movdqa   %xmm7, %xmm2
+
+        movdqa  (%eax), %xmm0   ; 4 piksele obrazu
+        movdqa  (%ebx), %xmm1   ; 4 piksele tła
+
+        pcmpeqd  %xmm0, %xmm2   ; xmm2 - maska: 0xffffffff dla pikseli równych colorkey
+
+        pand     %xmm2, %xmm1   ; xmm1 - wyzerowanie pikseli tła mających zostać nadpisane
+        pandn    %mmm0, %xmm2   ; xmm2 - piksele tła różne od colorkey
+
+        por      %xmm1, %xmm2   ; xmm2 - połączone tło i obraz
+
+        movdqa   %xmm2, (%ebx)
+
+        ; pętla do 0b
+</pre>
+</div>
+<div class="section" id="sse4">
+<h1>SSE4</h1>
+<p>W <a class="reference external" href="http://pl.wikipedia.org/wiki/SSE4">SSE4</a> pojawiły się rozkazy <tt class="docutils literal">BLEND</tt> i <tt class="docutils literal">PBLEND</tt> realizujące
+funkcje przepisujące wybrane elementy z jednego wektora zapisanemu w
+rejestrze lub pamięci, do drugiego wektora zapisanego w rejestrze &mdash; a
+więc zastępują sekwencję trzech rozkazów <tt class="docutils literal">PAND</tt>, <tt class="docutils literal">PANDN</tt> i <tt class="docutils literal">POR</tt>.
+Co prawda w SSE dostępne są instrukcje <tt class="docutils literal">MASKMOVQ</tt> i <tt class="docutils literal">MASKMOVDQU</tt>,
+jednak uaktualniają zawartość pamięci, nie rejestrów.</p>
+<p>O przepisaniu elementu decyduje zapalenie bitu w masce bitowej; maski są
+albo zapisane w kodzie rozkazu jako stałe natychmiastowe, albo obliczane
+w trakcie działania programu i <strong>zawsze</strong> zapisane w rejestrze
+<tt class="docutils literal">%xmm0</tt>.</p>
+<p>Np. rozkaz <tt class="docutils literal">PBLENDV %xmm_S, %xmm_D</tt> przepisuje wybrane bajty z
+<tt class="docutils literal">%xmm_S</tt> do <tt class="docutils literal">%xmm_D</tt>, na podstawie maski zapisanej w rejestrze
+<tt class="docutils literal">%xmm0</tt>.  Pod uwagę brane są najstarsze bity poszczególnych bajtów
+maski.</p>
+<p>Przedstawiony wyżej program można wówczas skrócić:</p>
+<pre class="literal-block">
+; xmm7 - 4 piksele o określonym kolorze (colorkey)
+; eax  -&gt; nakładany obraz
+; ebx  -&gt; tło
+
+0:
+        movdqa   %xmm7, %xmm0
+
+        movdqa  (%eax), %xmm2   ; 4 piksele obrazu
+        movdqa  (%ebx), %xmm1   ; 4 piksele tła
+
+        pcmpeqd  %xmm2, %xmm0   ; xmm0 - maska: 0xffffffff dla pikseli równych colorkey
+
+        pblendvb %xmm2, %xmm1   ; xmm1 - połączone tło i obraz
+
+        movdqa   %xmm1, (%ebx)
+
+        ; pętla
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse4-colorkey.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

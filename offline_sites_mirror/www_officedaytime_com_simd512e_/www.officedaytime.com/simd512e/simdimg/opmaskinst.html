@@ -1,0 +1,364 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/opmaskinst.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:34:29 GMT -->
+<head>
+    <meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+    <meta content="ja" http-equiv="Content-Language" />
+    <link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/opmaskinst.html" />
+    <link rel="alternate" hreflang="en" href="opmaskinst.html" />
+    <title>Opmask register instructions</title>
+    <style type="text/css">
+        .red {
+            color: #FF0000;
+        }
+
+        h1 {
+            font-size: 15pt;
+            font-weight: bold;
+            background-color: #8288FD;
+            color: #FFFFFF;
+            padding: 2pt;
+        }
+
+        body {
+            font-family: sans-serif;
+            font-size: 10pt;
+        }
+
+        h2 {
+            font-weight: bold;
+            padding: 2pt 2pt 0pt 0pt;
+            font-size: 10pt;
+            border-bottom-style: solid;
+            border-bottom-width: 2px;
+            border-bottom-color: #0000FF;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0000FF;
+        }
+
+        dt {
+            font-weight: bold;
+        }
+
+        td {
+            background-color: #FFFFFF;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+
+        .srcprogdiv {
+            border: 1px solid #0000FF;
+            border-radius: 5px;
+            padding: 5px 10px 5px 10px;
+        }
+
+        srcprogdiv {
+        }
+
+        .intr {
+            color: #6778ED;
+        }
+
+        .IL {
+            color: black;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Opmask register instructions</h2>
+
+
+    <table>
+        <tr>
+            <th rowspan="3">&nbsp;</th>
+            <th rowspan="3">mnemonic</th>
+            <th colspan="4">where ?</th>
+        </tr>
+        <tr>
+            <th>Q</th>
+            <th>D</th>
+            <th>W</th>
+            <th>B</th>
+        </tr>
+        <tr>
+            <th>lower 64-bit</th>
+            <th>lower 32-bit</th>
+            <th>lower 16-bit</th>
+            <th>lower 8-bit</th>
+        </tr>
+        <tr>
+            <th>add</th>
+            <td>
+                KADD? k1, k2, k3<br />
+                k1 ← k2 + k3
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5+DQ</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>and</th>
+            <td>
+                KAND? k1, k2, k3<br />
+                k1 ← k2 &amp; k3
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>and not</th>
+            <td>
+                KANDN? k1, k2, k3<br />
+                k1 ← (~k2) &amp; k3
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>
+                move<br />
+                from k register/memory
+            </th>
+            <td>
+                KMOV? k1, k2/mem<br />
+                k1 ← k2/mem
+            </td>
+            <td>
+                (V5+BW<br />
+                mem = m64
+            </td>
+            <td>
+                (V5+BW<br />
+                mem = m32
+            </td>
+            <td>
+                (V5<br />
+                mem = m16
+            </td>
+            <td>
+                (V5+DQ<br />
+                mem = m8
+            </td>
+        </tr>
+        <tr>
+            <th>
+                move<br />
+                from GP register
+            </th>
+            <td>
+                KMOV? k1, reg<br />
+                k1 ← reg
+            </td>
+            <td>
+                (V5+BW#<br />
+                reg = r64
+            </td>
+            <td>
+                (V5+BW<br />
+                reg = r32
+            </td>
+            <td>
+                (V5<br />
+                reg = r32
+            </td>
+            <td>
+                (V5+DQ<br />
+                reg = r32
+            </td>
+        </tr>
+        <tr>
+            <th>
+                move<br />
+                to memory
+            </th>
+            <td>
+                KMOV? mem, k1<br />
+                mem ← k1
+            </td>
+            <td>
+                (V5+BW<br />
+                mem = m64
+            </td>
+            <td>
+                (V5+BW<br />
+                mem = m32
+            </td>
+            <td>
+                (V5<br />
+                mem = m16
+            </td>
+            <td>
+                (V5+DQ<br />
+                mem = m8
+            </td>
+        </tr>
+        <tr>
+            <th>
+                move<br />
+                to GP register
+            </th>
+            <td>
+                KMOV? reg, k1<br />
+                reg ← k1
+            </td>
+            <td>
+                (V5+BW#<br />
+                reg = r64
+            </td>
+            <td>
+                (V5+BW<br />
+                reg = r32
+            </td>
+            <td>
+                (V5<br />
+                reg = r32
+            </td>
+            <td>
+                (V5+DQ<br />
+                reg = r32
+            </td>
+        </tr>
+        <tr>
+            <th>not</th>
+            <td>
+                KNOT? k1, k2<br />
+                k1 ← ~k2
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>or</th>
+            <td>
+                KOR? k1, k2, k3<br />
+                k1 ← k2 | k3
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>or test</th>
+            <td>
+                KORTEST? k1, k2<br />
+                *1
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>shift left</th>
+            <td>
+                KSHIFTL? k1, k2, imm8<br />
+                k1 ← k2 &lt;&lt; imm8
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>shift right</th>
+            <td>
+                KSHIFTR? k1, k2, imm8<br />
+                k1 ← k2 &gt;&gt; imm8
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th>test</th>
+            <td>
+                KTEST? k1, k2<br />
+                *2
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5+DQ</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th style="height: 17px">unpack</th>
+            <td style="height: 17px">
+                KUNPCK?* k1, k2, k3<br />
+                *3
+            </td>
+            <td style="height: 17px">N/A</td>
+            <td style="height: 17px">
+                KUNPCKDQ<br />
+                (V5+BW
+            </td>
+            <td style="height: 17px">
+                KUNPCKWD<br />
+                (V5+BW
+            </td>
+            <td style="height: 17px">
+                KUNPCKBW<br />
+                (V5
+            </td>
+        </tr>
+        <tr>
+            <th style="height: 17px">xnor</th>
+            <td style="height: 17px">
+                KXNOR? k1, k2, k3<br />
+                k1 ← ~(k2 ^ k3)
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+        <tr>
+            <th style="height: 17px">xor</th>
+            <td style="height: 17px">
+                KXOR? k1, k2, k3<br />
+                k1 ← k2 ^ k3
+            </td>
+            <td>(V5+BW</td>
+            <td>(V5+BW</td>
+            <td>(V5</td>
+            <td>(V5+DQ</td>
+        </tr>
+    </table>
+
+    <p>*1 or test: Calculate (k1 | k2). If all bits are ZEROs, set ZF. If all bits are ONEs, set CF.</p>
+    <p>*2 test: If all bits of (k1 &amp; k2) are ZEROs, set ZF. If all bits of ((~k1) &amp; k2) are ZEROs, set CF.</p>
+    <p>*3 unpack: Concatinate lower n-bit of k2 and lower n-bit of k3, set the double length bits to the lower bits of k1. (The bits from k2 comes upper.)</p>
+    <p>Upper bits of the destination K register are zeroed.</p>
+    <p>TIP: xnor instruction can be used for setting all bits. (Specify one K register for all 3 operands.)</p>
+
+    <hr />
+    <a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp;
+    <a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=opmaskinst" target="_blank">Feedback</a>
+
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/opmaskinst.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:34:30 GMT -->
+</html>

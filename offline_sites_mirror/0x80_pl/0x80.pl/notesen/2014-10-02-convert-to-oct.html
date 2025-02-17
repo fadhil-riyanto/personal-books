@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-02-convert-to-oct.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Conversion numbers to octal representation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="conversion-numbers-to-octal-representation">
+<h1 class="title">Conversion numbers to octal representation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-10-02</td>
+</tr>
+<tr class="updated field"><th class="docinfo-name">Updated:</th><td class="field-body">2014-10-07 (core i7 results); 2014-10-05 (lookup table methods)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#algorithms" id="toc-entry-2">Algorithms</a><ul>
+<li><a class="reference internal" href="#naive-version" id="toc-entry-3">Naive version</a></li>
+<li><a class="reference internal" href="#lookup-tables" id="toc-entry-4">Lookup tables</a></li>
+<li><a class="reference internal" href="#improved-naive-version" id="toc-entry-5">Improved naive version</a></li>
+<li><a class="reference internal" href="#pdep-version" id="toc-entry-6">PDEP version</a></li>
+<li><a class="reference internal" href="#sse2-version" id="toc-entry-7">SSE2 version</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-8">Experiments</a><ul>
+<li><a class="reference internal" href="#results-from-pentium-m" id="toc-entry-9">Results from Pentium M</a></li>
+<li><a class="reference internal" href="#results-from-core-i7" id="toc-entry-10">Results from Core i7</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-11">Sample code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Conversion to octal isn't very computer-friendly, each digit occupy
+3 bits, it isn't power of two. The smallest number of bits to convert
+worth to consider is 12 (3 nibbles and 4 digits):</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌──────────────┐
+│<span style="color: red">ddd</span><span style="color: blue">c</span> <span style="color: blue">cc</span><span style="color: green">bb</span> <span style="color: green">b</span><span style="color: magenta">aaa</span>│
+└──────────────┘
+8┈┈11 4┈┈7 0┈┈3</pre></div><p>Then output is a 32-bit word:</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────┬────────┬────────┬────────┐
+│<span style="color: gray">00000</span><span style="color: red">ddd</span>│<span style="color: gray">00000</span><span style="color: blue">ccc</span>│<span style="color: gray">00000</span><span style="color: green">bbb</span>│<span style="color: gray">00000</span><span style="color: magenta">aaa</span>│
+└────────┴────────┴────────┴────────┘</pre></div><p>Conversion to ASCII require single add of 0x30303030 (0x30 = ord('0')).</p>
+</div>
+<div class="section" id="algorithms">
+<h1>Algorithms</h1>
+<div class="section" id="naive-version">
+<h2>Naive version</h2>
+<p>Naive conversion consists three basic steps:</p>
+<ul class="simple">
+<li>isolate octal digits, i.e. 3-bit fields;</li>
+<li>shift digits to the desired positions in the output word;</li>
+<li>finally merge fields in a one word and convert to ASCII.</li>
+</ul>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define packed32(x) ((uint8_t)(x) * (uint32_t)(0x01010101))
+</span><span class="w">
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">expand_12bits_naive</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x007</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">24</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x038</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="mi">16</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">3</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x1c0</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="mi">8</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">6</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xe00</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">9</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">d</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">to_oct_naive</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">expand_12bits_naive</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">packed32</span><span class="p">(</span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="lookup-tables">
+<h2>Lookup tables</h2>
+<p>I think using lookup tables aren't good solution. First: shifting on
+current CPUs is very fast, second: LUT requires memory and pollutes
+cache.  The results from my old Pentium M shows that LUT are the fastest,
+but I bet that PDEP or SSE2 version win on Core i7 .</p>
+<p>Two implementations of LUT were tested:</p>
+<ol class="arabic simple">
+<li>Single, big table indexed by 12 bits (4096 entries). Entry of a
+table contains of course 4 bytes converted to ASCII.</li>
+<li>Two small tables indexed by lower 8 bits and higher 4 bits of
+12-bit word (256 and 16 elements respectively). Tables contain
+partial results of <tt class="docutils literal">expand_12bits</tt> operations.</li>
+</ol>
+<p>Variant 1 sample code:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">12</span><span class="p">];</span><span class="w">
+
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">prepare_single_table</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mh">0xfff</span><span class="p">;</span><span class="w"> </span><span class="n">x</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">lookup</span><span class="p">[</span><span class="n">x</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">to_oct_naive</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">to_oct_single_table</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="n">x</span><span class="p">];</span><span class="w"> </span><span class="c1">// assert x &lt;= 0xfff;
+</span><span class="p">}</span>
+</pre>
+<p>Variant 2 sample code:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">lookup_nibbles01</span><span class="p">[</span><span class="mi">256</span><span class="p">];</span><span class="w">
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">lookup_nibble2</span><span class="p">[</span><span class="mi">16</span><span class="p">];</span><span class="w">
+
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">prepare_single_table</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">256</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">lookup_nibbles01</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">expand_12bits_naive</span><span class="p">(</span><span class="n">i</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">lookup_nibble2</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">expand_12bits_naive</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">to_oct_two_tables</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">expanded</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup_nibbles01</span><span class="p">[</span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">]</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">lookup_nibble2</span><span class="p">[(</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xf</span><span class="p">];</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">expanded</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">packed32</span><span class="p">(</span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Variant 2 requires less memory than variant 1 (only 6%), but performs 4
+operations to calculate result (2 bit-and, 1 shift and add) and issues
+2 memory fetches.</p>
+</div>
+<div class="section" id="improved-naive-version">
+<h2>Improved naive version</h2>
+<p>Using single multiplication we can perform two shifts and one bit-or.
+Input word have to be split to two subwords: containing digits <strong>a</strong>, <strong>c</strong>
+and <strong>b</strong>, <strong>d</strong>.</p>
+<p>For example digits <strong>a</strong>, <strong>c</strong> are converted in following steps:</p>
+<ol class="arabic">
+<li><p class="first">isolate digits (bit-and):</p>
+<pre class="code literal-block">
+ac = x &amp; 0x1c7
+</pre>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────┬────────┬────────┬────────┐
+│<span style="color: gray">00000000</span>│<span style="color: gray">00000000</span>│<span style="color: gray">0000000</span><span style="font-weight: bold">c</span>│<span style="font-weight: bold">cc</span><span style="color: gray">000</span><span style="font-weight: bold">aaa</span>│
+└────────┴────────┴────────┴────────┘</pre></div></li>
+<li><p class="first">the digit <strong>a</strong> is on the correct position, but <strong>c</strong> have to be shifted
+15 bits to the left. This could be saved as:</p>
+<pre class="literal-block">
+expanded_ac = (ac &lt;&lt; 15) + (ac &lt;&lt; 0)
+</pre>
+<p>Or using multiplication:</p>
+<pre class="literal-block">
+expanded_ac = ac * ((1 &lt;&lt; 15) + 1)
+</pre>
+<p>Layout of <tt class="docutils literal">expanded_ac</tt>:</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────┬────────┬────────┬────────┐
+│<span style="color: gray">00000000</span>│<span style="color: gray">00000</span><span style="font-weight: bold">ccc</span>│<span style="color: gray">000</span><span style="color: red">aaa</span><span style="color: gray">0</span><span style="color: red">c</span>│<span style="color: red">cc</span><span style="color: gray">000</span><span style="font-weight: bold">aaa</span>│
+└────────┴────────┴────────┴────────┘</pre></div></li>
+<li><p class="first">Mask out garbage &mdash; the bits marked with red.</p>
+</li>
+</ol>
+<p>Downside of this method is that digits are generated in reversed order,
+so the instruction <tt class="docutils literal">bswap</tt> have to be used on the result.</p>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">expand_12bits_mul</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">ac</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x1c7</span><span class="p">;</span><span class="w"> </span><span class="c1">// ac = 000ccc000aaa
+</span><span class="w">    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">bd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xe38</span><span class="p">;</span><span class="w"> </span><span class="c1">// bd = ddd000bbb000
+</span><span class="w">
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">expanded_ac</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">ac</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">((</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">10</span><span class="p">)))</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x00070007</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">expanded_bd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">bd</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">((</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">15</span><span class="p">)))</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x07000700</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">expanded_ac</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">expanded_bd</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">to_oct_mul</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">bswap</span><span class="p">(</span><span class="n">expand_12bits_mul</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">packed32</span><span class="p">(</span><span class="sc">'0'</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="pdep-version">
+<h2>PDEP version</h2>
+<p><tt class="docutils literal">PDEP</tt> is a new instruction introduced in BMI2 extension. Please take
+a look at my <a class="reference external" href="2014-09-21-convert-to-hex.html">previous article</a> where this instructions is discussed
+in details.  <tt class="docutils literal">PDEP</tt> makes conversion easy and very fast &mdash; code have
+just three instructions (<tt class="docutils literal">pdep</tt>, <tt class="docutils literal">add</tt>, <tt class="docutils literal">bswap</tt>).</p>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">to_oct_pdep</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pdep</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="mh">0x07070707</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">bswap</span><span class="p">(</span><span class="n">result</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">packed32</span><span class="p">(</span><span class="sc">'0'</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="sse2-version">
+<h2>SSE2 version</h2>
+<p>SSE2 does in parallel the same bit-and &amp; shifts operations as the
+naive version.</p>
+<p>Variable shifts are possible with multiplication, instruction <tt class="docutils literal">PMULHUW</tt>
+multiplies 16-bit words and store higher word of a result. When
+multiplier is in form <tt class="docutils literal">(1 &lt;&lt; n)</tt> then result of this instruction
+is <tt class="docutils literal">x &gt;&gt; (16 - n)</tt>.</p>
+<p>Unfortunately a multiplier is always greater than 1, because
+of that input arguments have to be modified (in step 2)
+in order to get the correct results.</p>
+<p>The SSE2 procedure contains following steps:</p>
+<ol class="arabic">
+<li><p class="first">Clone two 12-bit words (we'll use dot instead of zero).</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┐
+│<span style="color: gray">┈┈┈┈</span>dddcccbbbaaa│<span style="color: gray">┈┈┈┈</span>dddcccbbbaaa│<span style="color: gray">┈┈┈┈</span>dddcccbbbaaa│<span style="color: gray">┈┈┈┈</span>dddcccbbbaaa│<span style="color: gray">┈┈┈┈</span>ggghhhfffeee│<span style="color: gray">┈┈┈┈</span>ggghhhfffeee│<span style="color: gray">┈┈┈┈</span>ggghhhfffeee│<span style="color: gray">┈┈┈┈</span>ggghhhfffeee│
+└────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┘</pre></div></li>
+<li><p class="first">Shift left by 1 bit all words. This can be done using single <tt class="docutils literal">PADDWD</tt> instruction.</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┐
+│<span style="color: gray">┈┈┈</span>dddcccbbbaaa<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>dddcccbbbaaa<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>dddcccbbbaaa<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>dddcccbbbaaa<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>ggghhhfffeee<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>ggghhhfffeee<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>ggghhhfffeee<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>ggghhhfffeee<span style="color: gray">.</span>│
+└────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┘</pre></div></li>
+<li><p class="first">Mask octal digits (<tt class="docutils literal">PAND</tt>).</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┐
+│<span style="color: gray">┈┈┈</span>ddd<span style="color: gray">┈┈┈┈┈┈┈┈┈┈</span>│<span style="color: gray">┈┈┈┈┈┈</span>ccc<span style="color: gray">┈┈┈┈┈┈┈</span>│<span style="color: gray">┈┈┈┈┈┈┈┈┈</span>bbb<span style="color: gray">┈┈┈┈</span>│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈</span>aaa<span style="color: gray">.</span>│<span style="color: gray">┈┈┈</span>ggg<span style="color: gray">┈┈┈┈┈┈┈┈┈┈</span>│<span style="color: gray">┈┈┈┈┈┈</span>hhh<span style="color: gray">┈┈┈┈┈┈┈</span>│<span style="color: gray">┈┈┈┈┈┈┈┈┈</span>fff<span style="color: gray">┈┈┈┈</span>│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈</span>eee<span style="color: gray">.</span>│
+└────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┘</pre></div></li>
+<li><p class="first">Parallel shift right (<tt class="docutils literal">PMULHUW</tt>):</p>
+<ul class="simple">
+<li><strong>d</strong> and <strong>g</strong> must be shifted 10 bits right,</li>
+<li><strong>c</strong> and <strong>h</strong> must be shifted 7 bits right,</li>
+<li><strong>b</strong> and <strong>f</strong> must be shifted 4 bits right,</li>
+<li><strong>a</strong> and <strong>e</strong> must be shifted 1 bit right.</li>
+</ul>
+<p>Multipliers are (respectively):</p>
+<ul class="simple">
+<li><tt class="docutils literal">1 &lt;&lt; (16 - 10)</tt></li>
+<li><tt class="docutils literal">1 &lt;&lt; (16 - 7)</tt></li>
+<li><tt class="docutils literal">1 &lt;&lt; (16 - 12)</tt></li>
+<li><tt class="docutils literal">1 &lt;&lt; (16 - 15)</tt></li>
+</ul>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┬────────────────┐
+│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>ddd│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>ccc│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>bbb│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>aaa│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>ggg│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>hhh│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>fff│<span style="color: gray">┈┈┈┈┈┈┈┈┈┈┈┈┈</span>eee│
+└────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┴────────────────┘</pre></div></li>
+<li><p class="first">pack to bytes and convert to ASCII (<tt class="docutils literal">PACKUSWB</tt> &amp; <tt class="docutils literal">PADDB</tt>).</p>
+</li>
+</ol>
+</div>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<ul class="simple">
+<li>Converter <tt class="docutils literal">naive</tt> implements naive algorithm,</li>
+<li>converter <tt class="docutils literal">mul</tt> implements improved naive,</li>
+<li>converter <tt class="docutils literal">SSE2</tt> is a SSE implementation of naive,</li>
+<li>converter <tt class="docutils literal">pdep</tt> use PDEP instruction,</li>
+<li>converter <tt class="docutils literal">1 LUT</tt> is variant 1 from lookup tables,</li>
+<li>converter <tt class="docutils literal">2 LUTs</tt> is variant 2 from lookup tables.</li>
+</ul>
+<div class="section" id="results-from-pentium-m">
+<h2>Results from Pentium M</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="16%" />
+<col width="16%" />
+<col width="53%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">convert</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>0.2296</td>
+<td>1.00</td>
+<td>██████████████████</td>
+</tr>
+<tr><td>mul</td>
+<td>0.3846</td>
+<td>0.60</td>
+<td>███████████</td>
+</tr>
+<tr><td>SSE2</td>
+<td>0.2629</td>
+<td>0.87</td>
+<td>████████████████</td>
+</tr>
+<tr><td>1 LUT</td>
+<td>0.1122</td>
+<td>2.05</td>
+<td>██████████████████████████████████████</td>
+</tr>
+<tr><td>2 LUTs</td>
+<td>0.1286</td>
+<td>1.79</td>
+<td>█████████████████████████████████</td>
+</tr>
+</tbody>
+</table>
+<p>Notes:</p>
+<ul class="simple">
+<li>The SSE2 procedure is slower than scalar one.</li>
+<li>Simple shifts and bit-or are faster than multiplication.</li>
+<li>LUT versions are the fastest, even version with two lookup-tables
+is very fast.</li>
+</ul>
+</div>
+<div class="section" id="results-from-core-i7">
+<h2>Results from Core i7</h2>
+<p>Statistics from 20 samples.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="15%" />
+<col width="10%" />
+<col width="10%" />
+<col width="10%" />
+<col width="19%" />
+<col width="35%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">convert</th>
+<th class="head" colspan="3">time [s]</th>
+<th class="head" rowspan="2">speedup (avg)</th>
+<th class="head" rowspan="2">&nbsp;</th>
+</tr>
+<tr><th class="head">min</th>
+<th class="head">max</th>
+<th class="head">avg</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>0.1630</td>
+<td>0.2040</td>
+<td>0.1841</td>
+<td>1.00</td>
+<td>████████████████████</td>
+</tr>
+<tr><td>mul</td>
+<td>0.1630</td>
+<td>0.2200</td>
+<td>0.1777</td>
+<td>1.04</td>
+<td>████████████████████</td>
+</tr>
+<tr><td>SSE2</td>
+<td>0.2170</td>
+<td>0.2570</td>
+<td>0.2318</td>
+<td>0.79</td>
+<td>███████████████</td>
+</tr>
+<tr><td>pdep</td>
+<td>0.1360</td>
+<td>0.1650</td>
+<td>0.1491</td>
+<td>1.23</td>
+<td>████████████████████████</td>
+</tr>
+<tr><td>1 LUT</td>
+<td>0.1350</td>
+<td>0.1680</td>
+<td>0.1452</td>
+<td>1.27</td>
+<td>█████████████████████████</td>
+</tr>
+<tr><td>2 LUTs</td>
+<td>0.1350</td>
+<td>0.1770</td>
+<td>0.1468</td>
+<td>1.25</td>
+<td>█████████████████████████</td>
+</tr>
+</tbody>
+</table>
+<p>Notes:</p>
+<ul class="simple">
+<li>The SSE2 is the slowest. This is big surprise</li>
+<li>PDEP and lookup methods has simiar speedup. PDEP is better as doesn't require
+additional memory. On CPUs without BMI2 extension method with two lookup-tables
+would be good choice.</li>
+<li>Multiplication is not faster than 2 shifts and bit-or. Another surprise.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/conv_to_oct">Full implementation and program</a> used in experiments are available
+on github.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-02-convert-to-oct.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

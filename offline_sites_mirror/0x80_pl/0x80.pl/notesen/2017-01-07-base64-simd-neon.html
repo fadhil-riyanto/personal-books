@@ -1,0 +1,366 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2017-01-07-base64-simd-neon.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>ARM Neon and Base64 encoding &amp; decoding</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="arm-neon-and-base64-encoding-decoding">
+<h1 class="title">ARM Neon and Base64 encoding &amp; decoding</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2017-01-07</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2017-02-13 (correct the author),
+2017-02-03 (link to 64-bit code),
+2017-01-08 (spelling)</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Base64 algorithms were subject of my interest last year and I proposed a few
+different SIMD approaches for both encoding and encoding. This text sums up my
+experiments with ARM Neon implementation. For algorithms' details please refer
+to <a class="reference external" href="2016-01-12-sse-base64-encoding.html">Base64 encoding with SIMD instructions</a> and <a class="reference external" href="2016-01-17-sse-base64-decoding.html">Base64 decoding with SIMD
+instructions</a>.</p>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#arm-neon" id="toc-entry-2">ARM Neon</a><ul>
+<li><a class="reference internal" href="#load-and-store" id="toc-entry-3">Load and store</a></li>
+<li><a class="reference internal" href="#conditions" id="toc-entry-4">Conditions</a></li>
+<li><a class="reference internal" href="#bit-operations" id="toc-entry-5">Bit operations</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#base64-encoding" id="toc-entry-6">Base64 encoding</a></li>
+<li><a class="reference internal" href="#base64-decoding" id="toc-entry-7">Base64 decoding</a></li>
+<li><a class="reference internal" href="#performance-results" id="toc-entry-8">Performance results</a><ul>
+<li><a class="reference internal" href="#encoding-quadwords" id="toc-entry-9">Encoding (quadwords)</a></li>
+<li><a class="reference internal" href="#decoding-doublewords" id="toc-entry-10">Decoding (doublewords)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-11">See also</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-12">Source code</a></li>
+</ul>
+</div>
+</div>
+<div class="section" id="arm-neon">
+<h1>ARM Neon</h1>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/ARM_architecture#NEON">ARM Neon</a> is a pretty rich instruction set, it supports common SIMD logic
+and arithmetic operations, as well as vector lookups. The base register size is
+64 bit (called <em>doubleword</em>), but there is support for 128-bit operations
+(<em>quadword</em>). Such a wide register is composed from two 64-bit registers, thus
+there is no cost of getting lower or higher part of quadword register; however
+at intrinsics level we need to use pseudo-functions <tt class="docutils literal">vget_{low,high}</tt> or
+<tt class="docutils literal">vcompose</tt> (to construct a new vector).  All instructions accept doubleword
+registers, <strong>most</strong> work on quadwords.</p>
+<div class="section" id="load-and-store">
+<h2>Load and store</h2>
+<p>Neon has one unique trait when compared with Intel's SIMD: it can load/store
+arrays of registers (up to four). Moreover it's possible to treat data as
+<strong>arrays of structures</strong> and interleave elements accordingly.  In base64 we
+process three-byte blocks, and thanks to the interleaving we can easily load 8
+(or 16) three-byte blocks, placing 0th bytes in the first register, 1st bytes in
+the second register and 2nd bytes in the third register.</p>
+<p>Here is a sample code using intrinsics functions. The <tt class="docutils literal">uint8x16x3_t</tt>
+type represents a sequence of three quadwords registers; no assembly
+instructions will be generated due to referencing sub-items of value
+having this (or similar) type.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// input bytes (3 * 16): [a0|b0|c0|a1|b1|c1|...|a15|b15|c15]
+</span><span class="k">const</span><span class="w"> </span><span class="n">uint8x16x3_t</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vld3q_u8</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// content of registers:
+// in.val[0] = [a0|a1|...|a15]
+// in.val[1] = [b0|b1|...|b15]
+// in.val[2] = [c0|c1|...|c15]</span>
+</pre>
+<p>Basically, interleaved load and store are the most important, vital part
+of Neon implementations.</p>
+</div>
+<div class="section" id="conditions">
+<h2>Conditions</h2>
+<p>Base64 decoding requires input validation, i.e. a procedure which translates
+from ASCII into binary values must detect invalid ASCII letters.  Intel SIMD
+has fast ways to communicate between the vector unit and the scalar unit,
+that's responsible also for jumps. Unfortunately, sending values from the Neon
+unit to the scalar unit is very slow. I overcome this limitation by using
+temporary memory buffer, which is independently read by the scalar code.</p>
+</div>
+<div class="section" id="bit-operations">
+<h2>Bit operations</h2>
+<p>Neon supports a bit select instruction (<tt class="docutils literal">x ? y : z</tt>) that appeared to
+be useful in a few places. (AMD XOP also provides such instruction,
+AVX512F comes with powerful <a class="reference external" href="2015-03-22-avx512-ternary-functions.html">ternary logic instruction</a>.)</p>
+<p>Neon supports also shifts at byte level that makes some bit operations
+easier.</p>
+</div>
+</div>
+<div class="section" id="base64-encoding">
+<h1>Base64 encoding</h1>
+<p>Encoding is done in four steps:</p>
+<ul class="simple">
+<li>load three-byte blocks having bit layout <tt class="docutils literal">[ccdddddd|bbbbcccc|aaaaaabb]</tt>;</li>
+<li>isolate four 6-bit values, the fields <tt class="docutils literal">a</tt>, <tt class="docutils literal">b</tt>, <tt class="docutils literal">c</tt> and <tt class="docutils literal">d</tt>;</li>
+<li>translate them into ASCII codes;</li>
+<li>save the text.</li>
+</ul>
+<p>The first step is accomplished with described earlier <strong>interleaved loading</strong>,
+we load 16 three-byte fields and after this step the first register has got
+bytes <tt class="docutils literal">[aaaaaabb]</tt>, the second one <tt class="docutils literal">[bbbbcccc]</tt> and the third one
+<tt class="docutils literal">[ccdddddd]</tt>.  Using standard bitwise and, bitwise or and shifts we build
+four vectors having bytes <tt class="docutils literal">[00aaaaaa]</tt>, <tt class="docutils literal">[00bbbbbb]</tt>, <tt class="docutils literal">[00cccccc]</tt> and
+<tt class="docutils literal">[00dddddd]</tt>.</p>
+<p>Then we translate these values into ASCII codes. I literally rewritten
+three procedures from Intel SSE:</p>
+<ul class="simple">
+<li><a class="reference external" href="2016-01-12-sse-base64-encoding.html#naive-version">lookup_naive</a> &mdash; the most naive, comparison-based approach;</li>
+<li><a class="reference external" href="2016-01-12-sse-base64-encoding.html#improved-version">lookup_version2</a> &mdash; also uses comparisons, but is a bit smarter;</li>
+<li><a class="reference external" href="2016-01-12-sse-base64-encoding.html#id4">lookup_pshufb_improved</a> &mdash; uses vector lookup instruction <tt class="docutils literal">vtbl</tt>
+(I kept name <tt class="docutils literal">pshufb</tt>, though). The only important note is that
+<tt class="docutils literal">vtbl</tt> doesn't support quadword registers, so two invocation of
+the instruction are needed.</li>
+</ul>
+<p>The last step, saving the result, i.e. four vectors, also uses <strong>interleaved</strong>
+transfer.</p>
+<p>The whole encoding template.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">LOOKUP_FN</span><span class="o">&gt;</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="n">encode</span><span class="p">(</span><span class="n">LOOKUP_FN</span><span class="w"> </span><span class="n">lookup</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">bytes</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">output</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">output</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">bytes</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">16</span><span class="o">*</span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// load 3 x 16 bytes, each three-byte block has following layout:
+</span><span class="w">        </span><span class="c1">//
+</span><span class="w">        </span><span class="c1">//      [ccdddddd|bbbbcccc|aaaaaabb]
+</span><span class="w">        </span><span class="c1">//        byte 2   byte 1   byte 0
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x16x3_t</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vld3q_u8</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// isolate fields into
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x16_t</span><span class="w"> </span><span class="n">field_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vshrq_n_u8</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x16_t</span><span class="w"> </span><span class="n">field_b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vandq_u8</span><span class="p">(</span><span class="w">
+                                    </span><span class="n">vorrq_u8</span><span class="p">(</span><span class="n">vshrq_n_u8</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">vshlq_n_u8</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">)),</span><span class="w">
+                                    </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x3f</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x16_t</span><span class="w"> </span><span class="n">field_c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vandq_u8</span><span class="p">(</span><span class="w">
+                                    </span><span class="n">vorrq_u8</span><span class="p">(</span><span class="n">vshrq_n_u8</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="w"> </span><span class="mi">6</span><span class="p">),</span><span class="w"> </span><span class="n">vshlq_n_u8</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="w"> </span><span class="mi">2</span><span class="p">)),</span><span class="w">
+                                    </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x3f</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x16_t</span><span class="w"> </span><span class="n">field_d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vandq_u8</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x3f</span><span class="p">));</span><span class="w">
+
+        </span><span class="c1">// translate fields
+</span><span class="w">        </span><span class="n">uint8x16x4_t</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">field_a</span><span class="p">);</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">field_b</span><span class="p">);</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">field_c</span><span class="p">);</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">field_d</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// save 4 x 16 bytes with interleave
+</span><span class="w">        </span><span class="n">vst4q_u8</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">);</span><span class="w">
+        </span><span class="n">out</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="base64-decoding">
+<h1>Base64 decoding</h1>
+<p>Base64 decoding requires four steps:</p>
+<ul class="simple">
+<li>load four-character blocks;</li>
+<li>translate the characters into 6-bit values;</li>
+<li>pack four 6-bit values into 24-bit words;</li>
+<li>save 24-bit words.</li>
+</ul>
+<p>The first step uses &mdash; no surprise &mdash; interleaved loading; we load 16
+four-characters chunks.  Then each character is translated into 6-bit value,
+i.e. each of four register has bytes <tt class="docutils literal">[00aaaaaa]</tt>, <tt class="docutils literal">[00bbbbbb]</tt>,
+<tt class="docutils literal">[00cccccc]</tt> and <tt class="docutils literal">[00dddddd]</tt>.  I rewritten two SSE procedures:</p>
+<ul class="simple">
+<li><a class="reference external" href="2016-01-17-sse-base64-decoding.html#vector-lookup-byte-blend">lookup_byte_blend</a> &mdash; naive, comparison-based algorithm,
+it uses the bit select instruction to blend vectors;</li>
+<li><a class="reference external" href="2016-01-17-sse-base64-decoding.html#vector-lookup-pshufb-with-bitmask-new">lookup_pshufb_bitmask</a> &mdash; very compact approach heavily using
+the vector lookup instruction.</li>
+</ul>
+<p>Now we compose three registers that will have bytes <tt class="docutils literal">[aaaaaabb]</tt>,
+<tt class="docutils literal">[bbbbcccc]</tt> and <tt class="docutils literal">[ccdddddd]</tt>. This is done with shifts and bitwise ors.
+The final step is to save these bytes, and again, we use interleaved store.</p>
+<p>The decoding template.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">FN_LOOKUP</span><span class="o">&gt;</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="n">decode</span><span class="p">(</span><span class="n">FN_LOOKUP</span><span class="w"> </span><span class="n">lookup</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">output</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">output</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">field_a</span><span class="p">;</span><span class="w">
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">field_b</span><span class="p">;</span><span class="w">
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">field_c</span><span class="p">;</span><span class="w">
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">field_d</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">error_a</span><span class="p">;</span><span class="w">
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">error_b</span><span class="p">;</span><span class="w">
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">error_c</span><span class="p">;</span><span class="w">
+    </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">error_d</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">union</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w">  </span><span class="n">error_mem</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">error_word</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="n">uint8x8x3_t</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">8</span><span class="o">*</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x8x4_t</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vld4_u8</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">field_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="n">error_a</span><span class="p">);</span><span class="w">
+        </span><span class="n">field_b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="w"> </span><span class="n">error_b</span><span class="p">);</span><span class="w">
+        </span><span class="n">field_c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="w"> </span><span class="n">error_c</span><span class="p">);</span><span class="w">
+        </span><span class="n">field_d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">(</span><span class="n">in</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">3</span><span class="p">],</span><span class="w"> </span><span class="n">error_d</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="n">uint8x8_t</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vorr_u8</span><span class="p">(</span><span class="n">vorr_u8</span><span class="p">(</span><span class="n">error_a</span><span class="p">,</span><span class="w"> </span><span class="n">error_b</span><span class="p">),</span><span class="w"> </span><span class="n">vorr_u8</span><span class="p">(</span><span class="n">error_c</span><span class="p">,</span><span class="w"> </span><span class="n">error_d</span><span class="p">));</span><span class="w">
+
+        </span><span class="n">vst1_u8</span><span class="p">(</span><span class="n">error_mem</span><span class="p">,</span><span class="w"> </span><span class="n">error</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">error_word</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">error_word</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// report an error
+</span><span class="w">        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vorr_u8</span><span class="p">(</span><span class="n">vshr_n_u8</span><span class="p">(</span><span class="n">field_b</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">vshl_n_u8</span><span class="p">(</span><span class="n">field_a</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">));</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vorr_u8</span><span class="p">(</span><span class="n">vshr_n_u8</span><span class="p">(</span><span class="n">field_c</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">),</span><span class="w"> </span><span class="n">vshl_n_u8</span><span class="p">(</span><span class="n">field_b</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">));</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">val</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vorr_u8</span><span class="p">(</span><span class="n">field_d</span><span class="p">,</span><span class="w"> </span><span class="n">vshl_n_u8</span><span class="p">(</span><span class="n">field_c</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">));</span><span class="w">
+
+        </span><span class="n">vst3_u8</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">);</span><span class="w">
+        </span><span class="n">out</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">8</span><span class="o">*</span><span class="mi">3</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>As it was said, communication between the Neon unit and main unit is expansive.
+In the result error reporting path uses a temporary memory to save information.</p>
+</div>
+<div class="section" id="performance-results">
+<h1>Performance results</h1>
+<p>I purchased <a class="reference external" href="http://raspberrypi.org/">Raspberry Pi 3</a> with Cortex-ARMv8, however, the operating system
+doesn't support the 64-bit mode yet. Everything was tested in the 32-bit mode.</p>
+<p>My first implementations used only doubleword instructions (that performed
+pretty well), later I used quadword in both encoding and decoding. Performance
+of encoding become better, but decoding was almost 40% slower. I suppose that I
+omitted something due to lack of experience. Any hints are warmly welcomed.</p>
+<hr class="docutils" />
+<p>CPU: ARMv7 Processor rev 4 (v7l)</p>
+<p>Compiler: GCC 4.9.2</p>
+<div class="section" id="encoding-quadwords">
+<h2>Encoding (quadwords)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="39%" />
+<col width="11%" />
+<col width="10%" />
+<col width="40%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar (32 bit)</td>
+<td>1.06887</td>
+<td>1.00</td>
+<td>██████████</td>
+</tr>
+<tr><td>ARM NEON (naive lookup)</td>
+<td>0.43296</td>
+<td>2.47</td>
+<td>████████████████████████▋</td>
+</tr>
+<tr><td>ARM NEON (optimized lookup)</td>
+<td>0.38450</td>
+<td>2.78</td>
+<td>███████████████████████████▊</td>
+</tr>
+<tr><td>ARM NEON (pshufb improved lookup)</td>
+<td>0.32139</td>
+<td>3.33</td>
+<td>█████████████████████████████████▎</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="decoding-doublewords">
+<h2>Decoding (doublewords)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="22%" />
+<col width="21%" />
+<col width="13%" />
+<col width="12%" />
+<col width="32%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">lookup</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>improved scalar</td>
+<td>N/A</td>
+<td>0.24247</td>
+<td>1.00</td>
+<td>██████████</td>
+</tr>
+<tr><td>scalar</td>
+<td>N/A</td>
+<td>0.49157</td>
+<td>0.49</td>
+<td>████▉</td>
+</tr>
+<tr><td>ARM NEON</td>
+<td>byte blend</td>
+<td>0.14298</td>
+<td>1.70</td>
+<td>████████████████▉</td>
+</tr>
+<tr><td>ARM NEON</td>
+<td>pshufb bitmask</td>
+<td>0.10574</td>
+<td>2.29</td>
+<td>██████████████████████▉</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li>Matthieu Darbois developed a really nice algorithm for base64 decoding that uses
+64-bit ARM Neon instructions, see file <a class="reference external" href="https://github.com/aklomp/base64/blob/master/lib/arch/neon64/codec.c">lib/arch/neon64/codec.c</a> (a part of great
+<a class="reference external" href="https://github.com/aklomp/base64">base64 library</a> by Alfred Klomp).</li>
+<li>&quot;Neon Programmer's Guide&quot;, 2013, ARM (<a class="reference external" href="http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.den0018a/index.html">DEN0018A</a> &mdash; free, but required registration)</li>
+<li><a class="reference external" href="https://gcc.gnu.org/onlinedocs/gcc-4.8.1/gcc/ARM-NEON-Intrinsics.html#ARM-NEON-Intrinsics">List of all intrinsic functions supported by GCC</a></li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/base64simd">Github repository</a> contains all procedures and sample programs.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2017-01-07-base64-simd-neon.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+</html>

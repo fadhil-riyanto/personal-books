@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2021-02-14-avx512bw-count-bytes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Counting byte in byte stream with AVX512BW instructions</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="counting-byte-in-byte-stream-with-avx512bw-instructions">
+<h1 class="title">Counting byte in byte stream with AVX512BW instructions</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2021-02-14</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2021-02-18
+(add new, <a class="reference internal" href="#avx512-bytemask-kops">faster implementation</a> suggested by <a class="reference external" href="https://twitter.com/trav_downs/status/1361221659537985538">Travis Downs</a>;
+fixed info about port usage, as noted by <a class="reference external" href="https://twitter.com/InstLatX64/status/1361981426573447170">InstLatX64</a>)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#avx512bw-bitmask-algorithm" id="toc-entry-2">AVX512BW &mdash; bitmask algorithm</a></li>
+<li><a class="reference internal" href="#avx512bw-bytemask-algorithm" id="toc-entry-3">AVX512BW &mdash; bytemask algorithm</a></li>
+<li><a class="reference internal" href="#avx512bw-bytemask-algorithm-with-mask-registers" id="toc-entry-4">AVX512BW &mdash; bytemask algorithm with mask registers</a></li>
+<li><a class="reference internal" href="#experiment-results-from-skylake-x" id="toc-entry-5">Experiment results from Skylake-X</a></li>
+<li><a class="reference internal" href="#conclusions" id="toc-entry-6">Conclusions</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-7">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>This is a follow up to article <a class="reference external" href="2019-01-29-simd-count-byte.html">SIMDized counting byte in byte stream</a>. In
+this article only AVX512BW variants are discussed. Performance is analyzed only
+for the Skylake-X CPU.</p>
+<p>We want to count how many times given byte appears in a byte stream.
+The following C++ code shows the naive algorithm:</p>
+<pre class="code cpp literal-block">
+<span class="kt">size_t</span><span class="w"> </span><span class="nf">countbyte</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+        </span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">b</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="avx512bw-bitmask-algorithm">
+<span id="avx512-bitmask"></span><h1>AVX512BW &mdash; bitmask algorithm</h1>
+<p>AVX512 allows to express the problem in a really elegant way.  Unlike other
+common SIMD extensions, the result of a vector comparison in AVX512 is a
+<strong>bitmask</strong> stored in a <em>mask register</em>. A mask register in AVX512BW is a
+64-bit word.</p>
+<p>We only have to produce such bitmask for <em>equals to</em> comparison, and then
+<a class="reference external" href="http://en.wikipedia.org/wiki/Hamming_weight">count bits</a> in the bitmask.  The bit count operation
+is cheap (1 cycle latency on current CPUs).</p>
+<p>The following C++ procedure shows the actual implementation.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">avx512bw_count_bytes</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">end</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="p">;</span><span class="w">
+
+    </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="n">byte</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">64</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">ptr</span><span class="p">);</span><span class="w">
+        </span><span class="n">sum</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">));</span><span class="w">
+
+        </span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">scalar_count_bytes</span><span class="p">(</span><span class="n">ptr</span><span class="p">,</span><span class="w"> </span><span class="n">end</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">ptr</span><span class="p">,</span><span class="w"> </span><span class="n">byte</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The key lines are:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">ptr</span><span class="p">);</span><span class="w">
+</span><span class="n">sum</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">));</span>
+</pre>
+<p>Where</p>
+<ul class="simple">
+<li><tt class="docutils literal">_mm512_loadu_si512</tt> &mdash; loads 64 bytes into a register;</li>
+<li><tt class="docutils literal">_mm512_cmpeq_epi8_mask</tt> &mdash; compares the register with the counted byte, yield a bitmask;</li>
+<li><tt class="docutils literal">__builtin_popcountll</tt> &mdash; count bits in the bitmask.</li>
+</ul>
+<p>GCC 10.2 compiles the while loop into:</p>
+<pre class="literal-block">
+loop:
+    vpcmpeqb -0x40(%rax),%zmm0,%k0      ; load &amp; compare -&gt; bitmask in k0
+    add    $0x40,%rax                   ; increment the pointer `ptr`
+    kmovq  %k0,%rdx                     ; transfer from mask to generic purpose register rdx
+    popcnt %rdx,%rdx                    ; count bits in rdx
+    add    %rdx,%rbx                    ; update `sum` variable
+    cmp    %rsi,%rax
+    jb     loop
+</pre>
+<p>The code is short, both in C++ and assembly. The loop consists only seven
+instruction. Also it is fast, and unrolling makes it even faster &mdash; see the
+results in the <a class="reference internal" href="#experiments">following section</a>.</p>
+</div>
+<div class="section" id="avx512bw-bytemask-algorithm">
+<span id="avx512-bytemask"></span><h1>AVX512BW &mdash; bytemask algorithm</h1>
+<p>Even if we unroll the loop, we will be hit by congestion on execution ports.
+Both instructions <tt class="docutils literal">vpcmpeqb</tt> and <tt class="docutils literal">kmovq</tt> can be executed only on port #5.
+While latency of both AVX512 instructions is only one CPU cycle, <tt class="docutils literal">popcnt</tt> has
+three cycles of latency.</p>
+<p>Obviously this is not bad, but it made me think if we can do better. The
+main idea is to avoid moving data between register sets. In the original
+approach we are using 1) vector, 2) mask and 3) generic purpose registers.</p>
+<p>The goal is to keep the comparison result in a vector register and follow the
+algorithm used for AVX2 and SSE instruction set. This algorithm updates <strong>byte
+counters</strong> 255 times, and then sums byte counters in some wider accumulator to
+avoid overflows on bytes. Below is the main loop of AVX2 implementation:</p>
+<pre class="code cpp literal-block">
+<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">256</span><span class="o">*</span><span class="mi">32</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">local_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">();</span><span class="w">
+
+    </span><span class="c1">// update 32 x 8-bit counter
+</span><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">255</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">,</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)</span><span class="n">ptr</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0 or -1
+</span><span class="w">
+        </span><span class="n">local_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sub_epi8</span><span class="p">(</span><span class="n">local_sum</span><span class="p">,</span><span class="w"> </span><span class="n">eq</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// update the global accumulator 2 x 64-bit
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sad_epu8</span><span class="p">(</span><span class="n">local_sum</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">());</span><span class="w">
+    </span><span class="n">global_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi64</span><span class="p">(</span><span class="n">global_sum</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Porting that procedure to AVX512 is straightforward, the only missing
+equivalent is <tt class="docutils literal">_mm256_cmpeq_epi8</tt>.  Fortunately, it's quite easy to build
+one.</p>
+<p>We use the fact that if two numbers <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> are equal then <tt class="docutils literal">x xor y =
+0</tt>.  If the operands are not equal, then <tt class="docutils literal">x xor y</tt> has some non-zero value.
+Note that if bytes are interpreted as unsigned numbers, than non-zero values
+are in range [1..255].</p>
+<p>Now the question is, can we reduce such unspecified non-zero value into
+something nice, like -1 from the AVX2 case?  Yes, we can use the minimum
+operator. Our expression is <tt class="docutils literal">min(x xor y, 1)</tt>:</p>
+<ul class="simple">
+<li>when <tt class="docutils literal">x = y</tt> then <tt class="docutils literal">min(0, 1) = 0</tt>;</li>
+<li>when <tt class="docutils literal">x != y</tt> then <tt class="docutils literal"><span class="pre">min(non-zero,</span> 1) = 1</tt>.</li>
+</ul>
+<p>AVX512BW defines <tt class="docutils literal">vpminub</tt> (<tt class="docutils literal">_mm512_min_epu8</tt>) that calculates the minimum
+value of unsigned bytes, thus the translation of the byte-wise algorithm is
+possible. Below is the C++ implementation:</p>
+<pre class="code cpp literal-block">
+<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">64</span><span class="o">*</span><span class="mi">255</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">local_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">);</span><span class="w"> </span><span class="c1">// 255
+</span><span class="w">
+    </span><span class="c1">// update 64 x 8-bit counter
+</span><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">255</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">,</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">ptr</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_xor_si512</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_min_epu8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">v_01</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0 if equal, 1 otherwise
+</span><span class="w">
+        </span><span class="n">local_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi8</span><span class="p">(</span><span class="n">local_sum</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// update the global accumulator 8 x 64-bit
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sad_epu8</span><span class="p">(</span><span class="n">local_sum</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">());</span><span class="w">
+    </span><span class="n">vector_acc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi64</span><span class="p">(</span><span class="n">vector_acc</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>It's almost identical to the AVX2 version, with just two exceptions:</p>
+<ul class="simple">
+<li>we initialize <tt class="docutils literal">local_sum</tt> to the maximum possible value, because our
+comparison procedure yields zero when bytes are equal;</li>
+<li>we need two instructions to perform the byte-wise comparison:
+<tt class="docutils literal">_mm512_xor_si512</tt> and <tt class="docutils literal">_mm512_min_epu8</tt>.</li>
+</ul>
+<p>GCC 10.2 compiles the while loop into:</p>
+<pre class="literal-block">
+loop:
+    vpxord (%rax),%zmm2,%zmm0           ; load &amp; xor
+    add    $0x40,%rax                   ; increment the pointer `ptr`
+    mov    %rdx,%rdi
+    vpminub %zmm0,%zmm3,%zmm0           ; calulate min(xor-result, 1)
+    vpsubb %zmm0,%zmm1,%zmm0            ; update `local_sum`
+    vmovdqa64 %zmm0,%zmm1
+    cmp    %rdx,%rax
+    jne    loop
+</pre>
+<p>The vector instructions that appear in the listing have following
+characteristics:</p>
+<ul class="simple">
+<li><tt class="docutils literal">vpxord</tt> can be executed on ports #0 and #5,</li>
+<li><tt class="docutils literal">vpminub</tt> can be executed on port #0,</li>
+<li><tt class="docutils literal">vpsubb</tt> can be executed on ports #0 and #5,</li>
+<li><tt class="docutils literal">vmovdqa64</tt> does only register renaming.</li>
+</ul>
+<p>When the loop is unrolled, then it is more likely that vector
+instructions will be run in parallel.</p>
+</div>
+<div class="section" id="avx512bw-bytemask-algorithm-with-mask-registers">
+<span id="avx512-bytemask-kops"></span><h1>AVX512BW &mdash; bytemask algorithm with mask registers</h1>
+<p>The third variant is a modification of the bytemask algorithm. The byte counters
+are updated with by a masked operation. True, we get back to mask registers,
+however loop unrolling hides longer latencies of the masked operation.</p>
+<p>This modification was proposed by <a class="reference external" href="https://twitter.com/trav_downs/status/1361221659537985538">Travis Downs</a>, I merely coded it.</p>
+<p>Below is the unrolled while loop:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="n">byte</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v_01</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="mh">0x01</span><span class="p">);</span><span class="w">
+
+</span><span class="n">__m512i</span><span class="w"> </span><span class="n">global_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+</span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">64</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="mi">4</span><span class="o">*</span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">local_sum0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">local_sum1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">local_sum2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">local_sum3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+
+    </span><span class="c1">// update 64 x 8-bit counter
+</span><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">63</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">,</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w">   </span><span class="n">in0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">64</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w">   </span><span class="n">in1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">64</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w">   </span><span class="n">in2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="mi">64</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w">   </span><span class="n">in3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="mi">64</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">eq0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in0</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">eq1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in1</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">eq2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in2</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">eq3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in3</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">local_sum0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">local_sum0</span><span class="p">,</span><span class="w"> </span><span class="n">eq0</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum0</span><span class="p">,</span><span class="w"> </span><span class="n">v_01</span><span class="p">);</span><span class="w">
+        </span><span class="n">local_sum1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">local_sum1</span><span class="p">,</span><span class="w"> </span><span class="n">eq1</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum1</span><span class="p">,</span><span class="w"> </span><span class="n">v_01</span><span class="p">);</span><span class="w">
+        </span><span class="n">local_sum2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">local_sum2</span><span class="p">,</span><span class="w"> </span><span class="n">eq2</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum2</span><span class="p">,</span><span class="w"> </span><span class="n">v_01</span><span class="p">);</span><span class="w">
+        </span><span class="n">local_sum3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">local_sum3</span><span class="p">,</span><span class="w"> </span><span class="n">eq3</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum3</span><span class="p">,</span><span class="w"> </span><span class="n">v_01</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">local_sum0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi8</span><span class="p">(</span><span class="n">local_sum0</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum1</span><span class="p">);</span><span class="w">
+    </span><span class="n">local_sum2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi8</span><span class="p">(</span><span class="n">local_sum2</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum3</span><span class="p">);</span><span class="w">
+    </span><span class="n">local_sum0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi8</span><span class="p">(</span><span class="n">local_sum0</span><span class="p">,</span><span class="w"> </span><span class="n">local_sum2</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sad_epu8</span><span class="p">(</span><span class="n">local_sum0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">());</span><span class="w">
+    </span><span class="n">global_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi64</span><span class="p">(</span><span class="n">global_sum</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>GCC 10.2 compiles the while loop into:</p>
+<pre class="literal-block">
+loop:
+        vpcmpeqb (%rdi),%zmm1,%k4           ; load &amp; compare
+        vmovdqa64 %zmm2,%zmm6
+        vmovdqa64 %zmm3,%zmm9
+        add    $0x100,%rdi                  ; increment the pointer `ptr`
+        vpcmpeqb -0xc0(%rdi),%zmm1,%k3      ; load &amp; compare
+        vpcmpeqb -0x80(%rdi),%zmm1,%k2      ; load &amp; compare
+        vmovdqa64 %zmm4,%zmm7
+        vpcmpeqb -0x40(%rdi),%zmm1,%k1      ; load &amp; compare
+        vmovdqa64 %zmm5,%zmm8
+        vpaddb %zmm2,%zmm0,%zmm6{%k4}       ; update local_sum
+        vpaddb %zmm3,%zmm0,%zmm9{%k3}       ; update local_sum
+        vpaddb %zmm4,%zmm0,%zmm7{%k2}       ; update local_sum
+        vmovdqa64 %zmm6,%zmm2
+        vpaddb %zmm5,%zmm0,%zmm8{%k1}       ; update local_sum
+        vmovdqa64 %zmm9,%zmm3
+        vmovdqa64 %zmm7,%zmm4
+        vmovdqa64 %zmm8,%zmm5
+        cmp    %rax,%rdi
+        jne    loop
+</pre>
+</div>
+<div class="section" id="experiment-results-from-skylake-x">
+<span id="experiments"></span><h1>Experiment results from Skylake-X</h1>
+<p>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</p>
+<p>Compiler: GCC version 8.4.0 (Ubuntu 8.4.0-1ubuntu1~16.04.1)</p>
+<p>Procedures:</p>
+<ul class="simple">
+<li><tt class="docutils literal">scalar</tt> &mdash; the naive C++ code shown at the beginning;</li>
+<li><tt class="docutils literal">AVX2</tt> &mdash; the procedure shown above;</li>
+<li><a class="reference internal" href="#avx512-bitmask">AVX512BW</a> &mdash; bitmask algorithm;</li>
+<li><a class="reference internal" href="#avx512-bytemask">AVX512BW (ver 5)</a> &mdash; bytemask algorithm;</li>
+<li><a class="reference internal" href="#avx512-bytemask-kops">AVX512BW (ver 6)</a> &mdash; bytemask with masked operations.</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="12%" />
+<col width="10%" />
+<col width="6%" />
+<col width="43%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>0.458</td>
+<td>0.435</td>
+<td>1.0</td>
+<td><tt class="docutils literal">██▋</tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.071</td>
+<td>0.069</td>
+<td>6.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX512BW</td>
+<td>0.061</td>
+<td>0.057</td>
+<td>7.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX512BW (unrolled 4x)</td>
+<td>0.044</td>
+<td>0.044</td>
+<td>9.9</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX512BW (ver 5)</td>
+<td>0.040</td>
+<td>0.040</td>
+<td>10.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX512BW (ver 5 unrolled 2x)</td>
+<td>0.033</td>
+<td>0.032</td>
+<td>13.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX512BW (ver 5 unrolled 4x)</td>
+<td>0.035</td>
+<td>0.035</td>
+<td>12.4</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX512BW (ver 6 unrolled 4x)</td>
+<td>0.029</td>
+<td>0.029</td>
+<td>15.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="conclusions">
+<h1>Conclusions</h1>
+<ul class="simple">
+<li>The approaches using byte-wise comparison (versions 5 &amp; 6) are 1.3-1.5 times
+faster than the initial AVX512BW code that uses bitmask.</li>
+<li>The drawback of the faster procedures is that minimum amount of data is
+almost 16kB (255 * 64).</li>
+<li>An interesting fact is that too much unrolling doesn't help for version #5 ---
+0.35 cycles/byte for 4 x unroll versus 0.33 cycles/byte for 2 x unroll.</li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All implementation are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-count-bytes">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2021-02-14-avx512bw-count-bytes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

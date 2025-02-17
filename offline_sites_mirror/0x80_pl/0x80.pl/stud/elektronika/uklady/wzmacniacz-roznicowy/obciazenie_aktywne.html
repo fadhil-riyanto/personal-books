@@ -1,0 +1,42 @@
+Wzmacniacz ró¿nicowy z obci±¿eniem aktywnym
+* "Wzmacniacz ró¿nicowy.pdf", str. 25
+* Wojciech Mu³a, 17.10.2005
+
+* uk³ad:
+* - wej¶cie nieodwracaj±ce: 1 0
+* - wej¶cie odwracaj±ce:    2 0
+* - wyj¶cie (asymetryczne): 3 0
+* - Ucc: 4 0
+* - Uee: 5 0
+
+* obci±¿enie aktywne (lustro pr±dowe)
+Q5	6 6 4	pnp
+Q6	3 6 4	pnp
+
+* para ró¿nicowa
+Q1	6 1 8	npn
+Q2	3 2 8	npn
+
+* ¼ród³o pr±dowe (I_E)
+Q3	8 9 5	npn
+Q4	9 9 5	npn
+R	9 4	4k
+.model npn NPN Bf=100
+.model pnp PNP Bf=100
+
+* zasilanie uk³adu
+Vcc	4 0	DC +10V
+Vee	5 0	DC -10V
+
+
+* sygna³y wej¶ciowe
+V1	1 0	DC 0V
+V2	2 0	DC 3V
+
+* analiza
+.DC V1 0 6V 20mV
+
+* wykresy: napiêcia wej¶ciowe i nap. wyj¶ciowe
+.plot DC V(1) V(2) V(3)
+
+.end

@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/string_to_number.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Konwersja napisów na wartość liczbową</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="konwersja-napisow-na-wartosc-liczbowa">
+<h1 class="title">Konwersja napisów na wartość liczbową</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">3.05.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">27.10.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#obliczenie-wartosci-ciagu-znakow" id="toc-entry-2">Obliczenie wartości ciągu znaków</a><ul>
+<li><a class="reference internal" href="#optymalizacja-w-asemblerze" id="toc-entry-3">Optymalizacja w asemblerze</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#obliczenie-wartosci-cyfry" id="toc-entry-4">Obliczenie wartości cyfry</a><ul>
+<li><a class="reference internal" href="#system-binarny" id="toc-entry-5">System binarny</a></li>
+<li><a class="reference internal" href="#system-osemkowy" id="toc-entry-6">System ósemkowy</a></li>
+<li><a class="reference internal" href="#system-dziesietny" id="toc-entry-7">System dziesiętny</a></li>
+<li><a class="reference internal" href="#system-szesnastkowy" id="toc-entry-8">System szesnastkowy</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Przy konwersji wykorzystywany jest oczywiście dobrze znany wzór na wartość
+liczby zapisaną w wagowym, pozycyjnym systemie liczenia.</p>
+<img alt="x = sum(0,n) (base^i * d[i])" class="align-center" src="img/string_value_eq.png" />
+<p>Tak więc każdemu znakowi z łańcucha przyporządkowuje się wartość <span class="math"><i>d</i></span>
+(cyfry), oraz wagę zależna od pozycji. W artykule zostaną pokazane (ogólne)
+algorytmy w C, oraz zoptymalizowane funkcje asemblerowe.</p>
+</div>
+<div class="section" id="obliczenie-wartosci-ciagu-znakow">
+<h1>Obliczenie wartości ciągu znaków</h1>
+<p>Z przedstawionym algorytmem po raz pierwszy zetknąłem się w asmpaku, w
+kodzie autorstwa <em>Shielda/UnderPL</em>. Dużym atutem algorytmu jest brak
+konieczności poznania długości łańcucha przed jego konwersją &mdash; wszak w C
+jest to niemały problem.</p>
+<p>Funkcje <tt class="docutils literal">bin</tt>, <tt class="docutils literal">oct</tt>, <tt class="docutils literal">dec</tt> i <tt class="docutils literal">hex</tt> zostaną przedstawione w
+następnym punkcie.</p>
+<pre class="literal-block">
+int simple_strtol(const char* s, int base)
+{
+ int (*digit_value)(char); /* funkcja konwertująca, zależna od `base' */
+ int  result = 0;
+
+ switch (base)
+        {
+         case 2:  digit_value = bin; break;
+         case 8:  digit_value = oct; break;
+         case 10: digit_value = dec; break;
+         case 16: digit_value = hex; break;
+         default: fputs(&quot;nieprawidłowa podstawa systemu&quot;, stderr);
+                  errno = EINVAL;
+                  return -1;
+        }
+
+ while (*s)
+        {
+         result *= base;            /* przesuń cyfry w lewo, robiąc tym samym
+                                      &quot;miejsce&quot; na nową cyfrę */
+
+         result += digit_val(*s++); /* dodaj nową cyfrę */
+         if (errno != 0)
+                return -1;
+        }
+ return result;
+}
+</pre>
+<p>Przy założeniu, że jednak długość łańcucha jest znana, to konwersja
+przebiega zgodnie ze wzorem ogólnym (pozwolę sobie pominąć sprawdzanie
+błędów i przyjmę <tt class="docutils literal">base == 10</tt>):</p>
+<pre class="literal-block">
+int simple_strtol2(const char *s, int length)
+{
+ int i, result = 0, weight = 1;
+
+ for (i=length-1; i&gt;=0; i--)
+        {
+         result += weight*dec(s[i]);
+         weight *= 10;
+        }
+}
+</pre>
+<div class="section" id="optymalizacja-w-asemblerze">
+<h2>Optymalizacja w asemblerze</h2>
+<p>W przypadku pierwszej (wg mnie lepszej) metody kluczowym wyrażeniem jest:</p>
+<pre class="literal-block">
+result = result * base + digit_value(c);
+</pre>
+<p>Analogiczną operację realizuje instrukcja <tt class="docutils literal">lea</tt>; załóżmy,
+że <tt class="docutils literal">eax := result</tt>, oraz <tt class="docutils literal">edx := digit_value(c)</tt>.</p>
+<pre class="literal-block">
+; system dwójkowy
+lea eax, [eax*2 + edx]
+
+; system ósemkowy
+lea eax, [eax*8 + edx]
+
+; system dziesiętny
+lea eax, [eax*4 + eax] ; eax *= 5
+lea eax, [eax*2 + edx]
+
+; system szesnastkowy
+shl eax, 4
+add eax, edx
+</pre>
+<p>W przypadku gdyby wartość bitu była przechowywana we fladze przeniesienia to
+można użyć rozkazu <tt class="docutils literal">adc eax, eax</tt>, aczkolwiek wydaje mi się, że
+przepisanie wartości rejestru do <tt class="docutils literal">CF</tt> jest zbyt kosztowne.</p>
+<p>Druga metoda jest wolniejsza, choćby ze względu na dwa mnożenia. Jednak
+z pomocą przychodzą rozkazy MMX, wszak za pomocą <tt class="docutils literal">pmullw</tt> można mnożyć
+<strong>równocześnie</strong> cztery liczby. Proponuję rozwiązanie, które pozwoli
+obliczyć wartość czteroznakowego łańcucha &mdash; oczywiście przy założeniu,
+że dane wejściowe są prawidłowe.</p>
+<pre class="literal-block">
+segment .data
+
+weights dw 1000, ; wagi kolejnych cyfr w systemie dziesiętnym
+            100, ; (można również zmodyfikować dla systemów dwójkowego
+             10, ;  oraz ósemkowego)
+              1
+
+ASCII   db 0x30,0x30,0x30,0x30, 0x30,0x30,0x30,0x30 ; ASCII('0')=0x30
+
+segment .text
+; esi -&gt; 4 cyfry ascii (np. &quot;5762&quot;)
+_4digits_to_number:
+        pxor      mm7, mm7       ; np.
+        movd      mm0, [esi]     ; mm0 = | 0 | 0 | 0 | 0 |'2'|'6'|'7'|'5'|
+        psubb     mm0, [ASCII]   ; mm0 = | ? | ? | ? | ? | 2 | 6 | 7 | 5 |
+        punpcklbw mm0, mm7       ; mm0 = |   2   |   6   |   7   |   5   |
+
+        pmullw    mm0, [weights] ; mm0 = |   2   |  60   |  700  |  5000 |
+        movq      mm1, mm0
+
+        ; pozostaw starsze i młodsze słowa wyników
+        psrlw     mm0, 8         ; mm0 = |   0   |   0   |   2   |   19  |
+        psllw     mm1, 8         ; mm1 = |   2   |  60   |  188  |  136  |
+
+        ; sumowanie
+        psadbw    mm0, mm7       ; mm0 = |   0   |   0   |   0   |   21  |
+        psadbw    mm1, mm7       ; mm1 = |   0   |   0   |   0   |  386  |
+
+        movd      eax, mm0       ; eax = 21
+        movd      ebx, mm1       ; ebx = 386
+
+        shl       eax, 8         ; eax = 5376
+        add       eax, ebx       ; eax = 5762
+        ret
+</pre>
+<p>Ewentualnie można skorzystać z dobrodziejstw rozkazu <tt class="docutils literal">pmaddwd</tt>.</p>
+<pre class="literal-block">
+; esi -&gt; 4 cyfry ascii (np. &quot;5762&quot;)
+_4digits_to_number2:
+        pxor      mm7, mm7       ; np.
+        movd      mm0, [esi]     ; mm0 = | 0 | 0 | 0 | 0 |'2'|'6'|'7'|'5'|
+        psubb     mm0, [ASCII]   ; mm0 = | ? | ? | ? | ? | 2 | 6 | 7 | 5 |
+        punpcklbw mm0, mm7       ; mm0 = |   2   |   6   |   7   |   5   |
+
+        pmaddwd   mm0, [weights] ; mm0 = |     2+60      |    700+5000   |
+        movq      mm1, mm0
+        psrlq     mm1, 32        ; mm1 = |       0       |      2+60     |
+        paddd     mm0, mm1       ; mm0 = |     2+60      |      5762     |
+
+        movd      eax, mm0
+        ret
+</pre>
+</div>
+</div>
+<div class="section" id="obliczenie-wartosci-cyfry">
+<h1>Obliczenie wartości cyfry</h1>
+<p>Poniżej funkcje w języku C zwracające wartości cyfr dla systemów liczenia:
+dwójkowego, ósemkowego, dziesiętnego i szesnastkowego.</p>
+<pre class="literal-block">
+#include &lt;stdio.h&gt;
+#include &lt;ctype.h&gt;
+#include &lt;error.h&gt;
+extern int errno;
+
+/* sygnalizacja błędu, wspólna dla wszystkich procedur */
+
+#define ERROR                         \
+fputs(&quot;nieprawidłowa cyfra&quot;, stderr); \
+errno  = EINVAL;                      \
+return -1                             \
+</pre>
+<div class="section" id="system-binarny">
+<h2>System binarny</h2>
+<pre class="literal-block">
+int bin(char c)
+{
+ if (c == '0') return 0;
+ if (c == '1') return 1;
+ ERROR;
+}
+</pre>
+</div>
+<div class="section" id="system-osemkowy">
+<h2>System ósemkowy</h2>
+<pre class="literal-block">
+int oct(char c)
+{
+ if (c &gt;= '0' &amp;&amp; c &lt;= '7')
+        return c - '0'
+ ERROR;
+}
+</pre>
+</div>
+<div class="section" id="system-dziesietny">
+<h2>System dziesiętny</h2>
+<pre class="literal-block">
+int dec(char c)
+{
+ if (c &gt;= '0' &amp;&amp; c &lt;= '9')
+        return c - '0'
+ ERROR;
+}
+</pre>
+</div>
+<div class="section" id="system-szesnastkowy">
+<h2>System szesnastkowy</h2>
+<pre class="literal-block">
+int hex(char c)
+{
+ if (!isxdigit(c))
+        ERROR;
+
+ if (isdigit(c)) /* c='0'...'9' */
+        return dec(c)
+ else            /* c='a'...'f' lub 'A'...'F' */
+        {
+         c = tolower(c);
+         return c - 'a' + 10;
+        }
+
+}
+
+int hex2(char c)
+{
+ static char hex_lookup = &quot;0123456789abcdef&quot;;
+
+ int i;
+ c = tolower(c);
+
+ for (i=0; i&lt;16; i++)
+        if (c == hex_lookup[i])
+                return i;
+
+ ERROR;
+}
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/string_to_number.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+</html>

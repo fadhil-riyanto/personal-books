@@ -1,0 +1,90 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from 0x80.pl/notesen/2013-09-15-convex-polygon-intersection/demo.xhtml by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:31 GMT -->
+<head>
+    <title>Convex polygons intersection (demo by Wojciech Muła)</title>
+    <script src="point.js"></script>
+    <script src="polygon.js"></script>
+    <script src="convex_hull.js"></script>
+    <script src="line.js"></script>
+    <script src="SAT.js"></script>
+    <script src="naive.js"></script>
+    <script src="gui.js"></script>
+    <script src="demo.js"></script>
+    <link href="style.css" rel="stylesheet" type="text/css" />
+</head>
+<body id="body" onload="init()">
+
+<table>
+<tr>
+<td width="20%" valign="top">
+    <button onclick="gui.select(1)">select polygon 1</button>
+    <button onclick="gui.select(2)">select polygon 2</button>
+    <button onclick="gui.generate(1)">new polygon 1</button>
+    <button onclick="gui.generate(2)">new polygon 2</button>
+    <button onclick="gui.rotate_left()">rotate left selected</button>
+    <button onclick="gui.rotate_right()">rotate right selected</button>
+
+	<h2>Usage</h2>
+
+	<p>Click on selected polygon to move</p>
+
+	<p>If polygons do not intersect there are shown two lines:
+	<span class="blue">blue</span> is a normal obtained by SAT,
+	<span class="green">green</span> is separating line found by naive algorithm.</p>
+
+    <h2>Keys</h2>
+    <ul>    
+        <li><span class="key">1</span> -- select poly 1</li>
+        <li><span class="key">2</span> -- select poly 2</li>
+        <li><span class="key">r</span> -- rotate left selected</li>
+        <li><span class="key">R</span> -- rotate right selected</li>
+        <li><span class="key">s</span> -- scale down selected</li>
+        <li><span class="key">S</span> -- scale up selected</li>
+        <li><span class="key">g</span> or <span class="key">G</span> -- new selected</li>
+    </ul>
+</td>
+<td width="80%">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" id="canvas"
+  viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"
+  style="width:100%; height:100%">
+
+	<polygon id="polygon1"
+		points=""
+		fill="none"
+		stroke="black"
+	/>
+
+	<polygon id="polygon2"
+		points=""
+		fill="none"
+		stroke="black"
+	/>
+
+    <line id="separating_line"
+        x1="0"
+        y1="0"
+        x2="0"
+        y2="0"
+    />
+
+    <line id="sat_normal"
+        x1="0"
+        y1="0"
+        x2="0"
+        y2="0"
+    />
+	
+	<text id="status"
+		x="5"
+		y="30"
+	></text>
+</svg>
+</td>
+</tr>
+</table>
+
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2013-09-15-convex-polygon-intersection/demo.xhtml by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:39 GMT -->
+</html>

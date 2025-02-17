@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/str.php?f=pcmpistrm by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:00 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/str.php?f=pcmpistrm" />
+<link rel="alternate" hreflang="en" href="str2a39.html?f=pcmpistrm" />
+<title>pcmpistrm</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+h1 {
+	font-size: 15pt;
+	font-weight: bold;
+	background-color: #8288FD;
+	color: #FFFFFF;
+	padding: 2pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+
+</style>
+</head>
+
+
+<body>
+<h2>
+PCMPESTRI - Packed CoMPare Explicit STRing Index<br />
+PCMPESTRM - Packed CoMPare Explicit STRing Mask<br />
+PCMPISTRI - Packed CoMPare Implicit STRing Index<br />
+PCMPISTRM - Packed CoMPare Implicit STRing Mask
+</h2>
+PCMPESTRI <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(S4.2<br />
+VPCMPESTRI <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">int _mm_cmpestri (__m128i a, int la, __m128i b, int lb, const int 
+imm8);<br />
+int _mm_cmpestr? (__m128i a, int la, __m128i b, int lb, const int imm8);</span><br />
+PCMPESTRM <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(S4.2<br />
+VPCMPESTRM <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128i _mm_cmpestrm (__m128i a, int la, __m128i b, int lb, const int 
+imm8);</span><br />
+<span class="intr">int _mm_cmpestr? (__m128i a, int la, __m128i b, int lb, const int 
+imm8);</span><br />
+PCMPISTRI <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(S4.2<br />
+VPCMPISTRI <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(v1<br />
+<span class="intr">int _mm_cmpistri (__m128i a, __m128i b, const int imm8);</span><br />
+<span class="intr">int _mm_cmpistr? (__m128i a, __m128i b, const int imm8);</span><br />
+PCMPISTRM <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(S4.2<br />
+VPCMPISTRM <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128i _mm_cmpistrm (__m128i a, __m128i b, const int imm8);</span><br />
+<span class="intr">int _mm_cmpistr? (__m128i a, __m128i b, const int imm8);</span><br />
+<h1>
+Basics</h1>
+<p>Instruction / intrinsic names don't specify what to do, but how the input/output data are passed.</p>
+<table>
+<tr>
+<th>ESTR*</th>
+<td>Explicit length: specify the number of BYTES / WORDS of the input string.</td>
+</tr>
+<tr>
+<th>ISTR*</th>
+<td>Implicit length: indicate the end of the input string with the terminating NUL.</td>
+</tr>
+</table>
+<p></p>
+<table>
+<tr>
+<th>*STRI</th>
+<td>returns index</td>
+</tr>
+<tr>
+<th>*STRM</th>
+<td>returns mask</td>
+</tr>
+<tr>
+<th><span class="intr">*str?</span></th>
+<td>?=a/c/o/s/z returns the value of flags</td>
+</tr>
+</table>
+<p>
+What to do is specified in imm8 bit 3:2.
+</p>
+<table>
+<tr>
+<th>imm8 bit3:2</th>
+<th>mode</th>
+<th>what to do</th>
+</tr>
+
+<tr>
+<td>00</td>
+<td>Equal Any</td>
+<td>Test if any of the specified characters are in the input string.</td>
+</tr>
+
+<tr>
+<td>01</td>
+<td>Ranges</td>
+<td>Test if any characters within the specified ranges are in the input string.</td>
+</tr>
+
+<tr>
+<td>10</td>
+<td>Equal Each</td>
+<td>Test if the input strings are equal.</td>
+</tr>
+
+<tr>
+<td>11</td>
+<td>Equal Ordered</td>
+<td>Test if the needle string is in the haystack string.</td>
+</tr>
+
+</table>
+
+<p>Character format is specified in imm8 bit 1:0.</p>
+<table>
+<tr>
+<th>imm8 bit1:0</th>
+<th>character format</th>
+</tr>
+
+<tr>
+<td>00</td>
+<td>unsigned BYTE</td>
+</tr>
+
+<tr>
+<td>01</td>
+<td>unsigned WORD</td>
+</tr>
+
+<tr>
+<td>10</td>
+<td>signed BYTE</td>
+</tr>
+
+<tr>
+<td>11</td>
+<td>signed WORD</td>
+</tr>
+
+</table>
+<p>
+The lowest BYTE/WORD is the start of the input string.
+Lower BYTEs/WORDs up to the end of the string are VALID.
+Upper BYTEs/WORDs beyond the end of the string are INVALID (if any).
+<p>
+<img src="strin_1.png" /></p>
+<p>
+<img src="strin_2.png" /></p>
+<p>
+For ESTR* instruction, the number of BYTEs/WORDs is the absolute value of the value specified. If the abosolute value > 16 (BYTEs) or 8 (WORDs), 16 or 8 is used.</p>
+<p>
+For ISTR* instruction, NUL character itself is INVALID data.  If there is no NUL, 16 BYTEs / 8 WORDs are all VALID.</p>
+<h1>
+Set each bit of IntRes1 by the mode specified</h1>
+<h2>
+Mode 00:
+Equal Any - Test if any of the specified characters are in the input string</h2>
+<p>
+<img src="strmode00.png"/></p>
+<h2>Mode 01: Ranges - Test if any characters within the specified ranges are in the input string</h2>
+<p><img src="strmode01.png" /></p>
+<h2>Mode 10: Equal Each - Test if the input strings are equal</h2>
+<p><img src="strmode10.png" /></p>
+<h2>Mode 11: Equal Ordered - Test if the needle string is in the haystack string</h2>
+<p><img src="strmode11.png" /></p>
+<p><img src="strmode11_2.png" /></p>
+<h1>Convert IntRes1 to IntRes2</h1>
+<p>Each bit of IntRes1 is converted to each bit of IntRes2 by the method specified in imm8 bit 5:4.</p>
+<table>
+<tr>
+<th>imm8 bit5:4</th>
+<th>name</th>
+<th>process</th>
+</tr>
+<tr>
+<td>00</td>
+<td>Positive Polarity(+)</td>
+<td>Copy IntRes1 to IntRes2.</td>
+</tr>
+<tr>
+<td>01</td>
+<td>Negative Polarity(-)</td>
+<td>Invert each bit of IntRes1 and set to IntRes2.</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Masked(+)</td>
+<td>Copy IntRes1 to IntRes2.</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Masked(-)</td>
+<td>If the corresponding BYTE / WORD of (2) <span class="operand">xmm2/m128</span> <span class="intr">b</span> is valid<br />
+invert the bit of IntRes1 and set to IntRes2.<br />
+else copy the bit of IntRes1 to IntRes2.</td>
+</tr>
+</table>
+<p><img src="strpolar.png" /></p>
+<h1>Determine the return value from IntRes2</h1>
+<p>*STRI instruction returns the index 0 to 15 or 7 in ECX/RCX register <span class="intr">(int type return value)</span>. If no bit is set, 16 or 8 is returned.</p>
+<table>
+<tr>
+<th>imm8 bit 6</th>
+<th>return value</th>
+</tr>
+<tr>
+<td>0</td>
+<td>The bit index number of the least significant set bit of IntRes2.</td>
+</tr>
+<tr>
+<td>1</td>
+<td>The bit index number of the most significant set bit of IntRes2.</td>
+</tr>
+</table>
+<p>*STRM instruction returns IntRes2 in XMM0 register <span class="intr">(__m128i type return value)</span>.</p>
+<table>
+<tr>
+<th>imm8 bit 6</th>
+<th>return value</th>
+</tr>
+<tr>
+<td>0</td>
+<td>Returns IntRes2 in the lowest 16 / 8 bits.</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Returns 128-bit data that each bit of IntRes2 is expanded to BYTE / WORD.</td>
+</tr>
+</table>
+<p><img src="strmask.png" /></p>
+<p>Flags</p>
+<table>
+<tr>
+<th>CF</th>
+<td>0: IntRes2 == 0<br />1: IntRes2 != 0</td>
+</tr>
+<tr>
+<th>ZF</th>
+<td>0: All elements of (2) <span class="operand">xmm2/m128</span> <span class="intr">b</span> are valid.<br />
+	1: Not all elements of (2) <span class="operand">xmm2/m128</span> <span class="intr">b</span> are valid.</td>
+</tr>
+<tr>
+<th>SF</th>
+<td>0: All elements of (1) <span class="operand">xmm1</span> <span class="intr">a</span> are valid.<br />
+	1: Not all elements of (1) <span class="operand">xmm1</span> <span class="intr">a</span> are valid.</td>
+</tr>
+<tr>
+<th>OF</th>
+<td>The least significant bit of IntRes2.</td>
+</tr>
+<tr>
+<th>AF</th>
+<td>0</td>
+</tr>
+<tr>
+<th>PF</th>
+<td>0</td>
+</tr>
+</table>
+<p><span class="intr">*str? </span>intrinsic returns the value of one bit of the flags (0 or 1).</p>
+<table>
+<tr>
+<th><span class="intr">*strc</span></th>
+<td>CF</td>
+</tr>
+
+<tr>
+<th><span class="intr">*strz</span></th>
+<td>ZF</td>
+</tr>
+
+<tr>
+<th><span class="intr">*strs</span></th>
+<td>SF</td>
+</tr>
+
+<tr>
+<th><span class="intr">*stro</span></th>
+<td>OF</td>
+</tr>
+
+<tr>
+<th><span class="intr">*stra</span></th>
+<td>if (CF == 0 &amp;&amp; ZF == 0), returns 1<br />
+else returns 0.</td>
+</tr>
+
+</table>
+<h1>imm8 summary</h1>
+<table>
+<tr>
+<th>bit</th>
+<th>&nbsp;</th>
+<th>value</th>
+<th colspan="2">meaning</th>
+</tr>
+
+<tr>
+<th rowspan="4">1:0</th>
+<th rowspan="4">Character Format</th>
+<td>00</td>
+<td colspan="2">unsigned BYTE</td>
+</tr>
+
+<tr>
+<td>01</td>
+<td colspan="2">unsigned WORD</td>
+</tr>
+
+<tr>
+<td>10</td>
+<td colspan="2">signed BYTE</td>
+</tr>
+
+<tr>
+<td>11</td>
+<td colspan="2">signed WORD</td>
+</tr>
+
+<tr>
+<th rowspan="4">3:2</th>
+<th rowspan="4">Mode</th>
+<td>00</td>
+<td>Equal Any</td>
+<td>Test if any of the specified characters are in the input string</td>
+</tr>
+
+<tr>
+<td>01</td>
+<td>Ranges</td>
+<td>Test if any characters within the specified ranges are in the input string</td>
+</tr>
+
+<tr>
+<td>10</td>
+<td>Equal Each</td>
+<td>Test if the input strings are equal</td>
+</tr>
+
+<tr>
+<td>11</td>
+<td>Equal Ordered</td>
+<td>Test if the needle string is in the haystack string</td>
+</tr>
+
+<tr>
+<th rowspan="4">5:4</th>
+<th rowspan="4">Polarity</th>
+<td>00</td>
+<td>Positive Polarity(+)</td>
+<td>Copy IntRes1 to IntRes2.</td>
+</tr>
+
+<tr>
+<td>01</td>
+<td>Negative Polarity(-)</td>
+<td>Invert each bit of IntRes1 and set to IntRes2.</td>
+</tr>
+
+<tr>
+<td>10</td>
+<td>Masked(+)</td>
+<td>Copy IntRes1 to IntRes2.</td>
+</tr>
+
+<tr>
+<td>11</td>
+<td>Masked(-)</td>
+<td>If the corresponding BYTE / WORD of (2) <span class="operand">xmm2/m128</span> <span class="intr">b</span> is valid<br />
+invert the bit of IntRes1 and set to IntRes2.<br />
+else copy the bit of IntRes1 to IntRes2.</td></td>
+</tr>
+
+<tr>
+<th rowspan="2">6</th>
+<th rowspan="2">Return Value</th>
+<td>0</td>
+<td colspan="2">*STRI instruction: returns the bit index number of the least significant set bit of IntRes2.<br />
+*STRM instruction: returns IntRes2 bits in the lowest bits.</td>
+</tr>
+
+<tr>
+<td>1</td>
+<td colspan="2">*STRI instruction: returns the bit index number of the most significant set bit of IntRes2.<br />
+*STRM instruction: returns 128-bit data that each bit of IntRes2 is expanded to BYTE / WORD.</td>
+</tr>
+
+<tr>
+<th>7</th>
+<th>unused</th>
+<td colspan="3">must be 0.</td>
+</tr>
+
+</table>
+
+
+<h1>Implicit Registers</h1>
+<table>
+<tr>
+<th>register</th>
+<th>instruction</th>
+<th></th>
+</tr>
+
+<tr>
+<td>EAX/RAX</td>
+<td>ESTR*</td>
+<td>(IN)
+the number of BYTEs/WORDs of operand 1</td>
+</tr>
+
+<tr>
+<td>EDX/RDX</td>
+<td>ESTR*</td>
+<td>(IN)
+the number of BYTEs/WORDs of operand 2</td>
+</tr>
+
+<tr>
+<td>ECX/RCX</td>
+<td>*STRI</td>
+<td>(OUT)
+the index number</td>
+</tr>
+
+<tr>
+<td>XMM0</td>
+<td>*STRM</td>
+<td>(OUT)
+mask</td>
+</tr>
+
+
+</table>
+
+
+<p>&nbsp;</p>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=pcmpistrm" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/str.php?f=pcmpistrm by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:00 GMT -->
+</html>

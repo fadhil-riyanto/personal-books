@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/til.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:32:06 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>#til notes</title>
+<link rel="stylesheet" href="index.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="til-notes">
+<h1 class="title">#til notes</h1>
+
+<p>Random bits I posted on <a class="reference external" href="https://twitter.com/pshufb">twitter</a> or wrote down for myself. Last update 2025-01-04</p>
+<hr class="docutils" />
+<p>Function <tt class="docutils literal"><span class="pre">std::stroul</span></tt>/<tt class="docutils literal"><span class="pre">std::strtoull</span></tt> do not set <tt class="docutils literal">ERANGE</tt> for negative numbers.
+cppreferences says: &quot;If the minus sign was part of the input sequence, the numeric
+value calculated from the sequence of digits is negated as if by unary minus in
+the result type, which applies unsigned integer wraparound rules&quot;.</p>
+<hr class="docutils" />
+<p>How to check static website for broken <strong>internal</strong> links?</p>
+<pre class="literal-block">
+$ wget --spider -nv -nd -nH -r 127.0.0.1:8000
+</pre>
+<hr class="docutils" />
+<p>Go: it's not possible to JSON encode (<tt class="docutils literal">encoding/json</tt>) structures having
+function fields, like</p>
+<pre class="code go literal-block">
+<span class="kd">type</span><span class="w"> </span><span class="nx">t</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">callback</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<hr class="docutils" />
+<p>AVX-512: set k-reg to all ones: <tt class="docutils literal">KXNOR K1, K1, K1</tt> (kxnor = <tt class="docutils literal">not (x xor y)</tt>)</p>
+<hr class="docutils" />
+<p>Go: <tt class="docutils literal">go doc <span class="pre">-u</span></tt> show documentation also for private entities</p>
+<hr class="docutils" />
+<p>Go: package <tt class="docutils literal">rutime/debug</tt> provides <tt class="docutils literal">PrintStack()</tt> that prints the call
+trace of the current routine.</p>
+<hr class="docutils" />
+<p>Maths: the radius of circle inscribed inside a equilateral triangle of side
+<span class="math"><i>a</i></span> is <span class="math">(&radic;3<i>a</i>)/6</span>.</p>
+<hr class="docutils" />
+<p>C: <tt class="docutils literal">strtod</tt> does not reset <tt class="docutils literal">errono</tt></p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::map</span></tt> &amp; <tt class="docutils literal"><span class="pre">std::set</span></tt> have method <tt class="docutils literal">extract(key)</tt> that find-and-removes
+node if the key's present</p>
+<hr class="docutils" />
+<p>C: GCC and clang can inline function called via a known pointer</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">calc1</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">num</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">num</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">num</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">calc2</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">num</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">num</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="c1">// &quot;template&quot;
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">calc</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">fun</span><span class="p">)(</span><span class="kt">int</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">fun</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="c1">// specialisations
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">calc_fun1</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">calc</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">calc1</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">calc_fun2</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">calc</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">calc2</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<pre class="literal-block">
+calc_fun1:
+        movl    %edi, %eax
+        imull   %edi, %eax
+        ret
+calc_fun2:
+        leal    (%rdi,%rdi,4), %eax
+        ret
+</pre>
+<hr class="docutils" />
+<p>C: GCC and clang inline <tt class="docutils literal">bsearch</tt>, but not <tt class="docutils literal">qsort</tt>.</p>
+<hr class="docutils" />
+<p>Python: pickle module always serializes objects in memory, even when the
+serialization target is a file</p>
+<hr class="docutils" />
+<p>GCC: print all predefined macros:</p>
+<pre class="literal-block">
+gcc -dM -E - &lt; /dev/null
+</pre>
+<hr class="docutils" />
+<p>Python: strange closure binding rules</p>
+<pre class="code python literal-block">
+<span class="k">class</span> <span class="nc">Foo</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span><span class="w">
+</span>    <span class="k">def</span> <span class="nf">proc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span><span class="w">
+</span>        <span class="nb">print</span> <span class="s2">&quot;Foo&quot;</span><span class="w">
+
+</span><span class="k">class</span> <span class="nc">Bar</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span><span class="w">
+</span>    <span class="k">def</span> <span class="nf">proc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span><span class="w">
+</span>        <span class="nb">print</span> <span class="s2">&quot;Bar&quot;</span><span class="w">
+
+</span><span class="n">x</span> <span class="o">=</span> <span class="n">Foo</span><span class="p">()</span><span class="w">
+</span><span class="n">call_foo</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">proc</span><span class="p">()</span><span class="w">
+
+</span><span class="n">x</span> <span class="o">=</span> <span class="n">Bar</span><span class="p">()</span><span class="w">
+</span><span class="n">call_bar</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">proc</span><span class="p">()</span><span class="w">
+
+</span><span class="n">call_foo</span><span class="p">()</span><span class="w">
+</span><span class="n">call_bar</span><span class="p">()</span>
+</pre>
+<p>This code will print &quot;Bar&quot; twice.</p>
+<hr class="docutils" />
+<p>Python: make the standard output utf8-friendly</p>
+<pre class="code python literal-block">
+<span class="kn">import</span> <span class="nn">sys</span><span class="w">
+</span><span class="kn">import</span> <span class="nn">codecs</span><span class="w">
+
+</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">codecs</span><span class="o">.</span><span class="n">getwriter</span><span class="p">(</span><span class="s1">'utf-8'</span><span class="p">)(</span><span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="p">)</span>
+</pre>
+<hr class="docutils" />
+<p>Python: do not fail when pipe output to another program and that program closes</p>
+<pre class="code python literal-block">
+<span class="kn">from</span> <span class="nn">signal</span> <span class="kn">import</span> <span class="n">signal</span><span class="p">,</span> <span class="n">SIGPIPE</span><span class="p">,</span> <span class="n">SIG_DFL</span><span class="w">
+</span><span class="n">signal</span><span class="p">(</span><span class="n">SIGPIPE</span><span class="p">,</span> <span class="n">SIG_DFL</span><span class="p">)</span>
+</pre>
+<hr class="docutils" />
+<p>C++ preprocessor: macros that have references to another macro do not keep its
+copy. When the referenced macro is undefined (with <tt class="docutils literal">#undef</tt>), then one which
+used it becomes invalid.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define value 5
+#define add(x) ((x) + value)
+</span><span class="w">
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">add</span><span class="p">(</span><span class="mi">5</span><span class="p">);</span><span class="w">
+</span><span class="cp">#undef value
+</span><span class="w">    </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">add</span><span class="p">(</span><span class="mi">6</span><span class="p">);</span><span class="w"> </span><span class="c1">// error: ‘value’ undeclared (first use in this function)
+</span><span class="p">}</span>
+</pre>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::atomic_bool</span></tt> has the default construct that left the atomic
+<strong>uninitialized</strong>.</p>
+<hr class="docutils" />
+<p>Linux: there's a nice tool <strong>gstack</strong>, that prints the current stacktrace
+of given process (all process' threads).</p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::optional</span></tt> has a useful method <tt class="docutils literal">value_or()</tt>, which
+returns a default value in case the optional is empty.</p>
+<hr class="docutils" />
+<p>GCC: When compiled with the address sanitizer it is possible to catch
+<tt class="docutils literal"><span class="pre">std::terminate</span></tt>, as the sanitizer injects own handlers and they
+can be intercepted by gdb.</p>
+<hr class="docutils" />
+<p>C++: as the order of evaluation function's arguments is undefined, <tt class="docutils literal">fun</tt> might
+got the second parameter 0 when move was evaluated first.</p>
+<pre class="code literal-block">
+fun(std::move(vector), vector.size());
+</pre>
+<hr class="docutils" />
+<p>C++: you can omit parentheses in lambda expression if the lambda takes no
+arguments; <tt class="docutils literal">auto lambda = <span class="pre">[]{};</span></tt> is valid</p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::regex</span></tt> doesn't hold the string it was built from</p>
+<hr class="docutils" />
+<p>C++: the <strong>final</strong> keyword doesn't imply <strong>override</strong>.</p>
+<hr class="docutils" />
+<p>C++: macros don't go with templates.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;map&gt;</span><span class="cp">
+#define decl(name, type) type name
+</span><span class="w">
+</span><span class="n">decl</span><span class="p">(</span><span class="n">kitten</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">);</span><span class="w"> </span><span class="c1">// OK
+</span><span class="n">decl</span><span class="p">(</span><span class="n">nope</span><span class="p">,</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">map</span><span class="o">&lt;</span><span class="kt">int</span><span class="p">,</span><span class="kt">bool</span><span class="o">&gt;</span><span class="p">);</span><span class="w"> </span><span class="c1">// error: macro &quot;decl&quot; passed 3 arguments, but takes just 2</span>
+</pre>
+<hr class="docutils" />
+<p>C++: It's possible to directly compare an optional with a value,
+like <tt class="docutils literal"><span class="pre">std::optional&lt;T&gt;()</span> == T()</tt>.</p>
+<hr class="docutils" />
+<p>C++11: although it's possible to pass by reference <tt class="docutils literal">this</tt> pointer to a lambda
+and return such lambda outside the class, the reference becomes invalid when
+instance is destroyed.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;functional&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;string&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;cstdlib&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="k">struct</span><span class="w"> </span><span class="nc">Foo</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">int</span><span class="w"> </span><span class="n">counter</span><span class="p">;</span><span class="w">
+    </span><span class="kt">int</span><span class="o">*</span><span class="w"> </span><span class="n">ptr</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">Foo</span><span class="p">()</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">ptr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">counter</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span><span class="w">
+    </span><span class="o">~</span><span class="n">Foo</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;destroyed&quot;</span><span class="p">);</span><span class="w">
+        </span><span class="n">ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">nullptr</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">s</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">()</span><span class="o">&gt;</span><span class="w"> </span><span class="n">getfun</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="p">[</span><span class="k">this</span><span class="p">]()</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="o">*</span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">};</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">()</span><span class="o">&gt;</span><span class="w"> </span><span class="n">fun</span><span class="p">;</span><span class="w">
+
+    </span><span class="p">{</span><span class="w">
+        </span><span class="n">Foo</span><span class="w"> </span><span class="n">f</span><span class="p">{};</span><span class="w">
+        </span><span class="n">fun</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">f</span><span class="p">.</span><span class="n">getfun</span><span class="p">();</span><span class="w">
+        </span><span class="n">fun</span><span class="p">();</span><span class="w">
+        </span><span class="n">fun</span><span class="p">();</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// program prints &quot;destroyed&quot; and ...
+</span><span class="w">    </span><span class="n">fun</span><span class="p">();</span><span class="w"> </span><span class="c1">// ... segfaults here
+</span><span class="p">}</span>
+</pre>
+<hr class="docutils" />
+<p>C++ odds: there's no name clash between variables and classes; following program
+is perfectly valid:</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="n">foo</span><span class="p">;</span><span class="w">
+</span><span class="k">class</span><span class="w"> </span><span class="nc">foo</span><span class="w"> </span><span class="p">{};</span>
+</pre>
+<hr class="docutils" />
+<p>GCC provides useful cpp-related warnings (not enabled by <tt class="docutils literal"><span class="pre">-Wall</span></tt>):
+<tt class="docutils literal"><span class="pre">-Wsuggest-final-types</span></tt>, <tt class="docutils literal"><span class="pre">-Wsuggest-final-methods</span></tt>, <tt class="docutils literal"><span class="pre">-Wsuggest-override</span></tt></p>
+<hr class="docutils" />
+<p>C++17: <tt class="docutils literal"><span class="pre">std::regex</span></tt> doesn't hold the string it was built from; pretty unhandy feature</p>
+<hr class="docutils" />
+<p>C++: GCC 7/clang 5, invoked with at least <tt class="docutils literal"><span class="pre">-O2</span></tt>, remove <tt class="docutils literal">at()</tt> invocation
+in such a loop:</p>
+<pre class="code cpp literal-block">
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">vec</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+    </span><span class="n">function</span><span class="p">(</span><span class="n">vec</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="n">i</span><span class="p">));</span>
+</pre>
+<hr class="docutils" />
+<p>C++17: <tt class="docutils literal"><span class="pre">std::move</span></tt> is impossible on <tt class="docutils literal"><span class="pre">std::reference_wrapper</span></tt></p>
+<hr class="docutils" />
+<p>C++17: <tt class="docutils literal"><span class="pre">std::filesystem::remove_all(path)</span></tt> asserts that the path exists and
+throws an exception otherwise; <tt class="docutils literal"><span class="pre">boost::filesystem::remove_all</span></tt> does nothing
+in such case</p>
+<hr class="docutils" />
+<p>SQLite: foreign keys have to be enabled manually by command <tt class="docutils literal">PRAGMA foreign_key = on</tt></p>
+<hr class="docutils" />
+<p>C++17: <tt class="docutils literal"><span class="pre">std::optional</span></tt> doesn't accept references, while <tt class="docutils literal"><span class="pre">boost::optional</span></tt> does</p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::unique_ptr&lt;T&gt;(nullptr)</span> == nullptr</tt> yields true</p>
+<hr class="docutils" />
+<p>SSE intrinsics: <tt class="docutils literal">_mm_extract_ps</tt> returns an integer,
+the suffix &quot;ps&quot; suggests a float</p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::list::size()</span></tt> is constant time since C++11</p>
+<hr class="docutils" />
+<p>MSVC doesn't support a warning directive; instead it has a pragma: <tt class="docutils literal"><span class="pre">message(&quot;text&quot;)</span></tt></p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal">sizeof(type*) == <span class="pre">sizeof(std::unique_ptr&lt;type&gt;)</span></tt></p>
+<hr class="docutils" />
+<p>C++: <tt class="docutils literal"><span class="pre">std::unordered_map</span></tt> has got method at()</p>
+<hr class="docutils" />
+<p>GCC/clang: <tt class="docutils literal"><span class="pre">-Wfatal-errors</span></tt> stops compilation on the first error</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/til.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:32:06 GMT -->
+</html>

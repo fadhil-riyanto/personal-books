@@ -1,0 +1,392 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/ternlogcalc.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:56 GMT -->
+<head>
+    <meta charset="utf-8" />
+    <link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/ternlogcalc.html" />
+    <link rel="alternate" hreflang="en" href="ternlogcalc.html" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=2.0" />
+    <title>VPTERNLOGx imm8 Calculator</title>
+    <style>
+        .red {
+            color: #FF0000;
+        }
+
+        h1 {
+            font-size: 15pt;
+            font-weight: bold;
+            background-color: #8288FD;
+            color: #FFFFFF;
+            padding: 2pt;
+        }
+
+        body {
+            font-family: sans-serif;
+            font-size: 10.5pt;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        h2 {
+            font-weight: bold;
+            padding: 2pt 2pt 0pt 0pt;
+            font-size: 10pt;
+            border-bottom-style: solid;
+            border-bottom-width: 2px;
+            border-bottom-color: #0000FF;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0000FF;
+        }
+
+        dt {
+            font-weight: bold;
+        }
+
+        td {
+            background-color: #FFFFFF;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+
+        .srcprogdiv {
+            border: 1px solid #0000FF;
+            border-radius: 5px;
+            padding: 5px 10px 5px 10px;
+        }
+
+        .intr {
+            color: #6778ED;
+        }
+
+        .IL {
+            color: black;
+        }
+
+        .operand {
+            font-style: italic;
+        }
+
+        .cppcmnt {
+            color: #00A000;
+        }
+
+        .exp {
+            font-family: sans-serif, monospace;
+        }
+    </style>
+
+    <script>
+'use strict';
+
+/*
+operator precedence
+function() ()
+~       right to left
+&
+^
+|
+? :     right to left
+*/
+const s_error = 'error ';
+const s_number_of_arguments = '# of arguments';
+const s_possibly_missing_something = "missing something";
+
+let tokens;
+let nextToken;
+const hexdigit = v => '0123456789ABCDEF'.charAt(v & 0xf);
+
+const constsandvars = {
+    '0': 0,
+    '1': 0xFF,
+    'a': 0xF0,
+    'b': 0xCC,
+    'c': 0xAA,
+};
+
+const operators = {
+    '&': { precedence: 2, fnc: (x, y) => x & y },
+    '^': { precedence: 1, fnc: (x, y) => x ^ y },
+    '|': { precedence: 0, fnc: (x, y) => x | y },
+};
+
+const functions = {
+    'major': args => bitwiseMajor(args),
+    'minor': args => ~bitwiseMajor(args),
+    'eq':    args => bitwiseEqual(args),
+    'neq':   args => ~bitwiseEqual(args),
+    'not':   args => { if (args.length != 1) throw s_number_of_arguments; return ~args[0]; },
+    'and':   args => calcArgs(args, '&'),
+    'or':    args => calcArgs(args, '|'),
+    'xor':   args => calcArgs(args, '^'),
+    'nand':  args => ~calcArgs(args, '&'),
+    'nor':   args => ~calcArgs(args, '|'),
+    'xnor':  args => ~calcArgs(args, '^'),
+};
+
+function calc()
+{
+    let resultelem = document.getElementById('result');
+    while (resultelem.lastChild)
+        resultelem.removeChild(resultelem.lastChild);
+
+    let exp1 = document.getElementById('exp').value;
+
+    // token parsing
+    tokens = exp1.match(/(\w+)|([^\w\s])/g);
+    if (!tokens)
+        return;
+
+    nextToken = 0;
+
+    try {
+        let v = getValue();
+        checkToken('');
+
+        let elemResultsDiv = document.getElementById('resultsdiv');
+        elemResultsDiv.insertBefore(createTable(exp1, v), elemResultsDiv.firstChild);
+
+        let elem = document.createElement('p');
+        elem.append(exp1);
+        elem.append(document.createElement('br'));
+        elem.append('imm8 = 0x' + hexdigit(v >> 4) + hexdigit(v));
+        elemResultsDiv.insertBefore(elem, elemResultsDiv.firstChild);
+    }
+    catch (e) {
+        let estr = e.toString();
+        if (!estr)
+            estr = s_possibly_missing_something;
+        resultelem.append(s_error + estr);
+    }
+}
+
+function createTable(exp, value)
+{
+    let tbl = document.createElement('table');
+
+    function appendRow(e, v) {
+        let row = document.createElement('tr');
+
+        let hdr = document.createElement('th');
+        hdr.append(e);
+        row.append(hdr);
+
+        for (let i = 7; i >= 0; i--) {
+            let data = document.createElement('td');
+            data.append((v >> i) & 1);
+            row.append(data);
+        }
+        tbl.append(row);
+    }
+
+    appendRow('a', constsandvars['a']);
+    appendRow('b', constsandvars['b']);
+    appendRow('c', constsandvars['c']);
+    appendRow(exp, value);
+
+    return tbl;
+}
+
+function defined(a) {
+    return a != undefined;
+}
+
+// get the value of polynomial
+function getValue() {
+    let vstack = [];
+    let ostack = [];
+
+    // pushable if opobj precedes ostack top object
+    function pushable(opobj) {
+        if (ostack.length == 0)
+            return true;
+        return opobj.precedence > ostack[ostack.length - 1].precedence;
+    }
+
+    function operate() {
+        let opobj = ostack.pop();
+        let v2 = vstack.pop();
+        let v1 = vstack.pop();
+
+        vstack.push(opobj.fnc(v1, v2));
+    }
+
+    while (true) {
+        // get one term
+        vstack.push(getTerm());
+
+        // get operator
+        let operator = getToken();
+
+        if (defined(operators[operator])) {
+            let opobj = operators[operator];
+            while (!pushable(opobj))
+                operate();
+
+            ostack.push(opobj);
+        }
+        // ?: operator
+        else if (operator == '?') {
+            // reduce current stack
+            while (ostack.length > 0)
+                operate();
+
+            let condition = vstack[0];
+
+            // process up to :
+            let value1 = getValue();
+            checkToken(':');
+
+            // process up to end
+            let value2 = getValue();
+
+            // return the result
+            return (condition & value1) | (~condition & value2);
+        }
+        else {
+            // reduce current stack
+            while (ostack.length > 0)
+                operate();
+
+            // restore the token that finished this polynomial
+            ungetToken();
+
+            return vstack[0];
+        }
+    }
+}
+
+// get the value of one term
+function getTerm() {
+    let token = getToken();
+
+    if (token == '(') {
+        let v = getValue();
+        checkToken(')');
+        return v;
+    }
+    else if (token == '~')
+        return ~getTerm();
+    else if (defined(constsandvars[token]))
+        return constsandvars[token];
+    else if (defined(functions[token])) 
+        return functions[token](getArgs());
+    else
+        throw token;
+}
+
+function getToken() {
+    if (nextToken >= 0 && nextToken < tokens.length)
+        return tokens[nextToken++];
+
+    nextToken++;
+    return '';
+}
+
+function ungetToken() {
+    nextToken--;
+}
+
+function checkToken(tokenExpected) {
+    let token = getToken();
+    if (token != tokenExpected) 
+        throw token;
+}
+
+function getArgs() {
+    checkToken('(');
+
+    let args = [];
+    let token = getToken();
+    // get arguments if any
+    if (token != ')') {
+        ungetToken();
+        while (true) {
+            args.push(getValue());
+            token = getToken();
+            if (token == ')')
+                break;
+            if (token != ',')
+                throw token;
+        }
+    }
+    return args;
+}
+
+function bitwiseMajor(args)
+{
+    if (args.length != 3)
+        throw s_number_of_arguments;
+
+    let x = args[0];
+    let y = args[1];
+    let z = args[2];
+    return (x & y) | (y & z) | (z & x);
+}
+
+function bitwiseEqual(args)
+{
+    if (args.length != 2)
+        throw s_number_of_arguments;
+
+    return ~(args[0] ^ args[1]);
+}
+
+function calcArgs(args, op) {
+    if (args.length < 2)
+        throw s_number_of_arguments;
+
+    let f = operators[op].fnc;
+    let x = args[0];
+    for (let i = 1; i < args.length; i++)
+        x = f(x, args[i]);
+
+    return x;
+}
+
+    </script>
+
+
+
+</head>
+<body>
+    <h2>VPTERNLOGx imm8 Calculator</h2>
+    <p>Enter a bitwise logical expression in C/C++ style, to find the value of imm8 for VPTERNLOGQ / VPTERNLOGD instruction.</p>
+    <p>Variables: a = operand 1,  b = operand 2, c = operand 3</p>
+    <p>Constants: 0, 1</p>
+    <p>Operators: () ~ &amp; ^ | ?: (order of precedence)</p>
+    <p>Functions: major(x, y, z), minor(x, y, z), eq(x, y), neq(x, y), and(x, y...), or(x, y...), xor(x, y...), nand(x, y...), nor(x, y...), xnor(x, y...), not(x)</p>
+    <p>major(x, y, z) returns 1 if two or three of the arguments are 1.  minor(x, y, z) returns 1 if none or one of the areguments is 1.</p>
+    <form spellcheck="false" onsubmit="calc(); return false;">
+        Exp
+        <input type="text" id="exp" class="exp" placeholder="~a &amp; (b ^ c)" style="max-width:600px; width:60%; font-size:16px;" />
+        <input type="submit" value="Go" />
+    </form>
+    <p id="result" class="red"></p>
+    <div id="resultsdiv"></div>
+
+    <hr />
+
+
+
+    <a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp;
+    <a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=ternlogcalc" target="_blank">Feedback</a>
+    <br>
+    <script src="https://www.officedaytime.com/tips/simdfeedback/alog.js"></script>
+    <script>alog("alles");</script>
+    <br />
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/ternlogcalc.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:56 GMT -->
+</html>

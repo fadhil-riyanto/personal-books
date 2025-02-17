@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/gfx2ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:27 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Konwersja obrazu b/w na ASCII</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="konwersja-obrazu-b-w-na-ascii">
+<h1 class="title">Konwersja obrazu b/w na ASCII</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">4.03.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#porownywanie-obrazow" id="toc-entry-2">Porównywanie obrazów</a></li>
+<li><a class="reference internal" href="#podsumowanie" id="toc-entry-3">Podsumowanie</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Konwersja polega na znalezieniu litery, której kształt najlepiej pasuje do
+fragmentu obrazu. Rzecz jasna należy porównywać obszary o tych samych
+rozmiarach.</p>
+<p>Typowo w trybach tekstowych używa się czcionki o rozmiarze 8x14. Funkcja
+<tt class="docutils literal">0x1130</tt> przerwania <tt class="docutils literal">0x10</tt> zwraca adres żądanego generatora znaków.</p>
+<pre class="literal-block">
+mov ax, 1130h ; numer funkcji
+mov bh, 6     ; wybór generatora
+              ; w tym przypadku to znaki 8x14 z ROM
+int 10h       ; ES:BP -&gt; wskaźnik do tablicy z definicjami znaków
+              ; CX    == wysokość znaków (14)
+              ; DL    == ilość linii bieżącego trybu graficznego
+</pre>
+<p>Otrzymujemy wskazanie na tablicę o 256 pozycjach, każdy element tablicy ma
+14 bajtów (tablica 8x14 bitów).</p>
+<p>W razie problemów proszę sprawdzić czy segment <tt class="docutils literal">ES</tt> ma wartość
+<tt class="docutils literal">0xC000</tt> &mdash; BIOS (a także ROM karty graficznej) jest kopiowany poczynając
+od tego właśnie segmentu.</p>
+</div>
+<div class="section" id="porownywanie-obrazow">
+<h1>Porównywanie obrazów</h1>
+<p>Porównywane będą tablice bitów; stopień podobieństwa wyrażać się będzie
+liczbą odpowiadających sobie bitów o tych samych wartościach, np.:</p>
+<pre class="literal-block">
+obraz: 100110110
+znak1: 011001110
+znak2: 000111110
+
+obraz xor znak1 = 111111000
+obraz xor znak2 = 100001000
+</pre>
+<p>Na pozycjach, na których bity obrazu i wzorca znaku są różne znajduje się 1 ---
+stopień podobieństwa można wyznaczyć licząc zera. Jak widać <tt class="docutils literal">znak2</tt>
+lepiej pasuje do obrazu. Polecam lekturę dokumentu <a class="reference external" href="http://www.amd.com/products/cpg/athlon/techdocs/pdf/22007.pdf">22007.pdf</a>
+(<em>AMD Athlon Processor/x86 Code Optimization Guide</em>);
+na stronie 136 zamieszczono opis oraz implementację efektywnego algorytmu
+obliczania ilości ustawionych bitów (ang. <em>population count</em>).</p>
+<p>Należy porównywać fragment obrazu ze wszystkimi wzorcami znaków. Jeśli program
+ma generować &bdquo;ładne&rdquo; pliki ascii, proponuję zastanowić się nad usunięciem
+niektórych znaków &mdash; nie wszystkie dobrze wyglądają.
+Ze względu na efektywność warto stablicować liczbę bitów dla każdego bajtu.</p>
+<pre class="literal-block">
+typedef unsigned char BIOS_character[14]; // siatka znaku
+
+int bits_count[256]; // stablicowane liczby bitów
+
+char best_fit(BIOS_character c, BIOS_character all[256])
+{
+ int best = -1;
+ int idx
+
+ for (int k=0; k&lt;256; k++) // dla wszystkich definicji znaku z tablicy 'all'
+    {
+     int bits_num = 0; // liczba ustawionych bitów
+     for (int i=0; i&lt;14; i++)
+         // proszę zauważyć, że wynik operacji xor został zanegowany
+         // oczywiście można zainicjować tablicę 'bits_count' liczbą zer,
+         // wtedy negacje stanie się zbędna
+         bits_num += bits_count[~(c[i] ^ all[k][i])];
+
+     if (bits_num &gt; best)
+        {
+         best = bits_num;
+         idx  = k;        // numer znaku
+        }
+    }
+ return idx;
+}
+</pre>
+</div>
+<div class="section" id="podsumowanie">
+<h1>Podsumowanie</h1>
+<p>Pseudokod użycia funkcji <tt class="docutils literal">best_fit</tt>.</p>
+<pre class="literal-block">
+BIOS_character font8x14[256];
+
+for (int y=0; y&lt;25; y++)
+    for (int x=0; x&lt;80; x++)
+      {
+        // pobierz znak z pliku graficznego
+        // radzę buforować od razu 14 linii obrazu
+
+        write_char( best_fit(znak_z_pliku, fon8x14) );
+      }
+</pre>
+<p>Dobrze jest użyć funkcji wypisującej znaki która nie interpretuje znaków
+sterujących &mdash; w przykładzie to jakaś hipotetyczna <tt class="docutils literal">write_char</tt>.</p>
+<p>Poniżej efekt konwersji.</p>
+<img alt="obraz 1bpp" class="align-center" src="img/gfx2asc_1.png" />
+<img alt="obraz ASCII" class="align-center" src="img/gfx2asc_2.png" />
+<p>Obrazek wejściowy powinien mieć rozdzielczość będącą całkowitą
+wielokrotnością rozmiaru siatki znaku. Dla trybu <tt class="docutils literal">0x03</tt> (80x25)
+używałem obrazów 640x350x1bpp.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/gfx2ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:29 GMT -->
+</html>

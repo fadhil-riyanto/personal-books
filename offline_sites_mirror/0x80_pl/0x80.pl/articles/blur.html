@@ -1,0 +1,671 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/blur.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Rozmycie obrazów</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="rozmycie-obrazow">
+<h1 class="title">Rozmycie obrazów</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">5.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">7.03.2016 (link do githuba, wyniki z Core i5), 31.05.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wstep" id="toc-entry-1">Wstęp</a></li>
+<li><a class="reference internal" href="#optymalizacja" id="toc-entry-2">Optymalizacja</a><ul>
+<li><a class="reference internal" href="#implementacja-x86-funkcji-calc-sum" id="toc-entry-3">Implementacja x86 funkcji <tt class="docutils literal">calc_sum</tt></a></li>
+<li><a class="reference internal" href="#implementacja-mmx-funkcji-calc-sum" id="toc-entry-4">Implementacja MMX funkcji <tt class="docutils literal">calc_sum</tt></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#dzielenie" id="toc-entry-5">Dzielenie</a></li>
+<li><a class="reference internal" href="#implementacja-sse2-oraz-mmx2-31-05-2008" id="toc-entry-6">Implementacja SSE2 oraz MMX2 [31.05.2008]</a></li>
+<li><a class="reference internal" href="#podsumowanie" id="toc-entry-7">Podsumowanie</a><ul>
+<li><a class="reference internal" href="#pentium-ii-400mhz" id="toc-entry-8">Pentium II, 400MHz</a></li>
+<li><a class="reference internal" href="#core-2" id="toc-entry-9">Core 2</a></li>
+<li><a class="reference internal" href="#core-i5-2016-03-07" id="toc-entry-10">Core i5 [2016-03-07]</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#przyklad" id="toc-entry-11">Przykład</a></li>
+</ul>
+</div>
+<div class="section" id="wstep">
+<h1>Wstęp</h1>
+<p>Rozmycie obrazu (w najprostszej wersji) realizuje się jako sumę ośmiu
+sąsiednich pikseli 'o' piksela 'x', lub żeby być precyzyjnym:
+<tt class="docutils literal">blur(x) = (a+b+c + d+x+e + <span class="pre">f+g+h)/9</span></tt>.</p>
+<pre class="literal-block">
+o o o   a b c
+o x o   d x e
+o o o   f g h
+</pre>
+<p>Rozmycie przeprowadza się w podwójnej pętli:</p>
+<pre class="literal-block">
+for y := y_min to y_max do
+        for x := x_min to x_max do
+                begin
+                        a = getpixel(x-1, y-1);
+                        b = getpixel(x  , y-1);
+                        c = getpixel(x+1, y-1);
+
+                        d = getpixel(x-1, y);
+                        x = getpixel(x  , y);
+                        e = getpixel(x+1, y);
+
+                        f = getpixel(x-1, y+1);
+                        g = getpixel(x  , y+1);
+                        h = getpixel(x+1, y+1);
+
+                        avg = (a+b+c + d+x+e + f+g+h)/9;
+
+                        putpixel(x, y, avg);  # zapis do *nowego* obrazu
+                end;
+</pre>
+<p>Jak łatwo policzyć na każdy rozmywany piksel należy pobrać
+(<tt class="docutils literal">getpixel</tt>) aż 9 pikseli, co dla całego obrazu daje
+<span class="math">9 &sdot; (<i>y</i><sub>max</sub> &minus; <i>y</i><sub>min</sub>) &sdot; (<i>x</i><sub>max</sub> &minus; <i>x</i><sub>min</sub>)</span>.
+Np. dla obrazu o rozdzielczości 320x200 daje to aż 576000 odwołań
+do obrazu.</p>
+<p>Ponadto należy, dla każdego piksela, wykonać 8 operacji dodawania.</p>
+<p>W artykule pokażę jak te liczby zmniejszyć &mdash; i w efekcie przyspieszyć
+algorytm &mdash; oraz jak użyć rozkazów MMX/SSE.</p>
+<p><strong>Uwaga 1</strong>:
+Ze względu na wydajność należy rozmywać obraz obcięty z każdej strony po
+jednym pikselu, tj. np. zamiast (0,0)-(320,20) rozmywać (1,1)-(319,199).
+Problem sprawiają bowiem piksele brzegowe, np. w punkcie (0,0)
+musielibyśmy pobrać 5 nieistniejących w obrazie pikseli. Pół biedy z
+przyjęciem ich wartości (czarne, białe, powtórzone, losowe, itp.),
+największe zmartwienie to właśnie sprawdzenie czy piksel &bdquo;istnieje&rdquo;
+czy nie.</p>
+<p><strong>Dopisek 14.07.2007</strong>: jednak w przedstawionej tutaj modyfikacji,
+dość łatwo poradzić sobie z tymi &bdquo;brakującymi&rdquo; pikselami.  W
+przykładowym programie zostało to rozwiązane, można ustalić kolor
+obrzeża.</p>
+<p><strong>Uwaga 2</strong>:
+W przykładowym kodzie wykorzystuję funkcje <tt class="docutils literal">getpixel</tt>/<tt class="docutils literal">putpixel</tt>,
+które stawiają, bądź pobierają piksel na zadanym, domyślnym
+obrazie.  Faktycznie te operacje wykonuje się na wskaźnikach, ale dla
+czytelności użyłem postaci funkcyjnej.</p>
+</div>
+<div class="section" id="optymalizacja">
+<h1>Optymalizacja</h1>
+<p>Rozpatrzmy rozmycie dwóch kolejnych pikseli w jednej linii, tzn.
+najpierw rozmywamy piksel (x,y) ozn. X, a następnie (x+1,y) ozn. Y.</p>
+<pre class="literal-block">
+a b c d
+e X Y f
+g h i j
+</pre>
+<pre class="literal-block">
+blur(X) = (a+b+c + e+X+Y + g+h+i)/9
+blur(Y) = (b+c+d + X+Y+f + h+i+j)/9
+</pre>
+<p>Zobaczmy, że w wyrażeniu na <tt class="docutils literal">blur(Y)</tt> część pikseli powtarza się,
+doszły zaledwie trzy nowe: <strong>d</strong>, <strong>f</strong> oraz <strong>j</strong>. Teraz jeszcze
+jedna rzecz: celowo grupuję w wyrażeniach po 3 piksele, bowiem każda
+&bdquo;grupa&rdquo; (suma cząstkowa) pochodzi z innej linii. Proszę teraz zobaczyć
+jak wyglądałby wzór na rozmycie piksela h, znajdującego się pod pikselem
+X, tj. (x,y+1):</p>
+<pre class="literal-block">
+blur(h) = (e+X+Y + g+h+i + .+.+.)/9
+</pre>
+<p>Aż dwie &bdquo;grupy&rdquo; występujące w wyrażeniu na <tt class="docutils literal">blur(X)</tt> powtarzają się w
+<tt class="docutils literal">blur(h)</tt>. Zatem wystarczy zapamiętać wszystkie sumy cząstkowe z dwóch
+wcześniejszych linii y, co oszczędzi 4 dodawania i 6 odczytów pikseli. Do
+efektywnego liczenia sum poszczególnych grup wykorzystamy odnotowany
+wcześniej fakt, że przejście do następnego piksela w jednej linii <em>y</em>
+powoduje pojawienie się 3 nowych pikseli w wyrażeniu: po jednym na każdą
+grupę.</p>
+<p>Na początku kod w C który dla zadanej linii y liczy wszystkie sumy w
+obrazie grayscale. Ponieważ na sumę cząstkową składają się wartości
+trzech pikseli (bajtów), więc musi być ona przechowywana w słowie.</p>
+<pre class="literal-block">
+#define SIZE_X  ...     // rozmiary
+#define SIZE_Y  ...     // obrazu XxY
+
+typedef byte            Image_line[SIZE_X];     // linia obrazu
+typedef Image_line      Image[SIZE_Y];          // obraz
+typedef word            Sum[SIZE_X-2];          // tablica sum
+
+/*
+ *      image   - wskaźnik do początku y-owej linii
+ *      count   - szerokość obrazu
+ *      sum     - tablica sum (rozmiar count-2)
+ */
+void calc_sum(Image_line L, Sum S) {
+        byte a, b, c;
+        int  x, i;
+
+        a = L[0];       // pobranie dwóch początkowych
+        b = L[1];       // pikseli
+        i = 0;
+        for (x=2; x&lt;count; x++) {
+                c = L[x];               // w każdej pętli pobierany
+                sum[i++] = a+b+c;       // jest jeden nowy piksel
+
+                a = b;                  // natomiast dwa pozostają
+                b = c;                  // po wcześniejszej iteracji
+        }
+}
+
+Funkcja rozmywająca obraz.
+
+/*
+ *      image_in        - obraz rozmywany
+ *      image_out       - wynik rozmycia
+ */
+void blur_image(Image image_in, Image image_out) {
+        Sum  a,  b,  c;
+        Sum *A, *B, *C, *T;
+        word s;
+        int x, y;
+
+        A = &amp;a; // używane są wskaźniki do tablic sum
+        B = &amp;b; // żeby uniknąć przesłań pamięci;
+        C = &amp;c; // wystarczy &quot;rotacja&quot; wskaźników
+
+        calc_sum(image_in[0], A);
+        calc_sum(image_on[1], B);
+        for (y=1; y &lt; SIZE_Y-1; y++) {
+
+                // w każdej pętli liczona są wyłącznie sumy cząstkowe
+                // dla linii y+1; sumy cząstkowe z linii y i y-1
+                //pochodzą z wcześniejszej iteracji
+                calc_sum(image_in[y+1], C);
+
+                // rozmycie
+                for (x=0; x &lt; SIZE_X-2; x++) {
+                        s = (A[x] + B[x] + C[x])/9;
+                        putpixel(image_out, x, y, s);
+                }
+
+                // &quot;rotacja&quot; wskaźników
+                T = A;
+                A = B;
+                B = C;
+                C = T;
+        }
+}
+</pre>
+<p>W implementacji asemblerowej powyższej funkcji problemem może być
+przechowywanie trzech wskaźników, będą bowiem potrzebne 3 rejestry.
+Można połączyć tablice A, B i C w jedną i operować na przesunięciu
+względem jej początku.</p>
+<pre class="literal-block">
+void blur_image(Image image_in, Image image_out) {
+#define SUM_SIZE (SIZE_X - 2)
+        word abc[SUM_SIZE*3];
+        int  offset = 0;
+        word s;
+        int x, y;
+
+        calc_sum(image_in[0], (Sum*)abc[0*SUM_SIZE]);
+        calc_sum(image_in[1], (Sum*)abc[1*SUM_SIZE]);
+        for (y=1; y&lt;SIZE_Y-1; y++) {
+
+                calc_sum(image[y+1], (Sum*)t[offset]);
+
+                // rozmycie
+                for (x=0; x &lt; SIZE_X-2; x++) {
+                        s = (abc[0*SUM_SIZE] +
+                             abc[1*SUM_SIZE] +
+                             abc[2*SUM_SIZE])/9;
+                        putpixel(image_out, x, y, s);
+                }
+
+                // rotacja bufora
+                if (offset == 2*SUM_SIZE)
+                        offset = 0;
+                else
+                        offset += SUM_SIZE;
+        }
+#undef SUM_SIZE
+}
+</pre>
+<div class="section" id="implementacja-x86-funkcji-calc-sum">
+<h2>Implementacja x86 funkcji <tt class="docutils literal">calc_sum</tt></h2>
+<pre class="literal-block">
+calc_sum:
+; edi - tablica 'ImageLine'
+; esi - tablica 'Sum'
+
+mov ecx, SIZE_X-2 ; liczba iteracji
+
+xor ah, ah
+xor bh, bh
+xor dh, dh
+
+mov al, [edi  ] ; pobierz a (=[edi-2])
+mov bl, [edi+1] ; pobierz b (=[edi-1])
+                ;         c (=[edi])
+
+add edi, 2
+
+_sum:
+        mov dl, [edi] ; pobierz c, tylko jedną nowa wartość
+
+        add ax, bx    ; a jest tracone w następnej iteracji
+        add ax, dx    ; więc zostanie użyte do obliczeń
+
+        mov [esi], ax ; zapisz sumę do tablicy 'Sum'
+
+        mov ax, bx    ; a=b
+        mov bx, dx    ; b=c
+
+        inc edi
+        add esi, byte 2
+
+        loop _sum
+ret
+</pre>
+</div>
+<div class="section" id="implementacja-mmx-funkcji-calc-sum">
+<h2>Implementacja MMX funkcji <tt class="docutils literal">calc_sum</tt></h2>
+<p>Rozkazy MMX o wiele lepiej nadaje się do takich obliczeń.</p>
+<pre class="literal-block">
+calc_sum:
+mov ecx, SIZE_X/8
+
+pxor mm7, mm7
+
+_sum:
+        ; edi -&gt; |h|g|f|e|d|c|b|a|...
+        movq mm0, [edi+0]  ; mm0 = |h|g|f|e|d|c|b|a|
+        movq mm1, [edi+1]  ; mm1 = |i|h|g|f|e|d|c|b|
+        movq mm2, [edi+2]  ; mm2 = |j|i|h|g|f|e|d|c|
+
+        movq mm3, mm0
+        movq mm4, mm1
+        movq mm5, mm2
+
+        punpcklbw mm0, mm7 ; mm0 = | d | c | b | a |
+        punpcklbw mm1, mm7 ; mm1 = | e | d | c | b |
+        punpcklbw mm2, mm7 ; mm2 = | f | e | d | c |
+
+        punpckhbw mm3, mm7 ; mm3 = | h | g | f | e |
+        punpckhbw mm4, mm7 ; mm3 = | i | h | g | f |
+        punpckhbw mm5, mm7 ; mm3 = | j | i | h | g |
+
+        paddw mm0, mm1     ;
+        paddw mm0, mm2     ; mm0 = |def|cde|bcd|abc|
+
+        paddw mm3, mm4     ;
+        paddw mm3, mm5     ; mm3 = |hij|ghi|fgh|efg|
+
+        movq [esi+0], mm0
+        movq [esi+8], mm1
+
+        add edi, 8
+        add esi, 16
+        loop _sum
+ret
+</pre>
+<p>13.04.2008: Zobacz <a class="reference external" href="#mmx2">niżej</a> nt optymalizacji tej funkcji dla
+procesorów Pentium II.</p>
+</div>
+</div>
+<div class="section" id="dzielenie">
+<h1>Dzielenie</h1>
+<p>Nieporuszanym jeszcze problemem jest dzielenie przez 9. W przypadku kodu
+x86 (a także kodu w C) w zupełności wystarczy tablica z prekalkulowanymi
+wartościami.</p>
+<pre class="literal-block">
+byte div_tbl[9*255];
+...
+for (i=0; i&lt;9*255; i++)
+        div_tbl[i] = i/9;
+
+...
+void blur(Image image)
+...
+                s = div_tbl[A[x] + B[x] + C[x]];
+...
+</pre>
+<p>Natomiast MMX dostarcza tylko rozkazów mnożenia, wykorzystamy jednak pewien
+trik. Jak być może wiesz, przesunięcie bitowe w prawo, to dzielenie przez
+pewną potęgę dwójki. Można tę własność wykorzystać &mdash; wzór na dzielenie
+całkowitoliczbowe przez dowolną liczbę k jest następujący:</p>
+<pre class="literal-block">
+x/k = (x*(2^n/k)) &gt;&gt; n
+</pre>
+<p>Czynnik <tt class="docutils literal">2^n/k</tt> jest liczony w trakcie kompilacji; w rozważanym
+przypadku (<tt class="docutils literal">k=9</tt>, <tt class="docutils literal">n=16</tt>) wyniesie on <tt class="docutils literal">d = 65536/9 = 7281 = 0x1c71</tt>.
+Dlaczego n=16? Rozkazy MMX <tt class="docutils literal">pmulhw</tt> oraz <tt class="docutils literal">pmuluhw</tt> obliczają starsze
+słowo z mnożenia, a więc faktycznie, przesunięty w prawo o 16 bitów,
+(32-bitowy) wynik mnożenia.</p>
+<p><strong>Dopisek 14.07.2007</strong>: żeby naprawdę mnożenie, a potem przesunięcie dało
+identyczny wynik co dzielenie, należy przed przesunięciem dodać do
+wyniku mnożenia wartość <tt class="docutils literal">d</tt>, czyli <tt class="docutils literal">(x * d + d) &gt;&gt; 16</tt>.  Bez
+dodawania różnica wartości pomiędzy <tt class="docutils literal">(x * d) &gt;&gt; 16</tt> a zwykłym
+dzieleniem całkowitoliczbowym jest co najwyżej 1.  Dlatego wolałem
+zostać przy tym prostszym wyrażeniu, bo z jednej strony różnica jest
+niezauważalna, z drugiej odpada jedno działanie.</p>
+<p>Co prawda rozkaz <tt class="docutils literal">pmulhw</tt> mnoży liczby ze znakiem, lecz <tt class="docutils literal">0x1c71</tt> w
+zapisie U2 jest liczbą dodatnią, więc nie będzie problemu z jego
+wykorzystaniem.</p>
+<pre class="literal-block">
+segment .data
+
+mmx_coef dd 0x1c711c71, 0x1c711c71
+
+segment .code
+
+calc_average_mmx:
+; edi - A
+; esi - B
+; ebx - C
+; edx - linia obrazu do której zapisywany jest wynik
+
+movq mm2, [mmx_coef]
+mov  ecx, SIZE_X-2
+
+_sum:
+        movq mm0, [edi]
+        addw mm0, [esi]
+        addw mm0, [ebx]   ; sumuj 4 młodsze
+
+        movq mm1, [edi+8]
+        addw mm1, [esi+8]
+        addw mm1, [ebx+8] ; i 4 starsze grupy pikseli
+
+        pmulhw mm0, mm2   ; mm0/9, mm1/9
+        pmulhw mm1, mm2   ; packed_word będą w zakresie 0..255
+
+        packuswb mm0, mm1 ; połącz wyniki
+
+        movq [edx], mm0   ; zapisz
+
+        add edi, 16 ; przesuń wskaźniki
+        add esi, 16 ;
+        add ebx, 16 ;
+        add edx, 8  ;
+        loop _sum
+ret
+</pre>
+<p>Przy założeniu, że przedstawiona powyżej funkcja <tt class="docutils literal">calc_average_mmx</tt>, została
+zadeklarowana w C:</p>
+<pre class="literal-block">
+calc_average_mmx(Image_line, Sum, Sum, Sum);
+</pre>
+<p>można ją wykorzystać w sposób następujący:</p>
+<pre class="literal-block">
+void blur_image(Image image_in, Image image_out) {
+        Sum  a,  b,  c;
+        Sum *A, *B, *C, *T;
+        word s;
+        int x, y;
+
+        A = &amp;a;
+        B = &amp;b;
+        C = &amp;c;
+
+        calc_sum(image_in[0], A);
+        calc_sum(image_out[1], B);
+        for (y=1; y&lt;SIZE_Y-1; y++) {
+
+                calc_sum(image[y+1], C);
+                calc_average_mmx(image_out[y], A, B, C);
+
+                T = A;
+                A = B;
+                B = C;
+                C = T;
+        }
+}
+</pre>
+</div>
+<div class="section" id="implementacja-sse2-oraz-mmx2-31-05-2008">
+<span id="mmx2"></span><h1>Implementacja SSE2 oraz MMX2 [31.05.2008]</h1>
+<p>W przykładowym programie zamieściłem również implementację SSE2.
+Poza <strong>wyrównaniem</strong> wskaźników i użyciu rozkazu <tt class="docutils literal">PALIGNR</tt> do
+pobierania niewyrównanych danych w <tt class="docutils literal">calc_sum</tt> cały kod zasadniczo
+został przełożony z wersji MMX automatycznie.</p>
+<p>Natomiast w procedurze nazwanej umownie MMX2 zamiast odwołań do
+niewyrównanych adresów wyciąga się odpowiednie dane za pomocą dwóch
+przesunięć bitowych oraz jednej opracji sumy bitowe.  Zamiast:</p>
+<pre class="literal-block">
+0:
+        movq 0(%esi), %mm0
+        movq 1(%esi), %mm1
+        movq 2(%esi), %mm2
+
+        // ...
+        // dalsza część pętli [wykorzystywane dodatkowo mm3, mm4]
+        // ...
+
+        jnz 0b
+</pre>
+<p>Można czytać w jednej iteracji <strong>wyrównane</strong> do granicy 8 bajtów dane
+(a przetwarzać 16 kolejnych bajtów) i tworzyć podzakresy sekwencją
+dwóch przesunięć bitowych i operacji sumy:</p>
+<pre class="literal-block">
+;
+        movq 0(%esi), %mm6
+0:
+        // mm0:mm3 -- 16 kolejnych bajtów
+        movq %mm6,    %mm0
+        movq 8(%esi), %mm3
+
+        // zapamiętanie mm3 dla następnej iteracji
+        movq %mm3,    %mm6
+
+        movq  %mm0,   %mm1
+        movq  %mm0,   %mm2
+        movq  %mm3,   %mm4
+
+        // utworzenie mm1
+        pslrq $8,     %mm1
+        psllq $64-8,  %mm3
+        por   %mm3,   %mm1
+
+        // utworzenie mm2
+        pslrq $16,    %mm2
+        psllq $64-16, %mm4
+        por   %mm4,   %mm2
+
+        // ...
+        // dalsza część pętli [wykorzystywane dodatkowo mm3, mm4]
+        // ...
+
+        jnz 0b
+</pre>
+<p>Na Pentium II, pomimo sporego rozrostu kodu, to rozwiązanie pozwala
+przyspieszyć kod o ok. 30 procent; przyspieszenie w stosunku do
+analogicznego kodu x86 wzrasta z ok. 3.8 do ok. 4.7.  Na Celeronie M
+praktycznie bez zmian, chyba nawet wolniej działała druga wersja.</p>
+</div>
+<div class="section" id="podsumowanie">
+<h1>Podsumowanie</h1>
+<p>Celem opisanych wyżej algorytmów, jest minimalizacja odwołań do pamięci
+i liczby dodawań. W przypadku bezpośredniej implementacji wzoru liczba
+odwołań do pamięci obrazu wynosiła <tt class="docutils literal"><span class="pre">9*(SIZE_X-2)*(SIZE_Y-2)</span></tt>, natomiast
+liczba operacji dodawania <tt class="docutils literal"><span class="pre">8*(SIZE_X-2)*(SIZE_Y-2)</span></tt>.</p>
+<p>Po optymalizacji liczba odwołań do pamięci obrazu zmaleje, wyniesie
+tylko <tt class="docutils literal">SIZE_X*SIZE_X</tt>. Co prawda liczba odwołań do tablic sum <tt class="docutils literal">a</tt>,
+<tt class="docutils literal">b</tt> i <tt class="docutils literal">c</tt> (lub <tt class="docutils literal">abc</tt>) nie będzie mniejsza, ale z racji ich
+relatywnie małego rozmiaru, będzie mniej nietrafień w cache.</p>
+<p>Liczba operacji sumowania wynosie natomiast
+<tt class="docutils literal"><span class="pre">2*(SIZE_X-2)*(SIZE_Y)</span> + <span class="pre">2*(SIZE_Y)*(SIZE_X-2).</span></tt></p>
+<p>Porównanie metody wejściowej i zoptymalizowanego algorytmu dla obrazu
+o wielkości 320x200 pikseli</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="31%" />
+<col width="41%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">liczba operacji dodawania</th>
+<th class="head">liczba odwołań do pamięci obrazu</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><strong>metoda podstawowa</strong></td>
+<td>503 712</td>
+<td>566 676</td>
+</tr>
+<tr><td><strong>po optymalizacji</strong></td>
+<td>253 920 (50,4%)</td>
+<td>64 000 (11,3%)</td>
+</tr>
+</tbody>
+</table>
+<p>Przy użyciu kodów MMX, zaprezentowanych w tym artykule, przyrost prędkości był
+naprawdę imponujący &mdash; lekko licząc ok. 2-3 razy w stosunku do kodu x86
+używającego tej samej, zoptymalizowanej metody.</p>
+<p>Poniżej wyniki testów  przykładowego programu przeprowadzane na dwóch maszynach
+działających pod kontrolą Linuksa.</p>
+<div class="section" id="pentium-ii-400mhz">
+<h2>Pentium II, 400MHz</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="13%" />
+<col width="15%" />
+<col width="19%" />
+<col width="53%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedura</th>
+<th class="head">czas [user]</th>
+<th class="head">przyspieszenie</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>x86</td>
+<td>14.973</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████</span></tt></td>
+</tr>
+<tr><td>MMX</td>
+<td>3.996</td>
+<td>3.7</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████</span></tt></td>
+</tr>
+<tr><td>MMX2</td>
+<td>3.156</td>
+<td>4.7</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="core-2">
+<h2>Core 2</h2>
+<p>CPU: Core 2 Duo E8200 &#64; 2.6GHz</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="13%" />
+<col width="15%" />
+<col width="19%" />
+<col width="53%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedura</th>
+<th class="head">czas [user]</th>
+<th class="head">przyspieszenie</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>x86</td>
+<td>8.221</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████</span></tt></td>
+</tr>
+<tr><td>MMX</td>
+<td>2.852</td>
+<td>2.8</td>
+<td><tt class="docutils literal"><span class="pre">██████████████</span></tt></td>
+</tr>
+<tr><td>MMX2</td>
+<td>2.516</td>
+<td>3.2</td>
+<td><tt class="docutils literal"><span class="pre">████████████████</span></tt></td>
+</tr>
+<tr><td>SSE2</td>
+<td>1.276</td>
+<td>6.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="core-i5-2016-03-07">
+<h2>Core i5 [2016-03-07]</h2>
+<p>CPU: Core i5 M 540 &#64; 2.53GHz</p>
+<p>Uwaga: kod 32-bitowy</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="13%" />
+<col width="15%" />
+<col width="19%" />
+<col width="53%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedura</th>
+<th class="head">czas [user]</th>
+<th class="head">przyspieszenie</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>x86</td>
+<td>0:08.27</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">█████</span></tt></td>
+</tr>
+<tr><td>mmx</td>
+<td>0:01.82</td>
+<td>4.52</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████</span></tt></td>
+</tr>
+<tr><td>mmx2</td>
+<td>0:02.35</td>
+<td>3.52</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████</span></tt></td>
+</tr>
+<tr><td>sse2</td>
+<td>0:01.04</td>
+<td>7.95</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="przyklad">
+<h1>Przykład</h1>
+<ul class="simple">
+<li>W <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/blur">repozytorium</a>  jest przykładowy program zawierający pięć procedur
+realizujących ulepszoną metodę:<ul>
+<li>procedura zakodowana w C</li>
+<li>wersja asemblerowa (x86)</li>
+<li>wersja MMX</li>
+<li>druga wersja MMX</li>
+<li>SSE2</li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/blur.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+</html>

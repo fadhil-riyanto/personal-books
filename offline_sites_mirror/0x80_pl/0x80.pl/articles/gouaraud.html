@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/gouaraud.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:25 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Cieniowanie Gouarauda</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="cieniowanie-gouarauda">
+<h1 class="title">Cieniowanie Gouarauda</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">31.07.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">9.08.2002</td>
+</tr>
+</tbody>
+</table>
+<p>Każdy z wierzchołków charakteryzują następujące parametry:</p>
+<ul class="simple">
+<li>współrzędna <em>X</em></li>
+<li>współrzędna <em>Y</em></li>
+<li>kolor wierzchołka <em>c</em></li>
+</ul>
+<img alt="podział trójkąta" class="align-center" src="img/gouraud_tri.png" />
+<p>Zanim trójkąt zostanie wyświetlony jest on dzielony na dwie części, w taki
+sposób jak na obok (odcinek pomiędzy <span class="math">V<sub>2</sub></span> i <span class="math">V<sub>2</sub>'</span> jest
+<strong>najdłuższym</strong> scanlinem w całym trójkącie). Wypełnienie trójkątów
+<span class="math">V<sub>1</sub>, V<sub>2</sub>, V<sub>2</sub>'</span> oraz <span class="math">V<sub>2</sub>, V<sub>2</sub>', V<sub>3</sub></span> jest
+bardzo proste.</p>
+<p>Obliczenie współrzędnych <span class="math"><i>x</i><sub>L</sub></span> i <span class="math"><i>x</i><sub>R</sub></span> oraz kolorów
+<span class="math"><i>c</i><sub>L</sub></span>, <span class="math"><i>c</i><sub>R</sub></span> wymaga wyłącznie dodawania przyrostów
+<span class="math"><i>d</i>X<i>d</i>Y</span> i <span class="math"><i>dcd</i>Y</span> (<span class="math"><i>d</i>X<i>d</i>Y = <i>d</i>X/<i>d</i>Y</span>, <span class="math"><i>dcd</i>Y = <i>dc</i>/<i>d</i>Y</span>).</p>
+<p><span class="cmath"><i>x</i><sub>L</sub> = <i>y</i><i>d</i>X<i>d</i>Y<sub>L</sub></span>
+<span class="cmath"><i>x</i><sub>R</sub> = <i>y</i><i>d</i>X<i>d</i>Y<sub>R</sub></span></p>
+<p><span class="cmath"><i>c</i><sub>L</sub> = <i>y</i><i>dcd</i>Y<sub>L</sub></span>
+<span class="cmath"><i>c</i><sub>R</sub> = <i>y</i><i>dcd</i>Y<sub>R</sub></span></p>
+<p>Dla każdej linii należy policzyć przyrost <span class="math"><i>dcd</i>X</span>.</p>
+<img alt="scanline" class="align-center" src="img/gouraud_eq.png" />
+<p><span class="cmath"><i>dcd</i>X = (<i>c</i><sub>R</sub> &minus; <i>c</i><sub>L</sub>)/(<i>x</i><sub>R</sub> &minus; <i>x</i><sub>L</sub>)</span></p>
+<p>Po uproszczeniu powyższego równania zmienna <span class="math"><i>y</i></span> zostanie
+wyrugowana &mdash; współczynnik <span class="math"><i>dcd</i>X</span> jest <strong>stały dla całego
+trójkąta</strong> (dla obu połówek!).</p>
+<pre class="literal-block">
+float dcdX;
+
+void fill_scanline(int xl, int xr, int y, float cl) {
+ while (xl &lt;= xr) {
+    putpixel(xl++, y, int(cl));
+    cl += dcdX;
+   }
+}
+</pre>
+<p>Ponieważ wartości składowych kolorów są z przedziału <tt class="docutils literal"><span class="pre">0..255</span></tt>,
+oraz w każdy niezdegnerowanym trójkącie <span class="math">V<sub>2</sub>'.<i>x</i> &minus; V<sub>2</sub>.<i>x</i> &gt 0</span>
+to <span class="math">|<i>dcd</i>X| &le; 255</span>. Można zatem wartość <span class="math"><i>dcd</i>X</span> zapisać
+w formacie <strong>fixed-point 8:8</strong> i przy użyciu rozkazów MMX obliczać
+jednocześnie kolory czterech sąsiednich pikseli.  Poniżej fragment
+kodu dla obrazów grayscale.</p>
+<pre class="literal-block">
+segment .text
+; edi - adres xl
+; ecx - szerokość scanlina w pixelach
+
+; mm6 = | cl*4 | cl*3 | cl*2 | cl*1 | -- liczby fixed-point 8:8
+; mm7 = |dcdX*4|dcdX*3|dcdX*2|dcdX*1| -- liczby fixed-point 8:8
+fill_scanline_mmx:
+    push ecx
+
+    movq mm0, mm6     ; kopia robocza kolorów
+
+    shr  ecx, 8   ; liczba 8-bajtowych bloków
+    jz   .skip1
+
+  .loop1:
+    movq     mm1, mm0
+    psrlw    mm1, 8   ; podziel przez 8
+    packuswb mm1, mm1 ; spakuj
+
+    movd    [edi], mm1
+    add      edi , byte 8
+
+    paddw    mm0, mm7 ; uaktualnij kolory
+    loop .loop1
+
+  .skip1:
+    pop  ecx
+
+    and  ecx, 0x7
+    jz   .skip2
+
+    movq     mm1, [ecx-8+mask]  ; załaduj maskę
+    maskmovq mm0, mm1               ; (mm1[i] &amp; 0x80) ? [ds:edi] = mm0[i], i=0..7
+  .skip2:
+    ret
+
+segment .data
+
+mask:
+    db 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ; 1
+    db 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ; 2
+    db 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00 ; 3
+    db 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00 ; 4
+    db 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00 ; 5
+    db 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00 ; 6
+    db 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00 ; 7
+</pre>
+<p>Wartość rejestru <tt class="docutils literal">mm7</tt> jest ustalana na początku procedury
+wypełniającej trójkąt, z kolei zawartość rejestru <tt class="docutils literal">mm6</tt>
+jest obliczana w każdej pętli:</p>
+<pre class="literal-block">
+// wartości ustalane na początku pętli:
+// mm5 = |4*dcdY_{L}|4*dcdY_{L}|4*dcdY_{L}|4*dcdY_{L}|
+// mm6 = | 4*c_{L}  | 3*c_{L}  | 2*c_{L}  | 1*c_{L}  |
+for (y=V1.y; y &lt; V2.y; y++)
+   {
+        asm {
+                ; parametry
+                call  fill_scanline_mmx
+
+        paddw mm6, mm5
+        }
+   }
+</pre>
+<p>Przy dużych wartościach współczynnika <tt class="docutils literal">dcdX</tt> jego wartość
+pomnożona przez 2, 3 i 4 nie mieści się w zakresie fixed-point 8:8.
+Jednakże tak duże wartości występują przy wąskich trójkątach, tj. gdy
+<span class="math">V'<sub>2X</sub> &minus; V<sub>2X</sub> &lt 4</span>, oraz gdy <span class="math"><i>abs</i>(V'<sub>2C</sub> &minus; V<sub>2C</sub>) = 255</span>.
+Wtedy pola na których występuje przekorczenie zakresu i tak nie są wyświetlane.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/gouaraud.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:27 GMT -->
+</html>

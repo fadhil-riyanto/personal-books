@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2015-04-08-simd-search.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMD-ized searching in unique constant dictionary</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simd-ized-searching-in-unique-constant-dictionary">
+<h1 class="title">SIMD-ized searching in unique constant dictionary</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2015-04-08</td>
+</tr>
+<tr class="updates field"><th class="docinfo-name">Updates:</th><td class="field-body">2016-05-03 (binary search modifications)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#simd-ization-of-binary-search" id="toc-entry-2">SIMD-ization of binary search</a></li>
+<li><a class="reference internal" href="#binary-search-with-simd-search-around-pivot-point" id="toc-entry-3">Binary search with SIMD search around pivot point</a></li>
+<li><a class="reference internal" href="#binary-search-with-fallback-to-linear-search" id="toc-entry-4">Binary search with fallback to linear search</a></li>
+<li><a class="reference internal" href="#comparison" id="toc-entry-5">Comparison</a></li>
+<li><a class="reference internal" href="#summary" id="toc-entry-6">Summary</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-7">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>The problem: there is an <strong>ordered dictionary</strong> containing only
+<strong>unique</strong> keys. The dictionary is read only, and keys are 32-bit (SSE) or
+64-bit (AVX2).</p>
+<p>The obvious solution is to use <a class="reference external" href="http://en.wikipedia.org/wiki/binary_search">binary search</a>. Keys can be
+stored in a contiguous memory thanks to that there is no internal
+fragmentation, and data has cache locality. And of course indexing the
+keys is done in constant time (in the terms of computational complexity) or
+a single memory fetch (hardware).</p>
+<p>The time complexity of binary search is <span class="math">O(log<sub>2</sub>(<i>n</i>))</span>, i.e. for one
+million elements single lookup takes up to 20 operations. Single
+operation is fetching a value and comparing with the given key.</p>
+<p>Another algorithm is <a class="reference external" href="http://en.wikipedia.org/wiki/linear_search">linear search</a> which seems to be suitable
+for <strong>small dictionaries</strong>. Linear search could be easily SIMD-ized.</p>
+</div>
+<div class="section" id="simd-ization-of-binary-search">
+<h1>SIMD-ization of binary search</h1>
+<p>I propose following modification: the key space is split to <strong>five</strong>
+independent subspaces and the lookup starts with choosing the proper subspace,
+then standard binary is used to search in the subspace. The computational complexity
+remains <span class="math">O(log<sub>2</sub><i>n</i>)</span>, but the exact number of operations is smaller.</p>
+<div class="asciidiag"><pre class="asciidiag">┌──────────┬────┬──────────┬────┬──────────┬────┬──────────┬────┬──────────┐
+│          │ k1 │          │ k2 │          │ k3 │          │ k4 │          │
+└──────────┴────┼──────────┴────┼──────────┴────┼──────────┴────┼──────────┘
+  subspace 0    │  subspace 1   │  subspace 2   │  subspace 3   │ subspace 4</pre></div><p>The trick is to use SIMD operations to choose a subspace. We need
+<strong>four</strong> keys <tt class="docutils literal">k1</tt>, <tt class="docutils literal">k2</tt>, <tt class="docutils literal">k3</tt> and <tt class="docutils literal">k4</tt> which define subspace
+boundaries, then a <strong>single</strong> vector compare for greater yields a mask that
+defines a subspace.</p>
+<p>Following pseudo code show the idea:</p>
+<pre class="literal-block">
+function search(key) is
+begin
+    -- SIMD part
+    key_vector = {key, key, key, key};              -- 1
+    boundaries = {k1,  k2,  k3,  k4};
+
+    dword_mask = PCMPGT(key_vector, boundaries);    -- 2
+
+    bit_mask   = MOVMSKPS(dword_mask);              -- 3
+
+    -- plain binsearch
+    if bit_mask == 0b0000 then        -- key &lt;= k1
+        search in subspace 0
+    elif bit_mask == 0b0001 then      -- key &gt; k1 and key &lt;= k2
+        search in subspace 1
+    elif bit_mask == 0b0011 then      -- key &gt; k2 and key &lt;= k3
+        search in subspace 2
+    elif bit_mask == 0b0111 then      -- key &gt; k3 and key &lt;= k4
+        search in subspace 3
+    elif bit_mask == 0b1111 then      -- key &gt; k4
+        search in subspace 4
+    end if
+end
+</pre>
+<p>SIMD part requires just three instructions:</p>
+<ol class="arabic simple">
+<li>broadcast <tt class="docutils literal">key</tt> to vector;</li>
+<li>compare with <tt class="docutils literal">boundaries</tt> vector;</li>
+<li>get mask.</li>
+</ol>
+<p>This is done in <strong>constant time</strong> and binary search is executed on
+subarray of size 20% of input data.</p>
+</div>
+<div class="section" id="binary-search-with-simd-search-around-pivot-point">
+<h1>Binary search with SIMD search around pivot point</h1>
+<p>Modification of binary search: when the search range is narrowed, then
+try to find a key <strong>near</strong> the pivot point. A SIMD equality function
+is used.</p>
+<p>Following code shows the idea (check out <a class="reference external" href="https://github.com/WojciechMula/simd-search/blob/master/sse-binsearch-block.cpp">the implementation</a>):</p>
+<pre class="literal-block">
+key_vector = {key, key, key, key}
+
+while (a &lt;= b) {
+    const int c = (a + b)/2;
+
+    if (data[c] == key) {
+        return c;
+    }
+
+    if (key &lt; data[c]) {
+        b = c - 1;
+
+        if (b &gt;= 4) {
+            SIMD_equal(data[b - 4 .. b], key_vector) =&gt; index
+            return index if found
+        }
+    } else {
+        a = c + 1;
+
+        if (a + 4 &lt; limit) {
+            SIMD_equal(data[a .. b + 4], key_vector) =&gt; index
+            return index if found
+        }
+    }
+}
+</pre>
+</div>
+<div class="section" id="binary-search-with-fallback-to-linear-search">
+<h1>Binary search with fallback to linear search</h1>
+<p>For short arrays linear search is faster than binary search. In this
+modification binary search algorithm ends when the search range is small,
+then linear search is performed on this range.</p>
+<p>Threshold size shouldn't be too large. I would say that the size of cache
+line (or two lines) is a good starting point.</p>
+<p>A full <a class="reference external" href="https://github.com/WojciechMula/simd-search/blob/master/binsearch-linear.cpp">C++ implementation</a>:</p>
+<pre class="literal-block">
+int binsearch(uint32_t key, int a, int b) const {
+    while (b - a &gt; 64/4) {
+        const int c = (a + b)/2;
+
+        if (data[c] == key) {
+            return c;
+        }
+
+        if (key &lt; data[c]) {
+            b = c - 1;
+        } else {
+            a = c + 1;
+        }
+    }
+
+    for (int i=a; i &lt;= b; i++) {
+        if (data[i] == key) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+</pre>
+</div>
+<div class="section" id="comparison">
+<h1>Comparison</h1>
+<p>Results from <a class="reference external" href="https://github.com/WojciechMula/simd-search/blob/master/results/corei5.txt">Core i5</a> (Westmere). The unit is number of queries per second.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="9%" />
+<col width="14%" />
+<col width="15%" />
+<col width="15%" />
+<col width="15%" />
+<col width="15%" />
+<col width="15%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">size
+[bytes]</th>
+<th class="head" colspan="4">binary search</th>
+<th class="head" colspan="2">linear search</th>
+</tr>
+<tr><th class="head">(1)
+default</th>
+<th class="head">(2)
+linear
+fallback</th>
+<th class="head">(3)
+SIMD subrange
+select</th>
+<th class="head">(4)
+SIMD search
+around pivot</th>
+<th class="head">(5)
+default</th>
+<th class="head">(6)
+SIMD boosted</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>4</td>
+<td>44,277,175</td>
+<td>46,899,696</td>
+<td>33,078,081</td>
+<td>40,488,781</td>
+<td><strong>64,679,288</strong></td>
+<td>40,058,806</td>
+</tr>
+<tr><td>8</td>
+<td>16,391,723</td>
+<td>18,863,227</td>
+<td>16,241,043</td>
+<td>15,295,572</td>
+<td>22,813,654</td>
+<td><strong>27,207,701</strong></td>
+</tr>
+<tr><td>16</td>
+<td>3,617,123</td>
+<td>4,131,163</td>
+<td>6,905,724</td>
+<td>6,622,157</td>
+<td>3,266,917</td>
+<td><strong>10,469,538</strong></td>
+</tr>
+<tr><td>32</td>
+<td>1,444,317</td>
+<td>1,784,175</td>
+<td>1,926,374</td>
+<td>2,437,853</td>
+<td>1,268,942</td>
+<td><strong>4,130,405</strong></td>
+</tr>
+<tr><td>64</td>
+<td>586,026</td>
+<td>669,683</td>
+<td>677,376</td>
+<td>822,112</td>
+<td>456,542</td>
+<td><strong>1,504,841</strong></td>
+</tr>
+<tr><td>128</td>
+<td>259,413</td>
+<td>279,583</td>
+<td>269,133</td>
+<td>337,367</td>
+<td>139,831</td>
+<td><strong>442,554</strong></td>
+</tr>
+<tr><td>256</td>
+<td>114,956</td>
+<td>123,168</td>
+<td>117,368</td>
+<td><strong>134,691</strong></td>
+<td>40,075</td>
+<td>132,586</td>
+</tr>
+<tr><td>512</td>
+<td>49,428</td>
+<td>56,470</td>
+<td>53,368</td>
+<td><strong>59,880</strong></td>
+<td>10,767</td>
+<td>38,690</td>
+</tr>
+<tr><td>1024</td>
+<td>23,527</td>
+<td>25,907</td>
+<td>25,402</td>
+<td><strong>27,442</strong></td>
+<td>2,788</td>
+<td>10,141</td>
+</tr>
+<tr><td>2048</td>
+<td>10,873</td>
+<td>12,048</td>
+<td>11,193</td>
+<td><strong>12,640</strong></td>
+<td>707</td>
+<td>2,631</td>
+</tr>
+<tr><td>4096</td>
+<td>5,520</td>
+<td>5,632</td>
+<td>5,091</td>
+<td><strong>5,999</strong></td>
+<td>178</td>
+<td>692</td>
+</tr>
+<tr><td>8192</td>
+<td>2,738</td>
+<td>2,656</td>
+<td>2,531</td>
+<td><strong>2,852</strong></td>
+<td>45</td>
+<td>174</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="summary">
+<h1>Summary</h1>
+<ul class="simple">
+<li>Linear search is suitable for small dictionaries (up to 64-128
+elements).</li>
+<li>SIMD-ized version of binary search (3) is always faster than plain
+version (1).</li>
+<li>Binary search with linear search fallback (2) is almost as fast
+as the fastest binary SIMD search (4).</li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All sources are available at <a class="reference external" href="https://github.com/WojciechMula/simd-search">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2015-04-08-simd-search.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

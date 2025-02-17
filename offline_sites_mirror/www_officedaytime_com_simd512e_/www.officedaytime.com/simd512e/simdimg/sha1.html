@@ -1,0 +1,401 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/sha1.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:57 GMT -->
+<head>
+    <meta charset="utf-8" />
+    <link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/sha1.html" />
+    <link rel="alternate" hreflang="en" href="sha1.html" />
+    <title>x86/x64 SHA1 Instructions</title>
+    <style type="text/css">
+        .red {
+            color: #FF0000;
+        }
+
+        h1 {
+            font-size: 15pt;
+            font-weight: bold;
+            background-color: #8288FD;
+            color: #FFFFFF;
+            padding: 2pt;
+        }
+
+        body {
+            font-family: sans-serif;
+            font-size: 10pt;
+        }
+
+        h2 {
+            font-weight: bold;
+            padding: 2pt 2pt 0pt 0pt;
+            font-size: 10pt;
+            border-bottom-style: solid;
+            border-bottom-width: 2px;
+            border-bottom-color: #0000FF;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0000FF;
+        }
+
+        dt {
+            font-weight: bold;
+        }
+
+        td {
+            background-color: #FFFFFF;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+
+        .srcprogdiv {
+            border: 1px solid #0000FF;
+            border-radius: 5px;
+            padding: 5px 10px 5px 10px;
+        }
+
+        srcprogdiv {
+        }
+
+        .intr {
+            color: #6778ED;
+        }
+
+        .IL {
+            color: black;
+        }
+
+        .operand {
+            font-style: italic;
+        }
+        .cppcmnt {
+            color: #00A000;
+        }
+   </style>
+
+</head>
+<body>
+    <p>Caution: This page is about SHA1 instructions of Intel SHA Extensions, that cannot be used on most of current mainstream processors yet.</p>
+    <h1>x86/x64 SHA1 Instructions</h1>
+    <p>As for SHA1, <a href="http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf" target="_blank">FIPS 180-4</a> issued by the government agency of the United States, is the original specification.</p>
+    <p>The following is the algorithm to calculate the hash value from the pre-processd 64-BYTE (16-DWORD) message blocks, defined on page 19 of FIPS 180-4.</p>
+    <p><img src="sha1_010.png" style="border:1px solid blue" /></p>
+    <p>SHA1MSG1 and SHA1MSG2 instructions help  the calculation of <span class="red">A</span> above.</p>
+    <p>SHA1RNDS4 and SHA1NEXTE instructions help the processing of <span class="red">B</span> above.</p>
+
+    <h1>The calculation of <span class="red">A</span></h1>
+    <p>The expression of <span class="red">A</span> is the calculation of the DWORD values to be appended to the pre-processed 16-DWORD message block, to generate the 80-DWORD W array.</p>
+    <p>To calculate the SHA hash on x86/x64, the byte order within each DWORD has to be swapped, because SHA calculations are based on big-endian. Besides, the DWORD order within each XMMWORD should be swapped to use SHA1 instructions. Moreover, in this page, the byte order of the whole W array is swapped, to make the illustration <!--and the sample code--> easier to understand.</p>
+    <p>The <span class="red">A</span> expression specifies to XOR the values of W[t-16], W[t-14], W[t-8], W[t-3], then rotate. The result is set to W[t].</p>
+    <p><img src="sha1_020.png" /></p>
+    <p>SHA1 instructions make it possible to do this, 4 elements at a time.</p>
+    <p>SHA1MSG1 instruction does the XORing of <span class="red">1</span> in the illustration above.</p>
+    <p>SHA1MSG2 instruction does the XORing and ROLing of <span class="red">3</span> and <span class="red">4</span>.</p>
+    <p>Ordinary SIMD PXOR instruction does the XORing of <span class="red">2</span>.</p>
+
+    <h2>SHA1MSG1 - SHA1 MesSaGe 1</h2>
+    SHA1MSG1 <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(SHA<br />
+    <span class="intr">__m128i  _mm_sha1msg1_epu32(__m128i a, __m128i b)</span><br />
+    <img src="sha1_030.png" />
+    <p>Does the XORing of <span class="red">1</span> and returns the result in (3).</p>
+
+    <h2>SHA1MSG2 - SHA1 MesSaGe 2</h2>
+    SHA1MSG2 <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(SHA<br />
+    <span class="intr">__m128i  _mm_sha1msg2_epu32(__m128i a, __m128i b)</span><br />
+    <img src="sha1_040.png" />
+    <p>Does the calculation of <span class="red">3</span> and <span class="red">4</span>, and returns the result in (3).</p>
+    <p>Inputs: (1) = result of <span class="red">2</span>.&nbsp; (2) = the elements of the W array.</p>
+
+    <h1>The loop of <span class="red">B</span></h1>
+    <p><span class="red">B</span> loops through all 80 elements of the W array to update five state variables a, b, c, d and e.</p>
+    <p>Executing SHA1RNDS4 and SHA1NEXTE instructions, each once, 4 rounds of the loop are processed.</p>
+    <p>SHA1RNDS4 instruction has only 4 locations to pass the state variables, so the state variables a, b, c and d are passed separately. The state variable e is added into the first element of the W array and passed to the instruction.</p>
+    <p>For the first round of the loop, W0 + e must be calculated before executing SHA1RNDS4 instruction. For the following rounds, SHA1NEXTE instruction adds e to the next W array elements.</p>
+    <h2>SHA1RNDS4 - SHA1 RouNDS 4</h2>
+    SHA1RNDS4 <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(SHA<br />
+    <span class="intr">__m128i  _mm_sha1rnds4_epu32(__m128i a, __m128i b, int imm8)</span><br />
+    <img src="sha1_050.png" />
+    <p>Does 4 rounds of <span class="red">B</span> loop to calculate updated state variables a', b', c', and d'.</p>
+    <p>Inputs: (1) = the state variables a, b, c and d.&nbsp; (2) = the W array elements (with the state variable e added to the first element).</p>
+    <p>Output: (3) = the state variables a', b', c', d' updated after 4 rounds.</p>
+    <p>imm8 = 0 for the first 20 rounds of the loop, 1 for the next 20 rounds of the loop..., 3 for the last 20 rounds of the loop.</p>
+    <h2>SHA1NEXTE - SHA1 NEXT E</h2>
+    SHA1NEXTE <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(SHA<br />
+    <span class="intr">__m128i  _mm_sha1nexte_epu32(__m128i a, __m128i b)</span><br />
+    <img src="sha1_060.png" />
+    <p>Calculates the state variable e' updated after 4 rounds.</p>
+    <p>Inputs: (1) = the state variable a (before the 4 rounds). (2) = the elements of W array for next 4 rounds.</p>
+    <p>Output: (3) = the elements of the W array for the next 4 rounds, with the updated state variable e' added to the first element.</p>
+    <p>For the last round of the loop, you can specify zero for (2) to obtain the e' value itself, or better off specifying H4:0:0:0 for (2) to get e' added to H4. (Note that the value of e' is computed only from (1), and values of (2) don't affect the computation of the value of e'.)</p>
+
+    <h1>Sample</h1>
+    <div class="srcprogdiv">
+<pre class="srcprog">
+#pragma once
+
+#include &lt;intrin.h&gt;
+
+class SHA1H
+{
+protected:
+    <span class="cppcmnt">// Message block</span>
+    static const size_t MBYTES = 64;
+    unsigned char msgbuf[MBYTES];
+    size_t msgbuf_count;            <span class="cppcmnt">// length (in byte) of the data currently in the message block</span>
+    unsigned __int64 total_count;   <span class="cppcmnt">// total length (in byte) of the message</span>
+
+    <span class="cppcmnt">// Intermediate hash</span>
+    __m128i h0123;  <span class="cppcmnt">// h0 : h1 : h2 : h3</span>
+    __m128i h4;     <span class="cppcmnt">// h4 : 0 : 0 : 0</span>
+
+public:
+    SHA1H() { Initialize(); }
+    ~SHA1H() {}
+
+    void Update(const void* buf, size_t length);
+    void Final(void* digest);
+
+protected:
+    void Initialize();
+    void ProcessMsgBlock(const unsigned char* msg);
+};
+</pre>
+    </div>
+    <p></p>
+    <div class="srcprogdiv">
+<pre class="srcprog">
+#include &lt;memory.h&gt;
+#include &quot;SHA1H.h&quot;
+
+<span class="cppcmnt">// Initial hash value (see FIPS 180-4 5.3.1)</span>
+#define H0 0x67452301
+#define H1 0xefcdab89
+#define H2 0x98badcfe
+#define H3 0x10325476
+#define H4 0xc3d2e1f0
+
+void SHA1H::Initialize()
+{
+    h0123 = _mm_set_epi32(H0, H1, H2, H3);
+    h4    = _mm_set_epi32(H4, 0, 0, 0);
+    msgbuf_count = 0;
+    total_count = 0;
+}
+
+void SHA1H::Update(const void* buf, size_t length)
+{
+    const unsigned char* p = (const unsigned char*)buf;
+    total_count += length;
+
+    <span class="cppcmnt">// If any bytes are left in the message buffer, </span>
+    <span class="cppcmnt">// fullfill the block first</span>
+    if (msgbuf_count) {
+        size_t c = MBYTES - msgbuf_count;
+        if (length &lt; c) {
+            memcpy(msgbuf + msgbuf_count, p, length);
+            msgbuf_count += length;
+            return;
+        }
+        else {
+            memcpy(msgbuf + msgbuf_count, p, c);
+            p += c;
+            length -= c;
+            ProcessMsgBlock(msgbuf);
+            msgbuf_count = 0;
+        }
+    }
+
+    <span class="cppcmnt">// When we reach here, we have no data left in the message buffer</span>
+    while (length &gt;= MBYTES) {
+        <span class="cppcmnt">// No need to copy into the internal message block</span>
+        ProcessMsgBlock(p);
+        p += MBYTES;
+        length -= MBYTES;
+    }
+
+    <span class="cppcmnt">// Leave the remaining bytes in the message buffer</span>
+    if (length) {
+        memcpy(msgbuf, p, length);
+        msgbuf_count = length;
+    }
+}
+
+void SHA1H::Final(void* digest)
+{
+    <span class="cppcmnt">// Add the terminating bit</span>
+    msgbuf[msgbuf_count++] = 0x80;
+
+    <span class="cppcmnt">// Need to set total length in the last 8-byte of the block.</span>
+    <span class="cppcmnt">// If there is no room for the length, process this block first</span>
+    if (msgbuf_count + 8 &gt; MBYTES) {
+        <span class="cppcmnt">// Fill zeros and process</span>
+        memset(msgbuf + msgbuf_count, 0, MBYTES - msgbuf_count);
+        ProcessMsgBlock(msgbuf);
+        msgbuf_count = 0;
+    }
+
+    <span class="cppcmnt">// Fill zeros before the last 8-byte of the block</span>
+    memset(msgbuf + msgbuf_count, 0, MBYTES - 8 - msgbuf_count);
+
+    <span class="cppcmnt">// Set the length of the message in big-endian</span>
+    __m128i tmp = _mm_loadl_epi64((__m128i*)&amp;total_count);
+    tmp = _mm_slli_epi64(tmp, 3);   <span class="cppcmnt">// convert # of bytes to # of bits</span>
+    const __m128i total_count_byteswapindex = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7);
+    tmp = _mm_shuffle_epi8(tmp, total_count_byteswapindex); <span class="cppcmnt">// convert to big endian</span>
+    _mm_storel_epi64((__m128i*)(msgbuf + MBYTES - 8), tmp);
+
+    <span class="cppcmnt">// Process the last block</span>
+    ProcessMsgBlock(msgbuf);
+
+    <span class="cppcmnt">// Set the resulting hash value, upside down</span>
+    const __m128i byteswapindex = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    __m128i r0123 = _mm_shuffle_epi8(h0123, byteswapindex);
+    __m128i r4    = _mm_shuffle_epi8(h4, byteswapindex);
+
+    unsigned __int32* digestdw = (unsigned __int32*)digest;
+    _mm_storeu_si128((__m128i*)digestdw, r0123);
+    digestdw[4] = _mm_cvtsi128_si32(r4);
+}
+
+void SHA1H::ProcessMsgBlock(const unsigned char* msg)
+{
+    <span class="cppcmnt">// Cyclic W array</span>
+    <span class="cppcmnt">// We keep the W array content cyclically in 4 variables</span>
+    <span class="cppcmnt">// Initially:</span>
+    <span class="cppcmnt">// cw0 = w0 : w1 : w2 : w3</span>
+    <span class="cppcmnt">// cw1 = w4 : w5 : w6 : w7</span>
+    <span class="cppcmnt">// cw2 = w8 : w9 : w10 : w11</span>
+    <span class="cppcmnt">// cw3 = w12 : w13 : w14 : w15</span>
+    const __m128i byteswapindex = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    const __m128i* msgx = (const __m128i*)msg;
+    __m128i cw0 = _mm_shuffle_epi8(_mm_loadu_si128(msgx), byteswapindex);
+    __m128i cw1 = _mm_shuffle_epi8(_mm_loadu_si128(msgx + 1), byteswapindex);
+    __m128i cw2 = _mm_shuffle_epi8(_mm_loadu_si128(msgx + 2), byteswapindex);
+    __m128i cw3 = _mm_shuffle_epi8(_mm_loadu_si128(msgx + 3), byteswapindex);
+
+<span class="cppcmnt">// Advance W array cycle</span>
+<span class="cppcmnt">// Inputs: </span>
+<span class="cppcmnt">//  CW0 = w[t-16] : w[t-15] : w[t-14] : w[t-13]</span>
+<span class="cppcmnt">//  CW1 = w[t-12] : w[t-11] : w[t-10] : w[t-9]</span>
+<span class="cppcmnt">//  CW2 = w[t-8] : w[t-7] : w[t-6] : w[t-5]</span>
+<span class="cppcmnt">//  CW3 = w[t-4] : w[t-3] : w[t-2] : w[t-1]</span>
+<span class="cppcmnt">// Outputs: </span>
+<span class="cppcmnt">//  CW1 = w[t-12] : w[t-11] : w[t-10] : w[t-9]</span>
+<span class="cppcmnt">//  CW2 = w[t-8] : w[t-7] : w[t-6] : w[t-5]</span>
+<span class="cppcmnt">//  CW3 = w[t-4] : w[t-3] : w[t-2] : w[t-1]</span>
+<span class="cppcmnt">//  CW0 = w[t] : w[t+1] : w[t+2] : w[t+3]</span>
+#define CYCLE_W(CW0, CW1, CW2, CW3)         \
+    CW0 = _mm_sha1msg1_epu32(CW0, CW1);     \
+    CW0 = _mm_xor_si128(CW0, CW2);          \
+    CW0 = _mm_sha1msg2_epu32(CW0, CW3); 
+
+    __m128i state1 = h0123;                     <span class="cppcmnt">// state1 = a : b : c : d</span>
+    __m128i w_next = _mm_add_epi32(cw0, h4);    <span class="cppcmnt">// w_next = w0+e : w1 : w2 : w3</span>
+    __m128i state2;
+
+    <span class="cppcmnt">// w0 - w3</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 0);<span class="cppcmnt">// state2 = a' : b' : c' : d'</span>
+    w_next = _mm_sha1nexte_epu32(state1, cw1);  <span class="cppcmnt">// w_next = w4+e' : w5 : w6 : w7</span>
+    <span class="cppcmnt">// w4 - w7</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 0);
+    w_next = _mm_sha1nexte_epu32(state2, cw2);
+    <span class="cppcmnt">// w8 - w11</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 0);
+    w_next = _mm_sha1nexte_epu32(state1, cw3);
+    <span class="cppcmnt">// w12 - w15</span>
+    CYCLE_W(cw0, cw1, cw2, cw3);    <span class="cppcmnt">// cw0 = w16 : w17 : w18 : w19</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 0);
+    w_next = _mm_sha1nexte_epu32(state2, cw0);
+    <span class="cppcmnt">// w16 - w19</span>
+    CYCLE_W(cw1, cw2, cw3, cw0);    <span class="cppcmnt">// cw1 = w20 : w21 : w22 : w23</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 0);
+    w_next = _mm_sha1nexte_epu32(state1, cw1);
+    <span class="cppcmnt">// w20 - w23</span>
+    CYCLE_W(cw2, cw3, cw0, cw1);    <span class="cppcmnt">// cw2 = w24 : w25 : w26 : w27</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 1);
+    w_next = _mm_sha1nexte_epu32(state2, cw2);
+    <span class="cppcmnt">// w24 - w27</span>
+    CYCLE_W(cw3, cw0, cw1, cw2);    <span class="cppcmnt">// cw3 = w28 : w29 : w30 : w31</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 1);
+    w_next = _mm_sha1nexte_epu32(state1, cw3);
+    <span class="cppcmnt">// w28 - w31</span>
+    CYCLE_W(cw0, cw1, cw2, cw3);    <span class="cppcmnt">// cw0 = w32 : w33 : w34 : w35</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 1);
+    w_next = _mm_sha1nexte_epu32(state2, cw0);
+    <span class="cppcmnt">// w32 - w35</span>
+    CYCLE_W(cw1, cw2, cw3, cw0);    <span class="cppcmnt">// cw1 = w36 : w37 : w38 : w39</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 1);
+    w_next = _mm_sha1nexte_epu32(state1, cw1);
+    <span class="cppcmnt">// w36 - w39</span>
+    CYCLE_W(cw2, cw3, cw0, cw1);    <span class="cppcmnt">// cw2 = w40 : w41 : w42 : w43</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 1);
+    w_next = _mm_sha1nexte_epu32(state2, cw2);
+    <span class="cppcmnt">// w40 - w43</span>
+    CYCLE_W(cw3, cw0, cw1, cw2);    <span class="cppcmnt">// cw3 = w44 : w45 : w46 : w47</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 2);
+    w_next = _mm_sha1nexte_epu32(state1, cw3);
+    <span class="cppcmnt">// w44 - w47</span>
+    CYCLE_W(cw0, cw1, cw2, cw3);    <span class="cppcmnt">// cw0 = w48 : w49 : w50 : w51</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 2);
+    w_next = _mm_sha1nexte_epu32(state2, cw0);
+    <span class="cppcmnt">// w48 - w51</span>
+    CYCLE_W(cw1, cw2, cw3, cw0);    <span class="cppcmnt">// cw1 = w52 : w53 : w54 : w55</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 2);
+    w_next = _mm_sha1nexte_epu32(state1, cw1);
+    <span class="cppcmnt">// w52 - w55</span>
+    CYCLE_W(cw2, cw3, cw0, cw1);    <span class="cppcmnt">// cw2 = w56 : w57 : w58 : w59</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 2);
+    w_next = _mm_sha1nexte_epu32(state2, cw2);
+    <span class="cppcmnt">// w56 - w59</span>
+    CYCLE_W(cw3, cw0, cw1, cw2);    <span class="cppcmnt">// cw3 = w60 : w61 : w62 : w63</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 2);
+    w_next = _mm_sha1nexte_epu32(state1, cw3);
+    <span class="cppcmnt">// w60 - w63</span>
+    CYCLE_W(cw0, cw1, cw2, cw3);    <span class="cppcmnt">// cw0 = w64 : w65 : w66 : w67</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 3);
+    w_next = _mm_sha1nexte_epu32(state2, cw0);
+    <span class="cppcmnt">// w64 - w67</span>
+    CYCLE_W(cw1, cw2, cw3, cw0);    <span class="cppcmnt">// cw1 = w68 : w69 : w70 : w71</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 3);
+    w_next = _mm_sha1nexte_epu32(state1, cw1);
+    <span class="cppcmnt">// w68 - w71</span>
+    CYCLE_W(cw2, cw3, cw0, cw1);    <span class="cppcmnt">// cw2 = w72 : w73 : w74 : w75</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 3);
+    w_next = _mm_sha1nexte_epu32(state2, cw2);
+    <span class="cppcmnt">// w72 - w75</span>
+    CYCLE_W(cw3, cw0, cw1, cw2);    <span class="cppcmnt">// cw3 = w76 : w77 : w78 : w79</span>
+    state2 = _mm_sha1rnds4_epu32(state1, w_next, 3);
+    w_next = _mm_sha1nexte_epu32(state1, cw3);
+
+    <span class="cppcmnt">// w76 - w79</span>
+    state1 = _mm_sha1rnds4_epu32(state2, w_next, 3);    <span class="cppcmnt">// state1 = final a : b : c : d</span>
+    h4     = _mm_sha1nexte_epu32(state2, h4);           <span class="cppcmnt">// Add final e to h4</span>
+    h0123  = _mm_add_epi32(state1, h0123);              <span class="cppcmnt">// Add final a:b:c:d to h0:h1:h2:h3</span>
+}
+</pre>
+    </div>
+    <hr />
+
+
+
+    <a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp;
+    <a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=ternlogcalc" target="_blank">Feedback</a>
+    <br>
+    <script type="text/javascript" src="https://www.officedaytime.com/tips/simdfeedback/alog.js"></script>
+    <script type="text/javascript">alog("alles");</script>
+    <br />
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/sha1.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:03 GMT -->
+</html>

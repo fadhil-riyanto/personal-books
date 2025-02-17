@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/bezier-flat.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:59 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Stwierdzenie, czy krzywa Beziera 3. stopnia jest płaska</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="stwierdzenie-czy-krzywa-beziera-3-stopnia-jest-plaska">
+<h1 class="title">Stwierdzenie, czy krzywa Beziera 3. stopnia jest płaska</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">30.01.2007</td>
+</tr>
+<tr class="zmodyfikowany field"><th class="docinfo-name">Zmodyfikowany:</th><td class="field-body">7.02.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Gdzie jest to potrzebne?  Przy aproksymacji (przybliżaniu) krzywej
+za pomocą łamanej, co ma z kolei zastosowanie przy:</p>
+<ol class="arabic simple">
+<li>rysowaniu krzywych,</li>
+<li>wyznaczaniu długości łuku (niewykonalne analitycznie),</li>
+<li>wyznaczanie przecięcia krzywych.</li>
+</ol>
+<img alt="Krzywa Beziera z zaznaczonymi punktami kontrolnymi" class="align-center" src="img/qbezier-sample.png" />
+<div class="section" id="sposoby-okreslania-plaskosci">
+<h1>Sposoby określania &bdquo;płaskości&rdquo;</h1>
+<p>Krzywa jest tym bardziej &bdquo;płaska&rdquo; im przechodzi bliżej odcinka
+<span class="math">AD</span>.</p>
+<div class="section" id="sposob-1">
+<h2>Sposób 1.</h2>
+<p>Jeśli długość łamanej kontrolnej jest porównywalna z długością odcinka
+<span class="math">AD</span>, tj. <span class="math">(|AB| + |BC| + |CD|)/|AD| = 1 + <i>eps</i></span>, gdzie
+<span class="math"><i>eps</i></span> jest bardzo małą liczbą, mniejszą od 1 (w praktyce
+znacząca cyfra pojawia się kilka miejsc po przecinku)</p>
+<p>Wada: spore koszty obliczeniowe (4 długości odcinków, dzielenie)</p>
+</div>
+<div class="section" id="sposob-2">
+<h2>Sposób 2.</h2>
+<p>Sposób jest uproszczeniem 3., mianowicie zakłada się, że
+<span class="math">B = 1/3 &sdot; A + 2/3 &sdot; D</span> i <span class="math">2/3 &sdot; A + 1/3 &sdot; D</span>, a więc
+punkty kontrolne B i C są rozmieszczone równomiernie na
+odcinku AD.</p>
+<p>Co więcej w idealnym przypadku zachodzi: <span class="math">B = (A + C)/2</span>
+oraz <span class="math">C = (B + D)/2</span> (mały nakład obliczeniowy) &mdash; wystarczy
+stwierdzić jak daleko od tych idealnych pozycji znajdują się
+rzeczywiste punkty B i C.</p>
+<p>Odległość nie musi być mierzona metryką euklidesową (pominięcie
+czasochłonnego pierwiastkowania), wystarczy metryka Manhattan,
+o wiele szybsza do wyznaczenia.</p>
+</div>
+<div class="section" id="sposob-3">
+<h2>Sposób 3.</h2>
+<p>Jeśli punkty kontrolne A, B, C, D są współliniowe, wówczas krzywa jest
+płaska (ale niekoniecznie redukuje się do odcinka!).  Jest tak wówczas,
+gdy długość odcinków <span class="math">|BB'|</span> i <span class="math">|CC'|</span> jest mała w stosunku
+do <span class="math">|AD|</span> oraz rzuty <span class="math">B'</span> oraz <span class="math">C'</span> leżą na odcinku AD.</p>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/bezier-flat.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:00 GMT -->
+</html>

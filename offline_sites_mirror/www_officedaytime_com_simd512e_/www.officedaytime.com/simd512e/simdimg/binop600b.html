@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binop.php?f=gf2p8mulb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:16 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/binop.php?f=gf2p8mulb" />
+<link rel="alternate" hreflang="en" href="binop600b.html?f=gf2p8mulb" />
+<title>gf2p8mulb</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+
+<body>
+<h2>GF2P8MULB - Galois Field 2 Power 8 MULtiply Byte<br /></h2>
+GF2P8MULB<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(GFNI<br />
+<span class="intr">__m128i _mm_gf2p8mul_epi8(__m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_1.png" /><br />
+<span style="padding-left: 110px">For each BYTE, compute (1) * (2) in GF(2<sup>8</sup>) with the reduction polynomial x<sup>8</sup> + x<sup>4</sup> + x<sup>3</sup> + x + 1, store the product in (3).</span><br />
+<div style="height: 30px"></div>
+VGF2P8MULB<span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(GFNI+(V1<br />
+<span class="intr">__m128i _mm_gf2p8mul_epi8(__m128i a, __m128i b)</span><br />
+VGF2P8MULB<span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(GFNI+(V5+VL<br />
+<span class="intr">__m128i _mm_mask_gf2p8mul_epi8(__m128i s, __mmask16 k, __m128i a, __m128i b)</span><br />
+<span class="intr">__m128i _mm_maskz_gf2p8mul_epi8(__mmask16 k, __m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_23860.png?v=1" /><br />
+<span style="padding-left: 110px">For each BYTE, compute (1) * (2) in GF(2<sup>8</sup>) with the reduction polynomial x<sup>8</sup> + x<sup>4</sup> + x<sup>3</sup> + x + 1, store the product in (3).</span><br />
+<div style="height: 30px"></div>
+VGF2P8MULB<span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(GFNI+(V1<br />
+<span class="intr">__m256i _mm256_gf2p8mul_epi8(__m256i a, __m256i b)</span><br />
+VGF2P8MULB<span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;GFNI+(V5+VL<br />
+<span class="intr">__m256i _mm256_mask_gf2p8mul_epi8(__m256i s, __mmask32 k, __m256i a, __m256i b)</span><br />
+<span class="intr">__m256i _mm256_maskz_gf2p8mul_epi8(__mmask32 k, __m256i a, __m256i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_3.png" /><br />
+<span style="padding-left: 110px">For each BYTE, compute (1) * (2) in GF(2<sup>8</sup>) with the reduction polynomial x<sup>8</sup> + x<sup>4</sup> + x<sup>3</sup> + x + 1, store the product in (3).</span><br />
+<div style="height: 30px"></div>
+VGF2P8MULB<span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(GFNI+(V5<br />
+<span class="intr">__m512i _mm512_gf2p8mul_epi8(__m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_mask_gf2p8mul_epi8(__m512i s, __mmask64 k, __m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_maskz_gf2p8mul_epi8(__mmask64 k, __m512i a, __m512i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_4.png" /><br />
+<span style="padding-left: 110px">For each BYTE, compute (1) * (2) in GF(2<sup>8</sup>) with the reduction polynomial x<sup>8</sup> + x<sup>4</sup> + x<sup>3</sup> + x + 1, store the product in (3).</span><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=gf2p8mulb" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binop.php?f=gf2p8mulb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:16 GMT -->
+</html>

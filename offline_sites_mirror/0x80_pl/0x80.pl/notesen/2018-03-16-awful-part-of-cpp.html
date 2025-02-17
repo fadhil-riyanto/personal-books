@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-03-16-awful-part-of-cpp.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>An awful part of C++17</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="an-awful-part-of-c-17">
+<h1 class="title">An awful part of C++17</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-03-16</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2019-05-23 (info about parsing the sign character)</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="the-current-state">
+<h1>The current state</h1>
+<p>I was really happy when saw that C++17 finally introduced standard functions to
+parse integers and floats. It is a group of functions <tt class="docutils literal"><span class="pre">std::from_chars</span></tt>
+defined in the header <a class="reference external" href="http://en.cppreference.com/w/cpp/header/charconv">charconv</a>. Unfortunately, it was a fleeting moment of
+happiness. The proposed API quickly appeared to be awful.  Lets look how the
+integer parser is defined (the floating-point parsers are similar):</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">from_chars_result</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">ptr</span><span class="p">;</span><span class="w">
+    </span><span class="n">std</span><span class="o">::</span><span class="n">errc</span><span class="w"> </span><span class="n">ec</span><span class="p">;</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="n">from_chars_result</span><span class="w"> </span><span class="nf">from_chars</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">first</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">last</span><span class="p">,</span><span class="w">
+                             </span><span class="cm">/*integer type*/</span><span class="o">&amp;</span><span class="w"> </span><span class="n">value</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="p">);</span>
+</pre>
+<p>The API resembles old good C, with one important exception: it's not good at all.
+How one is supposed to use it in C++?</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;string&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;charconv&gt;</span><span class="c1"> // from_chars</span><span class="cp">
+</span><span class="w">
+</span><span class="c1">// ...
+</span><span class="w">
+</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">input</span><span class="p">;</span><span class="w">
+
+</span><span class="kt">long</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="k">auto</span><span class="w"> </span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">from_chars</span><span class="p">(</span><span class="o">&amp;*</span><span class="n">input</span><span class="p">.</span><span class="n">begin</span><span class="p">(),</span><span class="w"> </span><span class="o">&amp;*</span><span class="n">input</span><span class="p">.</span><span class="n">end</span><span class="p">(),</span><span class="w"> </span><span class="n">result</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ret</span><span class="p">.</span><span class="n">ec</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+   </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">make_error_code</span><span class="p">(</span><span class="n">ret</span><span class="p">.</span><span class="n">ec</span><span class="p">);</span><span class="w">
+   </span><span class="n">std</span><span class="o">::</span><span class="n">cout</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">error</span><span class="p">.</span><span class="n">message</span><span class="p">();</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Yes, to get a char pointer from a string iterator one need to write
+<tt class="docutils literal">&amp;*it</tt>. The alternative invocation is <tt class="docutils literal"><span class="pre">std::from_chars(input.c_str(),</span>
+input.c_str() + <span class="pre">input.size(),</span> <span class="pre">...)</span></tt>. Both are ugly, aren't they?</p>
+<p>To make things funnier, <tt class="docutils literal">from_chars</tt> recognizes the minus character,
+but not the plus character. Yes, it's not a misake &mdash; you can convert
+string &quot;-42&quot; but for &quot;+42&quot; you'll get an error.</p>
+<p>Compare this with <tt class="docutils literal">strtol</tt>, which was defined several decades ago:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;string&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;cstdio&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;cstdlib&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="c1">// ...
+</span><span class="w">
+</span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="w"> </span><span class="n">input</span><span class="p">;</span><span class="w">
+</span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">err</span><span class="p">;</span><span class="w">
+</span><span class="kt">long</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">strtol</span><span class="p">(</span><span class="n">input</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="o">&amp;</span><span class="n">err</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">errno</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;%s</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">strerror</span><span class="p">(</span><span class="n">errno</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="daydreaming">
+<h1>Daydreaming</h1>
+<p>The function <tt class="docutils literal"><span class="pre">std::from_char</span></tt> is even more cumbersome than <tt class="docutils literal">strtol</tt>. It
+adds nothing to the existing, established solution. More important fact is that
+apart from <tt class="docutils literal"><span class="pre">std::from_chars</span></tt>, the recent C++ standard added several pretty
+useful things, like <tt class="docutils literal"><span class="pre">std::optional</span></tt>, <tt class="docutils literal"><span class="pre">std::variant</span></tt> or <tt class="docutils literal"><span class="pre">std::string_view</span></tt>.
+What did prevent the committee from using these new facilities?</p>
+<p>Why not have a function like this one?</p>
+<pre class="code cpp literal-block">
+<span class="n">std</span><span class="o">::</span><span class="n">optional</span><span class="o">&lt;</span><span class="kt">int</span><span class="o">&gt;</span><span class="w"> </span><span class="n">parse</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">str</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// ...
+</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parse</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">has_value</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// do sth with res.value()
+</span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">std</span><span class="o">::</span><span class="n">err</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;'&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="s">&quot;' is not a valid number&quot;</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>We rarely need a detailed information about an error. Moreover, sometimes we
+even don't care about possible input errors. So why not allow a programmer to
+pass a default value? It's a common idiom.</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">try_parse</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">str</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">def_value</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">base</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// ...
+</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">try_parse</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">1024</span><span class="o">*</span><span class="mi">42</span><span class="p">);</span>
+</pre>
+<p>Finally, why the structure returned from <tt class="docutils literal"><span class="pre">std::from_chars</span></tt> is so poor?
+It might be something like this:</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">INTEGER</span><span class="o">&gt;</span><span class="w">
+</span><span class="k">class</span><span class="w"> </span><span class="nc">parse_result</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">bool</span><span class="w"> </span><span class="nf">has_value</span><span class="p">()</span><span class="w"> </span><span class="k">const</span><span class="p">;</span><span class="w">
+    </span><span class="n">INTEGER</span><span class="w"> </span><span class="nf">value</span><span class="p">()</span><span class="w"> </span><span class="k">const</span><span class="p">;</span><span class="w">
+    </span><span class="n">std</span><span class="o">::</span><span class="n">exception_ptr</span><span class="w"> </span><span class="nf">get_exception</span><span class="p">();</span><span class="w">
+
+    </span><span class="k">operator</span><span class="w"> </span><span class="kt">bool</span><span class="p">()</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="n">has_value</span><span class="p">();</span><span class="w"> </span><span class="p">}</span><span class="w">
+</span><span class="p">};</span>
+</pre>
+<p>Then using such a result would be more idiomatic:</p>
+<pre class="code cpp literal-block">
+<span class="k">auto</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parse</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">res</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// do sth with res.value()
+</span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">try</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">std</span><span class="o">::</span><span class="n">rethrow_exception</span><span class="p">(</span><span class="n">res</span><span class="p">.</span><span class="n">get_exception</span><span class="p">());</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">exception</span><span class="o">&amp;</span><span class="w"> </span><span class="n">e</span><span class="p">)</span><span class="w">
+        </span><span class="n">std</span><span class="o">::</span><span class="n">cerr</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;Unable to convert '&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="s">&quot;': &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">what</span><span class="p">();</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>In conclusion: it might have been done way better. The problem has been already
+solved by many C++ libraries and programming languages; it's nothing new. I
+still can't find any reasonable answer why such a clumsy, unfriendly API was
+picked.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-03-16-awful-part-of-cpp.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+</html>

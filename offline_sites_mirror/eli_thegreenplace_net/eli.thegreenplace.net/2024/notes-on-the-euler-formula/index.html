@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/notes-on-the-euler-formula/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:46:46 GMT -->
+<head>
+    <title>Notes on the Euler formula - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Notes on the Euler formula">
+                        Notes on the Euler formula
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> September 07, 2024 at 05:44</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/math.html">Math</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>The Euler formula states that for any real <em>x</em>:</p>
+<object class="align-center" data="../../images/math/e41e42437950b87591a40b19d5bd68d01bd7786b.svg" style="height: 22px;" type="image/svg+xml">\[e^{ix}=cos(x)+i sin(x)\]</object>
+<p>Where <em>i</em> is the imaginary unit. This formula is extremely important in many
+branches of mathematics and engineering, but at first glance it's puzzling. What
+does a complex exponent even mean, and how can it be related to the
+trigonometric functions?</p>
+<div class="section" id="complex-number-representations">
+<h2>Complex number representations</h2>
+<p>Complex numbers have two canonical representations:</p>
+<img alt="Cartesian and polar representation of a complex number" class="align-center" src="../../images/2024/complex-cartesian-polar.png" />
+<ul class="simple">
+<li>Cartesian: <object class="valign-m4" data="../../images/math/dc5648d309ad9fa02d53124cd7d954697f66d39c.svg" style="height: 16px;" type="image/svg+xml">x+iy</object></li>
+<li>Polar: <object class="valign-0" data="../../images/math/498a8152700d478a53607b91f0940c6b8fa0a1fb.svg" style="height: 12px;" type="image/svg+xml">r\angle \theta</object></li>
+</ul>
+<p>Trigonometric formulae can be used to convert between the two in a
+straightforward way:</p>
+<ul class="simple">
+<li>Given <object class="valign-m4" data="../../images/math/dc5648d309ad9fa02d53124cd7d954697f66d39c.svg" style="height: 16px;" type="image/svg+xml">x+iy</object>, we can compute <object class="valign-m5" data="../../images/math/2728488e970286c68c04be64d662d549e241ba5c.svg" style="height: 22px;" type="image/svg+xml">r=\sqrt{x^2+y^2}</object> and
+<object class="valign-m6" data="../../images/math/4db3dc38b58aa628d82fadf84b3d6eb76572fcd5.svg" style="height: 21px;" type="image/svg+xml">\theta=tan^{-1}(\frac{y}{x})</object></li>
+<li>Given <object class="valign-0" data="../../images/math/498a8152700d478a53607b91f0940c6b8fa0a1fb.svg" style="height: 12px;" type="image/svg+xml">r\angle \theta</object> we can compute <object class="valign-0" data="../../images/math/1315df0eea0f941a4323e489788223ea5ac54f15.svg" style="height: 12px;" type="image/svg+xml">x=r cos\theta</object>
+and <object class="valign-m4" data="../../images/math/16bc635450100d6285d3cedee1bac9513e31a7fe.svg" style="height: 16px;" type="image/svg+xml">y=r sin\theta</object></li>
+</ul>
+</div>
+<div class="section" id="some-intuition-for-euler-s-formula">
+<h2>Some intuition for Euler's formula</h2>
+<p>Representing <em>x</em> and <em>y</em> as above, we have:</p>
+<object class="align-center" data="../../images/math/9536f1bf02955baf02fab954b441b1efcd06768c.svg" style="height: 19px;" type="image/svg+xml">\[z=r(cos\theta+i sin\theta)\]</object>
+<p>Now, let's take two complex numbers, multiply them together and use some
+basic trigonometric identities:</p>
+<object class="align-center" data="../../images/math/671dbe789a44e7c82d528021ee225cd94095852e.svg" style="height: 153px;" type="image/svg+xml">\[\begin{align*}
+  z_1&amp;=r_1 (cos\theta+i sin\theta) \\
+  z_2&amp;=r_2 (cos\phi+i sin\phi)\\
+  z_1 z_2 &amp;= r_1 r_2 (cos\theta+i sin\theta)(cos\phi+i sin\phi)\\
+  &amp;=r_1 r_2 ((cos\theta cos\phi -sin\theta sin\phi) +i(cos\theta sin\phi + cos\phi sin\theta))\\
+  &amp;=r_1 r_2 (cos(\theta+\phi) + i sin(\theta+\phi))\\
+  &amp;= r_1 r_2 \angle (\theta+\phi)
+\end{align*}\]</object>
+<p>When multiplying two complex numbers in polar form, their magnitudes multiply
+but their angles <em>add</em> <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>.</p>
+<p>Now, suppose we have a hypothetical function <object class="valign-m5" data="../../images/math/cdbd3b5daa63e81b18753fcadf7ce6842362d7ce.svg" style="height: 19px;" type="image/svg+xml">f(\theta)</object> such that
+<object class="valign-m5" data="../../images/math/7e89ab16a335a7db4b5f9665ad6bf3f5507ff6b2.svg" style="height: 19px;" type="image/svg+xml">r f(\theta)</object> represents a complex number. We've just shown that:</p>
+<object class="align-center" data="../../images/math/ebabe28755489ef975d05f0b8eca2b7fa9bdba58.svg" style="height: 19px;" type="image/svg+xml">\[(r_1 f(\theta))\cdot(r_2 f(\phi))=r_1 r_2 f(\theta+\phi)\]</object>
+<p>What real-life function do you know that behaves like this? An exponential
+function! <object class="valign-0" data="../../images/math/9094dd6718488a8c2fd484f3a163473682f5c51d.svg" style="height: 14px;" type="image/svg+xml">a^x a^y=a^{x+y}</object> for some <em>a</em>. This isn't a proof of anything,
+of course, and the base of the exponent can be arbitrary - but it does show
+that there's something about complex numbers that behaves like exponentials.</p>
+<p>Let's look at it from another direction. Once again starting with:</p>
+<object class="align-center" data="../../images/math/9536f1bf02955baf02fab954b441b1efcd06768c.svg" style="height: 19px;" type="image/svg+xml">\[z=r(cos\theta+i sin\theta)\]</object>
+<p>We'll treat <em>z</em> as a function of <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" />, and find its derivative:</p>
+<object class="align-center" data="../../images/math/f0c166c16c8953fb3d7413c38a98c3a7fe2d611a.svg" style="height: 36px;" type="image/svg+xml">\[\frac{dz}{d\theta}=-rsin\theta +i cos\theta\]</object>
+<p>If we factor <em>i</em> out of the parenthesis, we get:</p>
+<object class="align-center" data="../../images/math/3aad161fa2b1aabee4ca8e8b62a98b4896c25ab0.svg" style="height: 36px;" type="image/svg+xml">\[\frac{dz}{d\theta}=ri(cos\theta+i sin\theta)=iz\]</object>
+<p>Note that this is exactly the derivative if <object class="valign-m5" data="../../images/math/3da5144c6fa0c57644b8f22d37ae190c1163a2f0.svg" style="height: 20px;" type="image/svg+xml">z(\theta)=e^{i\theta}</object>,
+another clue that complex numbers behave like exponential functions.</p>
+</div>
+<div class="section" id="proof-using-power-series">
+<h2>Proof using power series</h2>
+<p>The canonical proof of Euler's formula uses <a class="reference external" href="../notes-on-taylor-and-maclaurin-series/index.html">Maclaurin series expansions</a>
+for <object class="valign-0" data="../../images/math/1624dce91de495347430ec2518baf6c6a5328d2e.svg" style="height: 12px;" type="image/svg+xml">e^x</object>, <object class="valign-m5" data="../../images/math/562597441eed562140c81684902007f6f275c940.svg" style="height: 19px;" type="image/svg+xml">cos(x)</object> and <object class="valign-m5" data="../../images/math/1f2ea8ffab8deb0e5b854a260a68b42b7eb7b048.svg" style="height: 19px;" type="image/svg+xml">sin(x)</object>.</p>
+<p>As a reminder, the Maclaurin series approximation for a function <img alt="f(x)" class="valign-m4" src="../../images/math/3e03f4706048fbc6c5a252a85d066adf107fcc1f.png" style="height: 18px;" /> is:</p>
+<object class="align-center" data="../../images/math/766aa8a11f2b92dd363c0dab88fff5eb333165bd.svg" style="height: 50px;" type="image/svg+xml">\[p(x) = f(0)+\frac{f&#x27;(0)}{1!}x+\frac{f&#x27;&#x27;(0)}{2!}x^2+\frac{f&#x27;&#x27;&#x27;(0)}{3!}x^3+\cdots=\sum_{n=0}^{\infty} \frac{f^{(n)}(0)}{n!}x^n\]</object>
+<p>For <object class="valign-0" data="../../images/math/1624dce91de495347430ec2518baf6c6a5328d2e.svg" style="height: 12px;" type="image/svg+xml">e^x</object>:</p>
+<object class="align-center" data="../../images/math/9484e0e6f1dad5e262b0637ea89651e71fce7df8.svg" style="height: 39px;" type="image/svg+xml">\[e^{x}=1+x+\frac{x^2}{2!}+\frac{x^3}{3!}+\frac{x^4}{4!}+\frac{x^5}{5!}+\cdots\]</object>
+<p>Substituting <object class="valign-0" data="../../images/math/d4f506d11f53beffb8d67eda0740af3a887a992e.svg" style="height: 12px;" type="image/svg+xml">ix</object> for <em>x</em> and applying powers of <em>i</em>:</p>
+<object class="align-center" data="../../images/math/db09e62c7bdd82da448598d005baee788f2a3841.svg" style="height: 85px;" type="image/svg+xml">\[\begin{align*}
+  e^{ix}&amp;=1+ix+\frac{(ix)^2}{2!}+\frac{(ix)^3}{3!}+\frac{(ix)^4}{4!}+\frac{(ix)^5}{5!}+\cdots\\
+        &amp;=1+ix-\frac{x^2}{2!}-\frac{ix^3}{3!}+\frac{x^4}{4!}+\frac{ix^5}{5!}+\cdots
+\end{align*}\]</object>
+<p>Now let's regroup the real and imaginary parts of the series:</p>
+<object class="align-center" data="../../images/math/e336528c61ea33ff9928fef362e358ea0d3e52ce.svg" style="height: 44px;" type="image/svg+xml">\[e^{ix}=\left(1-\frac{x^2}{2!}+\frac{x^4}{4!}+\cdots\right)
++i\left(x-\frac{x^3}{3!}+\frac{x^5}{5!}+\cdots\right)\]</object>
+<p>The contents of the first parenthesis is precisely the Maclaurin series expansion
+of <object class="valign-m5" data="../../images/math/562597441eed562140c81684902007f6f275c940.svg" style="height: 19px;" type="image/svg+xml">cos(x)</object>, and the contents of the second parenthesis is the expansion
+of <object class="valign-m5" data="../../images/math/1f2ea8ffab8deb0e5b854a260a68b42b7eb7b048.svg" style="height: 19px;" type="image/svg+xml">sin(x)</object>; therefore, we've just proven the Euler formula <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>.</p>
+</div>
+<div class="section" id="proof-using-derivatives">
+<h2>Proof using derivatives</h2>
+<p>Let's define <object class="valign-m5" data="../../images/math/10196ffe9eae4b142f48f3a6a30852c5e39f8630.svg" style="height: 19px;" type="image/svg+xml">\xi(x)</object> as follows:</p>
+<object class="align-center" data="../../images/math/5b22bb50bf5f6ceec5d6f3dcd41e1b0a4ad237eb.svg" style="height: 38px;" type="image/svg+xml">\[\xi(x)=\frac{cos(x)+isin(x)}{e^{ix}}=e^{-ix}(cos(x)+isin(x))\]</object>
+<p>And compute its derivative:</p>
+<object class="align-center" data="../../images/math/116f265e64f726d0eccc32d1c28c3d996eb76304.svg" style="height: 66px;" type="image/svg+xml">\[\begin{align*}
+  \frac{d\xi(x)}{dx}&amp;=e^{-ix}(-sin(x)+icos(x))-ie^{-ix}(cos(x)+isin(x))\\
+  &amp;=e^{-ix}(-sin(x)+icos(x))-e^{-ix}(icos(x)-sin(x))=0
+\end{align*}\]</object>
+<p>Thus, it's a constant function; what is its value? We can find <object class="valign-m5" data="../../images/math/ce91859cf82a14e92ab96aaed0abbd7152f9f5fb.svg" style="height: 19px;" type="image/svg+xml">\xi(0)</object>
+easily - it's 1. Therefore, <object class="valign-m5" data="../../images/math/7e2b6fb6c68ae16b535063e3a227c94746080406.svg" style="height: 19px;" type="image/svg+xml">\xi(x)=1</object> everywhere and thus its numerator
+and denominator are always equal <object class="valign-0" data="../../images/math/4a4e9e431da45a27bc880a8a1ca44d8b1b9bc143.svg" style="height: 12px;" type="image/svg+xml">\blacksquare</object>.</p>
+</div>
+<div class="section" id="visualizing-euler-s-formula">
+<h2>Visualizing Euler's formula</h2>
+<p>It's interesting to plot <object class="valign-0" data="../../images/math/835c7c5ff57a0abe89062ebc5e94c95acef69e33.svg" style="height: 15px;" type="image/svg+xml">e^{i\phi}</object> to observe its behavior. In the general
+case, it's very difficult to visualize functions in the complex domain because
+both the input and output are two-dimensional; so we'd need a 4D plot. Luckily
+for us, we're usually interested in <object class="valign-0" data="../../images/math/835c7c5ff57a0abe89062ebc5e94c95acef69e33.svg" style="height: 15px;" type="image/svg+xml">e^{i\phi}</object> only for
+<object class="valign-m4" data="../../images/math/8896a3aed7cce98a05251da9e29f829fc0a60dae.svg" style="height: 16px;" type="image/svg+xml">\phi\in\mathbb{R}</object>, so we have 3 dimensions to deal with:</p>
+<ul class="simple">
+<li>Input dimension: <object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object></li>
+<li>Output dimensions: <object class="valign-m5" data="../../images/math/3e7d36763f50c2d5acde9f87bd8478fbe2c79bbe.svg" style="height: 20px;" type="image/svg+xml">Re(e^{i\phi})</object> and <object class="valign-m5" data="../../images/math/0ea36534dd6402c443e4b003f8218887a0422189.svg" style="height: 20px;" type="image/svg+xml">Im(e^{i\phi})</object></li>
+</ul>
+<img alt="3D Plot of e^{i phi}" class="align-center" src="../../images/2024/eix-spiral.png" />
+<p>If we isolate the two 2D plots of <object class="valign-m5" data="../../images/math/4560241354db0347c87b3a51129d06d902a90ed5.svg" style="height: 20px;" type="image/svg+xml">f(\phi)=Re(e^{i\phi})</object> as a function of
+<object class="valign-m5" data="../../images/math/6893b686e59874da28d1829cacac3a51f155e4b6.svg" style="height: 20px;" type="image/svg+xml">g(\phi)=Im(e^{i\phi})</object>, we get:</p>
+<img alt="Two 2D plots separately of Re and Im" class="align-center" src="../../images/2024/phi-re-im.png" />
+<p>This is the expected result from Euler's formula! The real part of the complex
+exponent is <object class="valign-m5" data="../../images/math/e16afa9144b2205a80c1bde56036c8cf096fdf75.svg" style="height: 19px;" type="image/svg+xml">cos(\phi)</object>, while the imaginary part is <object class="valign-m5" data="../../images/math/9cac796934ea0be2805c5f4105ff7dae42e65421.svg" style="height: 19px;" type="image/svg+xml">sin(\phi)</object>.</p>
+<p>Finally, let's plot the projection of the 3D plot onto the real+imaginary axes:</p>
+<img alt="Plotting e^{i phi} as projection on the re+im axes, unit circle" class="align-center" src="../../images/2024/unit-circle.png" />
+<p>It hopefully comes as no surprise that we get the unit circle! This is another
+way to demonstrate the beautiful connection between the trigonometric functions
+and circles. If you imagine a point moving along the unit circle
+counter-clockwise, this point's <em>Re</em> value will be <object class="valign-m5" data="../../images/math/e16afa9144b2205a80c1bde56036c8cf096fdf75.svg" style="height: 19px;" type="image/svg+xml">cos(\phi)</object> where
+<object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object> is its angle from the <em>Re</em> axis, and its <em>Im</em> value will be
+<object class="valign-m5" data="../../images/math/9cac796934ea0be2805c5f4105ff7dae42e65421.svg" style="height: 19px;" type="image/svg+xml">sin(\phi)</object>.</p>
+</div>
+<div class="section" id="euler-s-identity">
+<h2>Euler's identity</h2>
+<p>Euler's famous identity ties the &quot;five fundamental constants of mathematics&quot;
+together:</p>
+<object class="align-center" data="../../images/math/26cc6b1c790a7db2144e4f5948158479292c55e6.svg" style="height: 19px;" type="image/svg+xml">\[e^{i\pi}+1=0\]</object>
+<p>This identity is trivial to derive from the Euler formula, because:</p>
+<object class="align-center" data="../../images/math/168aa576bd1a872a6fc10c796b647144237931ce.svg" style="height: 22px;" type="image/svg+xml">\[e^{i\pi}=cos(\pi)+i sin(\pi)=-1\]</object>
+</div>
+<div class="section" id="de-moivre-formula">
+<h2>De Moivre formula</h2>
+<p>Let's take the complex exponent <object class="valign-0" data="../../images/math/0e85a3c21a84f33aef16ee284c5a954b3c90c2ef.svg" style="height: 15px;" type="image/svg+xml">e^{ix}</object> and raise it to the n-th power,
+where <em>n</em> is an integer:</p>
+<object class="align-center" data="../../images/math/e159517d90bc55d4ca93f3e149ec573a0d609c76.svg" style="height: 22px;" type="image/svg+xml">\[(e^{ix})^n=e^{inx}\]</object>
+<p>We can replace the complex exponent by its trigonometric equivalent using
+Euler's formula on both sides:</p>
+<object class="align-center" data="../../images/math/96194ade4d0676d1b88fb7a030ebb4204615a1bb.svg" style="height: 19px;" type="image/svg+xml">\[(cos(x) +isin(x))^n=cos(nx)+isin(nx)\]</object>
+<p>This is <a class="reference external" href="https://en.wikipedia.org/wiki/De_Moivre%27s_formula">De Moivre's Formula</a>,
+which is extremely useful in calculations involving complex numbers, and is a
+treasure trove of trigonometric identities.</p>
+<p>An alternative formulation of the De Moivre formula uses fractional powers
+and is useful for finding the roots of complex numbers. However, we have to
+be careful here, because the complex root function (just like its real
+counterpart!) is <em>multi-valued</em>; it maps a single value in its domain to
+potentially multiple values in its range <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>.</p>
+<p>This formulation says:</p>
+<object class="align-center" data="../../images/math/fd11e3c26f7da5cc3427a955581d301125e9454b.svg" style="height: 37px;" type="image/svg+xml">\[e^{\frac{ix}{n}}=(cos(x) +isin(x))^{\frac{1}{n}}=cos(\frac{x+2\pi k}{n})+isin(\frac{x+2\pi k}{n})\]</object>
+<p>For integer <object class="valign-0" data="../../images/math/ad950d9a503bb8985bf9b60d02f867703eee04a6.svg" style="height: 15px;" type="image/svg+xml">$$0\leq k&lt; n$$</object>. This is because if we raise this number back
+to the power of <em>n</em>, we'll get back the original <object class="valign-0" data="../../images/math/0e85a3c21a84f33aef16ee284c5a954b3c90c2ef.svg" style="height: 15px;" type="image/svg+xml">e^{ix}</object> for any of
+these <em>k</em> (both sine and cosine are periodic with a period of <object class="valign-0" data="../../images/math/0833718ca4569f36e84dbdc7742eaec65e49b150.svg" style="height: 12px;" type="image/svg+xml">2\pi</object>).</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>In other words, multiplying by a complex number combines a
+<em>scaling</em> and <em>rotation</em> operations. Multiplying any <em>z</em> by
+<object class="valign-0" data="../../images/math/498a8152700d478a53607b91f0940c6b8fa0a1fb.svg" style="height: 12px;" type="image/svg+xml">r\angle \theta</object> scales (multiplies) z's magnitude by
+<em>r</em> and rotates it (counter-clockwise) by angle <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" />.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>I've seen places that treat this as
+the <em>definition</em> of what a complex exponential means, rather than
+a proof.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>And thus isn't strictly a function at all, if we want to put our
+abstract algebra hat on.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/notes-on-the-euler-formula/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:46:46 GMT -->
+</html>

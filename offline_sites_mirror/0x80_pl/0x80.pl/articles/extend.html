@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/extend.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Rozszerzanie zakresu liczb</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="rozszerzanie-zakresu-liczb">
+<h1 class="title">Rozszerzanie zakresu liczb</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wstep" id="toc-entry-1">Wstęp</a></li>
+<li><a class="reference internal" href="#rozszerzanie-liczb-bez-znaku" id="toc-entry-2">Rozszerzanie liczb bez znaku</a></li>
+<li><a class="reference internal" href="#rozszerzanie-liczb-ze-znakiem" id="toc-entry-3">Rozszerzanie liczb ze znakiem</a></li>
+</ul>
+</div>
+<div class="section" id="wstep">
+<h1>Wstęp</h1>
+<p>CPU potrafi przeprowadzać operacje arytmetyczne tylko na rejestrach o
+tych samych rozmiarach. Dlatego też operacje na operandach o różnych
+rozmiarach trzeba poprzedzić poszerzeniem zakresu operandu o mniejszej
+liczbie bitów.</p>
+<p>Rozszerzenie zakresu polega na zapisaniu tej samej wartości w słowie o
+większej liczbie bitów. Dla liczb bez znaku, zapisanych w naturalnym
+kodzie binarnym, jest to bardzo proste &mdash; wystarczy nowe, &bdquo;dodane&rdquo; bity
+wyzerować.</p>
+<p>Np. 8-bitowa liczba <tt class="docutils literal">166=10100110b</tt> po rozszerzeniu na 32 bity ma
+postać:</p>
+<pre class="literal-block">
+00000000 00000000 00000000 10100110
+</pre>
+<p>Dla liczb ze znakiem jest to trochę trudniejsze &mdash; nowe bity należy
+wypełnić bitem znaku.</p>
+<p>Np. 8-bitowa liczba <tt class="docutils literal"><span class="pre">-100</span> = 10011100b</tt> po rozszerzeniu na 32 bity ma
+postać:</p>
+<pre class="literal-block">
+11111111 11111111 11111111 10100110
+</pre>
+</div>
+<div class="section" id="rozszerzanie-liczb-bez-znaku">
+<h1>Rozszerzanie liczb bez znaku</h1>
+<p>Poniższe sposoby można stosować dla dowolnych rejestrów.</p>
+<p><tt class="docutils literal">extend_x86.asm</tt>:</p>
+<pre class="literal-block">
+; al -&gt; ax
+        xor   ah, ah     ; wyzeruj ah
+        and   ax, 0x00ff ; j.w.
+        movzx ax, al
+
+; al -&gt; eax
+        and   eax, 0x000000ff
+        movzx eax, al
+</pre>
+<p><tt class="docutils literal">extend_mmx.asm</tt>:</p>
+<pre class="literal-block">
+; packed byte -&gt; packed word
+; mm0 -&gt; mm1:mm0
+
+                   ; mm0 = 0x10ff200faabbccdd
+pxor mm2, mm2      ; mm2 = 0x0000000000000000
+movq mm1, mm0      ; mm1 = 0x0000000000000000
+
+punpcklbw mm0, mm2 ; mm0 = 0x00aa00bb00cc00dd
+punpckhbw mm1, mm2 ; mm1 = 0x001000ff0020000f
+</pre>
+<p>Lub inaczej:</p>
+<p><tt class="docutils literal">extend_mmx.asm</tt>:</p>
+<pre class="literal-block">
+; packed byte -&gt; packed word
+; mm0 -&gt; mm1:mm0
+
+movq      mm1, mm0
+
+punpcklbw mm0, mm0
+punpckhbw mm1, mm1
+psrlw     mm0, 8
+psrlw     mm1, 8
+</pre>
+</div>
+<div class="section" id="rozszerzanie-liczb-ze-znakiem">
+<h1>Rozszerzanie liczb ze znakiem</h1>
+<p>Poniższe rozkazy działają tylko dla akumulatora (<tt class="docutils literal">al</tt>, <tt class="docutils literal">ax</tt>, <tt class="docutils literal">eax</tt>).</p>
+<p><tt class="docutils literal">extend_stdx86</tt>:</p>
+<pre class="literal-block">
+cbw       ;  al -&gt;  ax
+cwd       ;  ax -&gt; eax
+cwde      ; eax -&gt; edx:eax
+</pre>
+<p>A te już dla dowolnych rejestrów i pamięci.</p>
+<p><tt class="docutils literal">extend_u2.asm</tt>:</p>
+<pre class="literal-block">
+; al -&gt; ax
+mov ah, al
+sar ah, al
+
+; al -&gt; eax
+             ; eax = |xxxxxxxx|xxxxxxxx|xxxxxxxx|shhhllll|
+shr eax, 24  ; eax = |shhhllll|00000000|00000000|00000000|
+sar eax, 24  ; eax = |ssssssss|ssssssss|ssssssss|shhhllll|
+
+; eax -&gt; edx:eax
+mov edx, eax
+sar edx, eax
+
+; lub troszkę dłuższy kod
+xor   edx, edx
+cmp   eax, 0
+setge dl
+sub   edx, 1
+</pre>
+<p><tt class="docutils literal">extend_u2mmx.asm</tt>:</p>
+<pre class="literal-block">
+; packed signed byte -&gt; packed signed word
+; mm0 -&gt; mm1:mm0
+
+movq      mm1, mm0
+punpcklbw mm0, mm0
+punpcklbw mm1, mm1
+psraw     mm0, 8
+psraw     mm1, 8
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/extend.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

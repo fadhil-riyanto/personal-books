@@ -1,0 +1,24 @@
+Integrator
+* "Wzmacniacz operacyjny.pdf", str. 22
+* Wojciech Mu³a, 15.10.2005, 17.10.2005
+
+* uk³ad
+* - wej¶cie: 1 0
+* - wyj¶cie: 2 0
+X	0 3 10 11 2	ua741
+R	1 3		22k
+C	3 2		100nF
+Vcc	10 0		DC +10V
+Vdd	11 0		DC -10V
+.include ua741.model
+
+* sygna³ wej¶ciowy
+Vin	1 0	PULSE(-5 5 5m 0.1m 0.1m 10m 20m)
+
+
+* analiza
+.TRAN 0.1m 40m
+* wykres: wej¶cie, wyj¶cie
+.plot tran V(1) V(2)
+
+.end

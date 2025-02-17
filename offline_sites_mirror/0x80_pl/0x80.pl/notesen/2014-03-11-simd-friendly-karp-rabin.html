@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-03-11-simd-friendly-karp-rabin.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMD-friendly Rabin-Karp modification</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simd-friendly-rabin-karp-modification">
+<h1 class="title">SIMD-friendly Rabin-Karp modification</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-03-11</td>
+</tr>
+<tr class="update-on field"><th class="docinfo-name">Update on:</th><td class="field-body">2016-01-17 (results from Core i5)</td>
+</tr>
+</tbody>
+</table>
+<div style="margin:3em; padding: 1ex; border: dotted 1px; background-color: Lavender"><p>This article is obsolete, refer to <a class="reference external" href="2016-11-28-simd-strfind.html">SIMD-friendly algorithms for substring searching</a>.</p>
+</div><div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#algorithm" id="toc-entry-1">Algorithm</a></li>
+<li><a class="reference internal" href="#sample-programs" id="toc-entry-2">Sample programs</a></li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-3">Experiments</a><ul>
+<li><a class="reference internal" href="#results-from-core-i5-64-bit-architecture" id="toc-entry-4">Results from Core i5 (64-bit architecture)</a></li>
+<li><a class="reference internal" href="#results-from-pentium-m-32-bit-architecture" id="toc-entry-5">Results from Pentium M (32-bit architecture)</a></li>
+<li><a class="reference internal" href="#summary" id="toc-entry-6">Summary</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-7">See also</a></li>
+</ul>
+</div>
+<div class="section" id="algorithm">
+<h1>Algorithm</h1>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/Rabin-Karp_algorithm">Rabin-Karp algorithm</a> uses a weak hash function to locate possible
+substring positions. This modification uses merely equality of the first and
+the last char of searched substring, however equality of chars can be done
+very fast <strong>in parallel</strong>, even without SIMD instruction.</p>
+<p>Let <tt class="docutils literal">packed_byte(x)</tt> is a function that fills a CPU register with byte
+<tt class="docutils literal">x</tt>, for example on 32-bit architecture:</p>
+<pre class="literal-block">
+// packed_byte(0xab) = 0xabababab
+uint32_t packed_byte(uint8_t byte) {
+        return 0x01010101 * byte;
+}
+</pre>
+<p>In a single iteration two registers are filled with part of string:</p>
+<pre class="literal-block">
+const size_t n = strlen(string);
+const size_t k = strlen(substring);
+
+const size_t first = packed_byte(substring[0]);
+const size_t last  = packed_byte(substring[k - 1]);
+
+for (size_t i = 0; i &lt; n - k; i += 4) {
+        const uint32_t block_first = string[i     .. i + 4];
+        const uint32_t block_last  = string[i + k .. i + k + 4];
+
+        ...
+}
+</pre>
+<p>Then parallel comparison is done with simple xor:</p>
+<pre class="literal-block">
+const uint32_t first_zeros = block_first ^ first;
+const uint32_t last_zeros  = block_last  ^ last;
+</pre>
+<p>Zero bytes in <tt class="docutils literal">first_zeros</tt> and <tt class="docutils literal">last_zeros</tt> indicate equality of chars.
+The positions of zero bytes have to be equal, so an additional bit or is
+needed:</p>
+<pre class="literal-block">
+const uint32_t zeros = first_zeros | last_zeros;
+</pre>
+<p>Getting zeros requires only:</p>
+<ul class="simple">
+<li>two memory fetches,</li>
+<li>two bit-xor,</li>
+<li>one bit-or.</li>
+</ul>
+<p>Now we have to check if zeros has any zero bytes, then iterate through
+zeros and perform byte-wise comparisons for all zero bytes:</p>
+<pre class="literal-block">
+if (has_zero_byte(zeros)) {
+        for (int j = 0; j &lt; 4; j++) {
+                if (is_zero(zeros, j) &amp;&amp; memcmp(&amp;string[i + j], substring, k) == 0) {
+                        return i + z;
+                }
+        }
+}
+</pre>
+<p>Function <tt class="docutils literal">has_zero_byte(uint32_t word)</tt> could be implemented using
+algorithm from Bit Twiddling Hacks &mdash; <a class="reference external" href="http://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord">Determine if a word has a zero
+byte</a>. Function <tt class="docutils literal">is_zero(uint32_t word, int k)</tt> may use results from
+<tt class="docutils literal">has_zero_byte</tt> (warning: this method has a <a class="reference external" href="http://wmula.blogspot.com/2014/03/mask-for-zeronon-zero-bytes.html">drawback</a>).</p>
+<p>The worst case complexity is O(n*m). However the method minimize memory fetches
+during a string scan, also comparisons are performed in parallel, and no
+preprocessing is required (except two <tt class="docutils literal">packed_byte</tt> calls before the main
+loop).</p>
+</div>
+<div class="section" id="sample-programs">
+<h1>Sample programs</h1>
+<p>Sample implementation is <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/strstr">available</a>.</p>
+<p>After run <tt class="docutils literal">make analyze32</tt> or <tt class="docutils literal">make analyze64</tt> famous document
+<em>386intel.txt</em> is downloaded, split to words and all these words (~4500)
+are searched in the text.</p>
+<p>Following function are measured:</p>
+<ul class="simple">
+<li>C++ <tt class="docutils literal"><span class="pre">std::string::find</span></tt></li>
+<li>C <tt class="docutils literal">strlen</tt></li>
+<li><strong>custom</strong> &mdash; implementation of the algorithm presented here</li>
+</ul>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<div class="section" id="results-from-core-i5-64-bit-architecture">
+<h2>Results from Core i5 (64-bit architecture)</h2>
+<p>GCC 4.9.2:</p>
+<pre class="literal-block">
+custom vs std::string::find
+----------------------------------------------------------------------------
+            slower:    12  ( 0.26%) =
+        same speed:    30  ( 0.65%) =
+2.00 - 2.99 faster:   447  ( 9.75%) ====
+3.00 - 3.99 faster:  3082  (67.22%) =================================
+4.00 - 4.99 faster:   782  (17.06%) ========
+5.00 - 5.99 faster:   160  ( 3.49%) =
+6.00 - ...  faster:    68  ( 1.48%) =
+
+custom vs strlen
+----------------------------------------------------------------------------
+            slower:  4506  (98.28%) =================================================
+        same speed:    65  ( 1.42%) =
+2.00 - 2.99 faster: N/A
+3.00 - 3.99 faster: N/A
+4.00 - 4.99 faster: N/A
+5.00 - 5.99 faster: N/A
+6.00 - ...  faster:    14  ( 0.31%) =
+</pre>
+</div>
+<div class="section" id="results-from-pentium-m-32-bit-architecture">
+<h2>Results from Pentium M (32-bit architecture)</h2>
+<pre class="literal-block">
+custom vs std::string::find
+----------------------------------------------------------------------------
+            slower:    19  ( 0.41%) =
+        same speed:    78  ( 1.70%) =
+2.00 - 2.99 faster:  3282  (71.58%) ===================================
+3.00 - 3.99 faster:  1037  (22.62%) ===========
+4.00 - 4.99 faster:    32  ( 0.70%) =
+5.00 - 5.99 faster:     7  ( 0.15%) =
+6.00 - ...  faster:     4  ( 0.09%) =
+
+custom vs strlen
+----------------------------------------------------------------------------
+            slower:    10  ( 0.22%) =
+        same speed:    49  ( 1.07%) =
+2.00 - 2.99 faster:   806  (17.58%) ========
+3.00 - 3.99 faster:  1520  (33.15%) ================
+4.00 - 4.99 faster:  1003  (21.88%) ==========
+5.00 - 5.99 faster:   928  (20.24%) ==========
+6.00 - ...  faster:   219  ( 4.78%) ==
+</pre>
+</div>
+<div class="section" id="summary">
+<h2>Summary</h2>
+<ul class="simple">
+<li>For the 32-bit code the presented method is around 2-4 times faster than
+C++ <tt class="docutils literal">find</tt>, and around 2-6 times faster than C <tt class="docutils literal">strlen</tt>.</li>
+<li>For the 64-bit code the presented method is faster than C++ <tt class="docutils literal">find</tt>, however
+plan C <tt class="docutils literal">strlen</tt> beats it.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2008-05-27-sse4-substring-locate.html">SSE4 string search &mdash; modification of Karp-Rabin algorithm</a> &mdash; a
+specific usage of <tt class="docutils literal">MPSADBW</tt> instruction</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-03-11-simd-friendly-karp-rabin.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

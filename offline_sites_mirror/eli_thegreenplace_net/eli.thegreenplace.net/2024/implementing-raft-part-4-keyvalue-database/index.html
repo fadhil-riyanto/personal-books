@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/implementing-raft-part-4-keyvalue-database/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:11 GMT -->
+<head>
+    <title>Implementing Raft: Part 4 - Key/Value Database - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Implementing Raft: Part 4 - Key/Value Database">
+                        Implementing Raft: Part 4 - Key/Value Database
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> October 10, 2024 at 19:50</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/concurrency.html">Concurrency</a>
+        ,
+    <a href="../../tag/go.html">Go</a>
+        ,
+    <a href="../../tag/network-programming.html">Network Programming</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>This is Part 4 in a series of posts describing the Raft distributed consensus
+algorithm and its complete implementation in Go. Here is a list of posts in
+the series:</p>
+<ul class="simple">
+<li><a class="reference external" href="../../2020/implementing-raft-part-0-introduction/index.html">Part 0: Introduction</a></li>
+<li><a class="reference external" href="../../2020/implementing-raft-part-1-elections/index.html">Part 1: Elections</a></li>
+<li><a class="reference external" href="../../2020/implementing-raft-part-2-commands-and-log-replication/index.html">Part 2: Commands and log replication</a></li>
+<li><a class="reference external" href="../../2020/implementing-raft-part-3-persistence-and-optimizations/index.html">Part 3: Persistence and optimizations</a></li>
+<li>Part 4: Key/Value database (this post)</li>
+<li><a class="reference external" href="../implementing-raft-part-5-exactly-once-delivery/index.html">Part 5: Exactly-once delivery</a></li>
+</ul>
+<p>In this part, we're going to use our Raft module to implement a simple but
+realistic application - a replicated key / value database with strong
+consistency semantics. All the code for this part is located
+in <a class="reference external" href="https://github.com/eliben/raft/tree/main/part4kv">this directory</a>.</p>
+<div class="section" id="key-value-database-as-a-state-machine">
+<h2>Key / value database as a state machine</h2>
+<p>First of all, what's a key / value database (KV DB)? Think of it as a Go
+<tt class="docutils literal">map</tt>, or as an extremely simple version of NoSQL databases like Redis or
+CouchDB. The basic operations our KV DB supports are:</p>
+<ul class="simple">
+<li><tt class="docutils literal">PUT(k,v)</tt>: assign value <tt class="docutils literal">v</tt> to key <tt class="docutils literal">k</tt></li>
+<li><tt class="docutils literal">GET(k)</tt>: retrieve the value associated with key <tt class="docutils literal">k</tt></li>
+<li><tt class="docutils literal">CAS(k, cmp, v)</tt>: atomic compare-and-swap. First, it reads <tt class="docutils literal">curV</tt> - the
+current value associated with key <tt class="docutils literal">k</tt>. If <tt class="docutils literal"><span class="pre">curV==cmp</span></tt>, assigns value
+<tt class="docutils literal">v</tt> to <tt class="docutils literal">k</tt> instead; otherwise, it's a no-op. In any case, <tt class="docutils literal">curV</tt> is
+returned.</li>
+</ul>
+<p>For example, suppose the commands in some Raft log are (in order from left to
+right):</p>
+<div class="highlight"><pre><span></span>PUT(&quot;x&quot;,&quot;2&quot;)  PUT(&quot;y&quot;,&quot;3&quot;)  PUT(&quot;x&quot;,&quot;4&quot;)  PUT(&quot;z&quot;,&quot;5&quot;)  CAS(&quot;x&quot;,&quot;4&quot;,&quot;8&quot;)  CAS(&quot;z&quot;,&quot;4&quot;,&quot;9&quot;)
+</pre></div>
+<p>Applied to an empty DB, this log will result in these keys / values:</p>
+<div class="highlight"><pre><span></span>x=8
+y=3
+z=5
+</pre></div>
+</div>
+<div class="section" id="system-diagram">
+<h2>System diagram</h2>
+<p>In this part we're going to build a complete KV DB system - including the
+service and a client library:</p>
+<img alt="Raft-based KV DB -- system diagram" class="align-center" src="../../images/2024/raft-kv-system.png" />
+<ul class="simple">
+<li>The diagram presents a cluster with 3 replicas <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>. Each replica is a KV DB
+service.</li>
+<li>A KV service contains a Raft Consensus Module (the diagram doesn't show the
+log, assuming it's just part of the CM), and a data store module that
+implements the actual database.</li>
+<li>The Raft CM of each replica is connected to the others via RPCs - these
+are the Raft protocol RPCs discussed extensively in previous parts.</li>
+<li>The KV service presents a REST API to the external world;
+clients can send HTTP commands to the service and get results.</li>
+<li>&quot;KV Client&quot; is a client library with a convenient API that encapsulates the
+HTTP interactions with KV services. This is also part of our demo,
+and we'll discuss it later in the post.</li>
+</ul>
+</div>
+<div class="section" id="kv-service-architecture">
+<h2>KV service architecture</h2>
+<p>The KV service consists of several key components:</p>
+<ul class="simple">
+<li>An instance of a Raft server; as described back in <a class="reference external" href="../../2020/implementing-raft-part-1-elections/index.html">Part 1</a>,
+a Raft <tt class="docutils literal">Server</tt> wraps a consensus module with some RPC scaffolding. In this
+part we reuse our final Raft server code from Part 3, without any
+modifications.</li>
+<li>An underlying &quot;data store&quot;. For our demonstration, a simple
+Go <tt class="docutils literal">map</tt> will do; this is implemented in <tt class="docutils literal">kvservice/datastore.go</tt>. This
+data store implements the Get, Put and CAS commands described earlier. All
+keys and values are Go <tt class="docutils literal">string</tt>s (naturally, anything can be encoded in a
+string value).</li>
+<li>An HTTP server for the REST API of the service exposed to the external world.</li>
+</ul>
+</div>
+<div class="section" id="commands">
+<h2>Commands</h2>
+<p>If you recall from <a class="reference external" href="../../2020/implementing-raft-part-2-commands-and-log-replication/index.html">Part 2</a>,
+we submit new commands to the Raft cluster with the <tt class="docutils literal">ConsensusModule.Submit</tt>
+method. A <tt class="docutils literal">Command</tt> is an arbitrary <tt class="docutils literal">any</tt> value; whenever the Raft cluster
+reaches consensus on a log entry, it sends a &quot;commit entry&quot; with this command on
+the commit channel. Commands are application-specific, and since we're working
+on a concrete application now, it's time to define our command for the KV
+service:</p>
+<div class="highlight"><pre><span></span><span class="c1">// Command is the concrete command type KVService submits to the Raft log to</span><span class="w"></span>
+<span class="c1">// manage its state machine. It&#39;s also used to carry the results of the command</span><span class="w"></span>
+<span class="c1">// after it&#39;s applied to the state machine. These are the supported commands:</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">// CommandGet: queries a key&#39;s value</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">// * Key is the key to get, Value is ignored</span><span class="w"></span>
+<span class="c1">// * CompareValue is ignored</span><span class="w"></span>
+<span class="c1">// * ResultFound is true iff Key was found in the store</span><span class="w"></span>
+<span class="c1">// * ResultValue is the value, if Key was found in the store</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">// CommandPut: assigns value to the key</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">// * Key,Value are the pair to assign (store[key]=value)</span><span class="w"></span>
+<span class="c1">// * CompareValue is ignored</span><span class="w"></span>
+<span class="c1">// * ResultFound is true iff Key was previously found in the store</span><span class="w"></span>
+<span class="c1">// * ResultValue is the old value of Key, if it was previously found</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">// CommandCAS: atomic compare-and-swap, performs:</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">//    if Store[Key] == CompareValue {</span><span class="w"></span>
+<span class="c1">//      Store[Key] = Value</span><span class="w"></span>
+<span class="c1">//    } else {</span><span class="w"></span>
+<span class="c1">//      nop</span><span class="w"></span>
+<span class="c1">//    }</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">// * Key is the key this command acts on</span><span class="w"></span>
+<span class="c1">// * CompareValue is the previous value the command compares to</span><span class="w"></span>
+<span class="c1">// * Value is the new value the command assigns</span><span class="w"></span>
+<span class="c1">// * ResultFound is true iff Key was previously found in the store</span><span class="w"></span>
+<span class="c1">// * ResultValue is the old value of Key, if it was previously found</span><span class="w"></span>
+<span class="kd">type</span><span class="w"> </span><span class="nx">Command</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">Kind</span><span class="w"> </span><span class="nx">CommandKind</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">Key</span><span class="p">,</span><span class="w"> </span><span class="nx">Value</span><span class="w"> </span><span class="kt">string</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">CompareValue</span><span class="w"> </span><span class="kt">string</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">ResultValue</span><span class="w"> </span><span class="kt">string</span><span class="w"></span>
+<span class="w">  </span><span class="nx">ResultFound</span><span class="w"> </span><span class="kt">bool</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// id is the Raft ID of the server submitting this command.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">Id</span><span class="w"> </span><span class="kt">int</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+
+<span class="kd">type</span><span class="w"> </span><span class="nx">CommandKind</span><span class="w"> </span><span class="kt">int</span><span class="w"></span>
+
+<span class="kd">const</span><span class="w"> </span><span class="p">(</span><span class="w"></span>
+<span class="w">  </span><span class="nx">CommandInvalid</span><span class="w"> </span><span class="nx">CommandKind</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span><span class="w"></span>
+<span class="w">  </span><span class="nx">CommandGet</span><span class="w"></span>
+<span class="w">  </span><span class="nx">CommandPut</span><span class="w"></span>
+<span class="w">  </span><span class="nx">CommandCAS</span><span class="w"></span>
+<span class="p">)</span><span class="w"></span>
+</pre></div>
+<p>For simplicity, I chose to include fields for several commands in the same
+struct instead of using an <a class="reference external" href="../../2018/go-and-algebraic-data-types/index.html">algebraic data type</a> here.</p>
+<p>One important thing to note is that the service's Raft cluster ID is part of
+the command; it will soon become clear why this is needed.</p>
+</div>
+<div class="section" id="life-of-a-put-request-to-the-service">
+<h2>Life of a PUT request to the service</h2>
+<p>Before we dive deep into the code, let's examine the journey a successful PUT
+request makes through the system:</p>
+<ol class="arabic simple">
+<li>A client sends a <tt class="docutils literal"><span class="pre">PUT(&quot;k&quot;,</span> &quot;v&quot;)</tt> request to a service, via HTTP.
+Let's assume it reaches the service which is currently the Raft cluster
+leader (we'll discuss what happens if it reaches a follower later on).</li>
+<li>The service's HTTP handler receives the request, constructs a <tt class="docutils literal">Command</tt>
+of kind <tt class="docutils literal">CommandPut</tt> representing it and submits it to its Raft CM.<ol class="arabic">
+<li>At this point, the HTTP handler waits; it can't reply to the client until
+it knows that the command was properly replicated to the Raft cluster
+and committed by the CM.</li>
+<li>Once the command it submitted appears on the commit channel, the HTTP
+handler can return a success status to the client.</li>
+</ol>
+</li>
+<li>Meanwhile, a process in the service watches its commit channel for new
+commands that reached consensus by the cluster, and updates the underlying
+data store.</li>
+<li>At the same time, the other services in the cluster - the followers - are
+also watching their commit channels and update their own replicas of the
+data store with the new PUT command.</li>
+</ol>
+<p>Note that steps 2.2 and 3 happen <em>concurrently</em>. One process (in the sense
+of <a class="reference external" href="https://en.wikipedia.org/wiki/Communicating_sequential_processes">CSP</a>)
+handles a client request, while another process takes care to execute commands
+arriving on the commit channel. In fact, there's more concurrency here than
+meets the eye. Our service can handle multiple concurrent requests, each with
+its own command - and it should all just work. This kind of concurrency is
+natural in Go - and now it's time to see how it works.</p>
+</div>
+<div class="section" id="kv-service-code-walk-through">
+<h2>KV service code walk-through</h2>
+<p>All the code described in this section is located in <tt class="docutils literal">kvservice/kvservice.go</tt>.
+Here's the struct defining the service:</p>
+<div class="highlight"><pre><span></span><span class="kd">type</span><span class="w"> </span><span class="nx">KVService</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">sync</span><span class="p">.</span><span class="nx">Mutex</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// id is the service ID in a Raft cluster.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">id</span><span class="w"> </span><span class="kt">int</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// rs is the Raft server that contains a CM</span><span class="w"></span>
+<span class="w">  </span><span class="nx">rs</span><span class="w"> </span><span class="o">*</span><span class="nx">raft</span><span class="p">.</span><span class="nx">Server</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// commitChan is the commit channel passed to the Raft server; when commands</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// are committed, they&#39;re sent on this channel.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">commitChan</span><span class="w"> </span><span class="kd">chan</span><span class="w"> </span><span class="nx">raft</span><span class="p">.</span><span class="nx">CommitEntry</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// commitSubs are the commit subscriptions currently active in this service.</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// See the createCommitSubscription method for more details.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">commitSubs</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">int</span><span class="p">]</span><span class="kd">chan</span><span class="w"> </span><span class="nx">Command</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// ds is the underlying data store implementing the KV DB.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">ds</span><span class="w"> </span><span class="o">*</span><span class="nx">DataStore</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// srv is the HTTP server exposed by the service to the external world.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">srv</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Server</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>Don't worry about understanding exactly what each field means right now; note
+the correlation to the descriptions in &quot;KV service architecture&quot;, though. A
+service holds a Raft server, a datastore, and an HTTP server. Other entities,
+like the commit channel, should be familiar by now.</p>
+<p>A new service is created with this constructor:</p>
+<div class="highlight"><pre><span></span><span class="c1">// New creates a new KVService</span><span class="w"></span>
+<span class="c1">//</span><span class="w"></span>
+<span class="c1">//   - id: this service&#39;s ID within its Raft cluster</span><span class="w"></span>
+<span class="c1">//   - peerIds: the IDs of the other Raft peers in the cluster</span><span class="w"></span>
+<span class="c1">//   - storage: a raft.Storage implementation the service can use for</span><span class="w"></span>
+<span class="c1">//     durable storage to persist its state.</span><span class="w"></span>
+<span class="c1">//   - readyChan: notification channel that has to be closed when the Raft</span><span class="w"></span>
+<span class="c1">//     cluster is ready (all peers are up and connected to each other).</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">New</span><span class="p">(</span><span class="nx">id</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="nx">peerIds</span><span class="w"> </span><span class="p">[]</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="nx">storage</span><span class="w"> </span><span class="nx">raft</span><span class="p">.</span><span class="nx">Storage</span><span class="p">,</span><span class="w"> </span><span class="nx">readyChan</span><span class="w"> </span><span class="o">&lt;-</span><span class="kd">chan</span><span class="w"> </span><span class="kt">any</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">KVService</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">gob</span><span class="p">.</span><span class="nx">Register</span><span class="p">(</span><span class="nx">Command</span><span class="p">{})</span><span class="w"></span>
+<span class="w">  </span><span class="nx">commitChan</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">(</span><span class="kd">chan</span><span class="w"> </span><span class="nx">Command</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// raft.Server handles the Raft RPCs in the cluster; after Serve is called,</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// it&#39;s ready to accept RPC connections from peers.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">rs</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">raft</span><span class="p">.</span><span class="nx">NewServer</span><span class="p">(</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="nx">peerIds</span><span class="p">,</span><span class="w"> </span><span class="nx">storage</span><span class="p">,</span><span class="w"> </span><span class="nx">readyChan</span><span class="p">,</span><span class="w"> </span><span class="nx">commitChan</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">rs</span><span class="p">.</span><span class="nx">Serve</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">kvs</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">KVService</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">id</span><span class="p">:</span><span class="w">         </span><span class="nx">id</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">rs</span><span class="p">:</span><span class="w">         </span><span class="nx">rs</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">commitChan</span><span class="p">:</span><span class="w"> </span><span class="nx">commitChan</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">ds</span><span class="p">:</span><span class="w">         </span><span class="nx">NewDataStore</span><span class="p">(),</span><span class="w"></span>
+<span class="w">    </span><span class="nx">commitSubs</span><span class="p">:</span><span class="w"> </span><span class="nb">make</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">int</span><span class="p">]</span><span class="kd">chan</span><span class="w"> </span><span class="nx">Command</span><span class="p">),</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">runUpdater</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">kvs</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>We'll get back to what <tt class="docutils literal">runUpdater</tt> is a little later; for now, let's look
+at how the HTTP server is launched:</p>
+<div class="highlight"><pre><span></span><span class="c1">// ServeHTTP starts serving the KV REST API on the given TCP port. This</span><span class="w"></span>
+<span class="c1">// function does not block; it fires up the HTTP server and returns. To properly</span><span class="w"></span>
+<span class="c1">// shut down the server, call the Shutdown method.</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">kvs</span><span class="w"> </span><span class="o">*</span><span class="nx">KVService</span><span class="p">)</span><span class="w"> </span><span class="nx">ServeHTTP</span><span class="p">(</span><span class="nx">port</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">srv</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nb">panic</span><span class="p">(</span><span class="s">&quot;ServeHTTP called with existing server&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="nx">mux</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">NewServeMux</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">mux</span><span class="p">.</span><span class="nx">HandleFunc</span><span class="p">(</span><span class="s">&quot;POST /get/&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">handleGet</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">mux</span><span class="p">.</span><span class="nx">HandleFunc</span><span class="p">(</span><span class="s">&quot;POST /put/&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">handlePut</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">mux</span><span class="p">.</span><span class="nx">HandleFunc</span><span class="p">(</span><span class="s">&quot;POST /cas/&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">handleCAS</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">srv</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">http</span><span class="p">.</span><span class="nx">Server</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Addr</span><span class="p">:</span><span class="w">    </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;:%d&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">port</span><span class="p">),</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Handler</span><span class="p">:</span><span class="w"> </span><span class="nx">mux</span><span class="p">,</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="k">go</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">kvlog</span><span class="p">(</span><span class="s">&quot;serving HTTP on %s&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">srv</span><span class="p">.</span><span class="nx">Addr</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">srv</span><span class="p">.</span><span class="nx">ListenAndServe</span><span class="p">();</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">ErrServerClosed</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">    </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">srv</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">nil</span><span class="w"></span>
+<span class="w">  </span><span class="p">}()</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>This should be familiar if you've written <a class="reference external" href="../../2023/better-http-server-routing-in-go-122.html">Go HTTP servers</a>
+before. Listening is done in a goroutine to enable clean shutdown of the HTTP
+server specifically and the whole service in general; check out the <tt class="docutils literal">Shutdown</tt>
+method for more details.</p>
+<p>In the previous section, I mentioned that multiple HTTP requests
+can be handled concurrently; this is just <a class="reference external" href="../../2019/on-concurrency-in-go-http-servers/index.html">the nature of the standard Go
+HTTP server</a>.
+Here we see the <tt class="docutils literal">handleXXX</tt> handlers registered with the server; each handler
+is invoked in a separate goroutine, and our code has to account for this. To
+understand what this means in practice, let's look at the updater goroutine.</p>
+<div class="highlight"><pre><span></span><span class="c1">// runUpdater runs the &quot;updater&quot; goroutine that reads the commit channel</span><span class="w"></span>
+<span class="c1">// from Raft and updates the data store; this is the Replicated State Machine</span><span class="w"></span>
+<span class="c1">// part of distributed consensus!</span><span class="w"></span>
+<span class="c1">// It also notifies subscribers (registered with createCommitSubscription).</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">kvs</span><span class="w"> </span><span class="o">*</span><span class="nx">KVService</span><span class="p">)</span><span class="w"> </span><span class="nx">runUpdater</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">go</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">entry</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">commitChan</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">cmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">entry</span><span class="p">.</span><span class="nx">Command</span><span class="p">.(</span><span class="nx">Command</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">      </span><span class="k">switch</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Kind</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandGet</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandPut</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">Put</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandCAS</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">CAS</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">CompareValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="k">default</span><span class="p">:</span><span class="w"></span>
+<span class="w">        </span><span class="nb">panic</span><span class="p">(</span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;unexpected command %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">))</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">      </span><span class="c1">// Forward this entry to the subscriber interested in its index, and</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// close the subscription - it&#39;s single-use.</span><span class="w"></span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="nx">sub</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">popCommitSubscription</span><span class="p">(</span><span class="nx">entry</span><span class="p">.</span><span class="nx">Index</span><span class="p">);</span><span class="w"> </span><span class="nx">sub</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">sub</span><span class="w"> </span><span class="o">&lt;-</span><span class="w"> </span><span class="nx">cmd</span><span class="w"></span>
+<span class="w">        </span><span class="nb">close</span><span class="p">(</span><span class="nx">sub</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="p">}()</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>The updater goroutine is responsible for implementing step (3) described in
+the &quot;Life of...&quot; section. It watches the commit channel for new committed
+commands, applies these commands to the datastore and then notifies
+&quot;subscribers&quot; about it. The first two tasks is what we'd expect from an
+implementation of a Raft-based replicated state machine; the last task needs
+some elaboration.</p>
+<p>Recall step 2.1 from the &quot;Life of...&quot; section; once an HTTP handler submits
+a command to the Raft cluster, it has to wait and see if this command was
+properly committed. The way we implement it is:</p>
+<ul class="simple">
+<li>The handler submits a command to the Raft CM, and keeps note of the log
+index the command is placed in.</li>
+<li>The handler than registers a &quot;subscription&quot; with the updater, telling it:
+&quot;hey, if you see a command submitted for this index, let me know&quot;.
+The subscription is implemented with a channel.</li>
+<li>The handler can then wait on the channel.</li>
+</ul>
+<p>Here's the code of <tt class="docutils literal">handlePut</tt>, demonstrating this in action:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">kvs</span><span class="w"> </span><span class="o">*</span><span class="nx">KVService</span><span class="p">)</span><span class="w"> </span><span class="nx">handlePut</span><span class="p">(</span><span class="nx">w</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">ResponseWriter</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">pr</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">api</span><span class="p">.</span><span class="nx">PutRequest</span><span class="p">{}</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">readRequestJSON</span><span class="p">(</span><span class="nx">req</span><span class="p">,</span><span class="w"> </span><span class="nx">pr</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">http</span><span class="p">.</span><span class="nx">Error</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">.</span><span class="nx">Error</span><span class="p">(),</span><span class="w"> </span><span class="nx">http</span><span class="p">.</span><span class="nx">StatusBadRequest</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">kvlog</span><span class="p">(</span><span class="s">&quot;HTTP PUT %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">pr</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Submit a command into the Raft server; this is the state change in the</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// replicated state machine built on top of the Raft log.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">cmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">Command</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Kind</span><span class="p">:</span><span class="w">  </span><span class="nx">CommandPut</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Key</span><span class="p">:</span><span class="w">   </span><span class="nx">pr</span><span class="p">.</span><span class="nx">Key</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Value</span><span class="p">:</span><span class="w"> </span><span class="nx">pr</span><span class="p">.</span><span class="nx">Value</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Id</span><span class="p">:</span><span class="w">    </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">id</span><span class="p">,</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logIndex</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">rs</span><span class="p">.</span><span class="nx">Submit</span><span class="p">(</span><span class="nx">cmd</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// If we&#39;re not the Raft leader, send an appropriate status</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">logIndex</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">renderJSON</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">PutResponse</span><span class="p">{</span><span class="nx">RespStatus</span><span class="p">:</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusNotLeader</span><span class="p">})</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Subscribe for a commit update for our log index. Then wait for it to</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// be delivered.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">sub</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">createCommitSubscription</span><span class="p">(</span><span class="nx">logIndex</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Wait on the sub channel: the updater will deliver a value when the Raft</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// log has a commit at logIndex. To ensure clean shutdown of the service,</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// also select on the request context - if the request is canceled, this</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// handler aborts without sending data back to the client.</span><span class="w"></span>
+<span class="w">  </span><span class="k">select</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="nx">commitCmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&lt;-</span><span class="nx">sub</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// If this is our command, all is good! If it&#39;s some other server&#39;s command,</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// this means we lost leadership at some point and should return an error</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// to the client.</span><span class="w"></span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">Id</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">id</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">renderJSON</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">PutResponse</span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">RespStatus</span><span class="p">:</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusOK</span><span class="p">,</span><span class="w"></span>
+<span class="w">        </span><span class="nx">KeyFound</span><span class="p">:</span><span class="w">   </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="p">,</span><span class="w"></span>
+<span class="w">        </span><span class="nx">PrevValue</span><span class="p">:</span><span class="w">  </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"></span>
+<span class="w">      </span><span class="p">})</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">renderJSON</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">PutResponse</span><span class="p">{</span><span class="nx">RespStatus</span><span class="p">:</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusFailedCommit</span><span class="p">})</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="o">&lt;-</span><span class="nx">req</span><span class="p">.</span><span class="nx">Context</span><span class="p">().</span><span class="nx">Done</span><span class="p">():</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>The code is well-commented, but I want to specifically call out a few
+important points:</p>
+<ul>
+<li><p class="first">When <tt class="docutils literal">kvs.rs.Submit</tt> is called with the command, it returns -1 if the
+current Raft CM is not the leader. In this case, we return a special status
+to the client - &quot;I'm not the leader&quot; - and abort the handler. We'll see what
+the client does about this further down in the post.</p>
+<p>For a leader, <tt class="docutils literal">Submit</tt> returns the log index at which the command was
+submitted. This is the index used to subscribe to notifications from the
+commit channel.</p>
+</li>
+<li><p class="first">The handler waits on a receive on this channel. This can be canceled
+if the HTTP request is canceled by the client (e.g. timeout); otherwise,
+we just wait. In practice, with the optimizations in Part 3, it takes just
+a handful of milliseconds to fully commit new commands in a functioning
+Raft cluster. In case of problems (disconnections, crashes etc.) this may
+take longer, but our application prioritizes consistency over availability
+(see <a class="reference external" href="../../2020/implementing-raft-part-0-introduction/index.html">Part 0 on fault tolerance in Raft and the CAP theorem</a>).</p>
+</li>
+<li><p class="first">When notified that a commit was made for this log index, there's still an
+important safety check to make! Is it actually <em>our</em> command that was
+committed there? This is what the <tt class="docutils literal">id</tt> field on the command is for.</p>
+<p>Consider the following case: peer <tt class="docutils literal">A</tt> is the leader, and a client submits a
+command. <tt class="docutils literal">A</tt> places it in log index 42, but gets disconnected before it
+manages to tell followers about it.
+After a while, <tt class="docutils literal">C</tt> becomes the new leader; <tt class="docutils literal">C</tt> is unaware that <tt class="docutils literal">A</tt>
+placed something in its log at index 42. Therefore, when <tt class="docutils literal">C</tt> receives a new
+command from another client, it commits it at index 42 (since this is still
+the &quot;next index for entries&quot; for all connected cluster members).
+At some point later, <tt class="docutils literal">A</tt>
+gets reconnected to the cluster, becomes a follower (since its term is out of
+date), and sees the commit from <tt class="docutils literal">C</tt> at index 42. At this point it realizes
+that it failed to commit its own command (because the ID doesn't match), and
+replies with a &quot;failed commit&quot; status to the client.</p>
+</li>
+</ul>
+<p>I'll leave figuring out the mechanics of channel subscriptions to you as an
+exercise. Just read the <tt class="docutils literal">createCommitSubscription</tt> and
+<tt class="docutils literal">popCommitSubscription</tt> methods - they're fairly straightforward.</p>
+</div>
+<div class="section" id="consistency-guarantees">
+<h2>Consistency guarantees</h2>
+<p>I wrote in detail about <a class="reference external" href="../linearizability-in-distributed-systems/index.html">linearizable semantics</a>
+recently. Our KV service is linearizable based on that definition, due
+to the nature of Raft consensus. An operation only becomes visible to clients
+after it's committed; and it's committed by cluster consensus, at a &quot;moment
+in time&quot; relative to other operations in the Raft log.</p>
+<p>Moreover, it's also <a class="reference external" href="https://jepsen.io/consistency/models/serializable">serializable</a> for transactions like
+CAS: these are performed by a single service (the leader) atomically, so clients
+can never observe the results of sub-operations in isolation.</p>
+<p>By being both linearizable and serializable, our service is
+<a class="reference external" href="https://jepsen.io/consistency/models/strict-serializable">strict serializable</a>, which
+is the strongest consistency guarantee for distributed systems.</p>
+<p>As discussed before, this strong consistency comes at the expense of
+availability in the face of network partitions (as it must, due to the
+<a class="reference external" href="https://en.wikipedia.org/wiki/CAP_theorem">CAP theorem limits</a>). It's a
+&quot;CP&quot; system; the following diagram is from Wikipedia:</p>
+<img alt="CAP euler diagram from Wikipedia" class="align-center" src="../../images/2024/kvservice-cp.png" />
+<p>What are such services good for? Though it can serve as a NoSQL database, it
+won't be very performant - every operation has to reach consensus among multiple
+peers before being considered &quot;done&quot;. Instead, such strict serializable
+services are used as the very bottom layer of large distributed systems.
+For example, it can be used to coordinate distributed locks, elect leaders
+(these are fairly easy to build on top of our CAS primitive) or store some
+critical low-volume configuration data for a complex system.</p>
+</div>
+<div class="section" id="plumbing-read-only-operations-through-the-raft-log">
+<h2>Plumbing read-only operations through the Raft log</h2>
+<p>You'll note that all the commands our KV service supports - PUT, GET and CAS -
+are implemented fairly consistently and follow the sequence described in the
+&quot;Life of...&quot; section. This raises an important question: is this
+really necessary for the read-only GET operations? After all, they don't really
+change the state machine, so why add them as Raft log commands?</p>
+<p>While it's true that a stray GET command won't harm the integrity of the
+internal data store, it may result in stale reads or other events inconsistent
+with the linearizable semantics of our service.</p>
+<p>To see why, let's work by contradiction; assume we don't plumb GET through
+the Raft log, but instead let leaders immediately reply to GET requests based
+on their local datastore. Here's what can happen:</p>
+<ul class="simple">
+<li>The KV DB has the key-value pair <tt class="docutils literal">k=v</tt>.</li>
+<li><tt class="docutils literal">A</tt> used to be a leader, but got disconnected from its peers; after a suitable
+election timeout, <tt class="docutils literal">C</tt> was elected as the new leader. <tt class="docutils literal">A</tt> still thinks it's
+the leader, however.</li>
+<li>At some point, a client contacts <tt class="docutils literal">C</tt> and submits <tt class="docutils literal">PUT(k,v2)</tt>. <tt class="docutils literal">C</tt>
+successfully replicates this command to the remaining connected peers.</li>
+<li>A bit later, another client sends <tt class="docutils literal">GET(K)</tt> to <tt class="docutils literal">C</tt> and gets the correct
+response <tt class="docutils literal">v2</tt>.</li>
+<li>Then, a different client sends <tt class="docutils literal">GET(k)</tt> to <tt class="docutils literal">A</tt> (perhaps the client
+remembered that the previous time it contacted the service, <tt class="docutils literal">A</tt> was the
+leader <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>). Since <tt class="docutils literal">A</tt> still thinks it's the leader, it will
+happily reply with the value <tt class="docutils literal">v</tt> to the client's request.</li>
+</ul>
+<p>This sequence of events breaks the linearizability guarantees of our service!
+The read <tt class="docutils literal">GET(K) <span class="pre">--&gt;</span> v</tt> is <em>stale</em>, since another client already read the
+value as <tt class="docutils literal">v2</tt>. There is no single-threaded history in which this sequence
+of events is possible.</p>
+<p>This problem is explicitly called out in Section 8 of the Raft paper. The
+canonical solution is what our service is doing: plumb all commands - even
+the read-only ones - through the Raft log <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>. A service won't respond to a
+client's request unless it was able to successfully commit this command to the
+Raft log.</p>
+<p>Since we plumb GET commands through the Raft log, in our example the problem in
+the last step couldn't happen, because <tt class="docutils literal">A</tt> would not respond to its client
+while disconnected from the cluster. Instead, it would have to wait to be
+reconnected, and at that point would discover that it's no longer the leader.
+The client would then ask the real leader and get the right response. However,
+even if due to additional disconnections or crashes <tt class="docutils literal">A</tt> resumed leadership, it
+would have to process the <tt class="docutils literal">PUT(k,v2)</tt> before processing the client's
+<tt class="docutils literal">GET(k)</tt>, since the state machine is updated in log order.</p>
+</div>
+<div class="section" id="kv-client">
+<h2>KV client</h2>
+<p>Now it's time to discuss the final piece of our system - the KV client library.
+Since the KV service API is just REST, we don't necessarily <em>need</em> a client
+library - we could just use <tt class="docutils literal">curl</tt> calls or any other way to generate HTTP
+requests to interact with it. However, a convenient, idiomatic client library
+goes a long way in improving the quality of life of users - and it will be
+particularly useful in this case because it encodes some essential logic -
+finding and keeping track of the cluster leader.</p>
+<p>So far, everything in our system has been replicated by N, which is the Raft
+cluster size (typically 3 or 5). The client is a single entity - just user
+code that wants to use the KV service. All the client code is in
+<tt class="docutils literal">kvclient/kvclient.go</tt>; let's walk through how a single request works,
+starting with the type and constructor:</p>
+<div class="highlight"><pre><span></span><span class="kd">type</span><span class="w"> </span><span class="nx">KVClient</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">addrs</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// assumedLeader is the index (in addrs) of the service we assume is the</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// current leader. It is zero-initialized by default, without loss of</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// generality.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">assumedLeader</span><span class="w"> </span><span class="kt">int</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">clientID</span><span class="w"> </span><span class="kt">int32</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+
+<span class="c1">// New creates a new KVClient. serviceAddrs is the addresses (each a string</span><span class="w"></span>
+<span class="c1">// with the format &quot;host:port&quot;) of the services in the KVService cluster the</span><span class="w"></span>
+<span class="c1">// client will contact.</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">New</span><span class="p">(</span><span class="nx">serviceAddrs</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">KVClient</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">KVClient</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">addrs</span><span class="p">:</span><span class="w">         </span><span class="nx">serviceAddrs</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">assumedLeader</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">clientID</span><span class="p">:</span><span class="w">      </span><span class="nx">clientCount</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+
+<span class="c1">// clientCount is used internally for debugging</span><span class="w"></span>
+<span class="kd">var</span><span class="w"> </span><span class="nx">clientCount</span><span class="w"> </span><span class="nx">atomic</span><span class="p">.</span><span class="nx">Int32</span><span class="w"></span>
+</pre></div>
+<p>To create a client, we have to provide it with a list of addresses for the
+KV services that constitute a cluster; before the client sends its first
+request, the services should be launched and listening on these addresses.</p>
+<p>All client requests follow the same steps; let's use <tt class="docutils literal">Put</tt> as an example:</p>
+<div class="highlight"><pre><span></span><span class="c1">// Put the key=value pair into the store. Returns an error, or</span><span class="w"></span>
+<span class="c1">// (prevValue, keyFound, false), where keyFound specifies whether the key was</span><span class="w"></span>
+<span class="c1">// found in the store prior to this command, and prevValue is its previous</span><span class="w"></span>
+<span class="c1">// value if it was found.</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">KVClient</span><span class="p">)</span><span class="w"> </span><span class="nx">Put</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">putReq</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">PutRequest</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Key</span><span class="p">:</span><span class="w">   </span><span class="nx">key</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Value</span><span class="p">:</span><span class="w"> </span><span class="nx">value</span><span class="p">,</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="kd">var</span><span class="w"> </span><span class="nx">putResp</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">PutResponse</span><span class="w"></span>
+<span class="w">  </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;put&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">putReq</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">putResp</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">putResp</span><span class="p">.</span><span class="nx">PrevValue</span><span class="p">,</span><span class="w"> </span><span class="nx">putResp</span><span class="p">.</span><span class="nx">KeyFound</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>Types like <tt class="docutils literal">PutRequest</tt> and <tt class="docutils literal">PutResponse</tt> are defined in <tt class="docutils literal">api/api.go</tt>
+(you may have noticed them in the service code as well); they're trivial, so
+I won't spend more time on them.</p>
+<p>All the client logic is encapsulated in the <tt class="docutils literal">send</tt> method:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">KVClient</span><span class="p">)</span><span class="w"> </span><span class="nx">send</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">route</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="kt">any</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">Response</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// This loop rotates through the list of service addresses until we get</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// a response that indicates we&#39;ve found the leader of the cluster. It</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// starts at c.assumedLeader</span><span class="w"></span>
+<span class="nx">FindLeader</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// There&#39;s a two-level context tree here: we have the user context - ctx,</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// and we create our own context to impose a timeout on each request to</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// the service. If our timeout expires, we move on to try the next service.</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// In the meantime, we have to keep an eye on the user context - if that&#39;s</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// canceled at any time (due to timeout, explicit cancellation, etc), we</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// bail out.</span><span class="w"></span>
+<span class="w">    </span><span class="nx">retryCtx</span><span class="p">,</span><span class="w"> </span><span class="nx">retryCtxCancel</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">WithTimeout</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="o">*</span><span class="nx">time</span><span class="p">.</span><span class="nx">Millisecond</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="nx">path</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;http://%s/%s/&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">addrs</span><span class="p">[</span><span class="nx">c</span><span class="p">.</span><span class="nx">assumedLeader</span><span class="p">],</span><span class="w"> </span><span class="nx">route</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">    </span><span class="nx">c</span><span class="p">.</span><span class="nx">clientlog</span><span class="p">(</span><span class="s">&quot;sending %#v to %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="p">,</span><span class="w"> </span><span class="nx">path</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">sendJSONRequest</span><span class="p">(</span><span class="nx">retryCtx</span><span class="p">,</span><span class="w"> </span><span class="nx">path</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="p">);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// Since the contexts are nested, the order of testing here matters.</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// We have to check the parent context first - if it&#39;s done, it means</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// we have to return.</span><span class="w"></span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="nx">contextDone</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">c</span><span class="p">.</span><span class="nx">clientlog</span><span class="p">(</span><span class="s">&quot;parent context done; bailing out&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="nx">retryCtxCancel</span><span class="p">()</span><span class="w"></span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">contextDeadlineExceeded</span><span class="p">(</span><span class="nx">retryCtx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="c1">// If the parent context is not done, but our retry context is done,</span><span class="w"></span>
+<span class="w">        </span><span class="c1">// it&#39;s time to retry a different service.</span><span class="w"></span>
+<span class="w">        </span><span class="nx">c</span><span class="p">.</span><span class="nx">clientlog</span><span class="p">(</span><span class="s">&quot;timed out: will try next address&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="nx">c</span><span class="p">.</span><span class="nx">assumedLeader</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="p">.</span><span class="nx">assumedLeader</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">c</span><span class="p">.</span><span class="nx">addrs</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="nx">retryCtxCancel</span><span class="p">()</span><span class="w"></span>
+<span class="w">        </span><span class="k">continue</span><span class="w"> </span><span class="nx">FindLeader</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"></span>
+<span class="w">      </span><span class="nx">retryCtxCancel</span><span class="p">()</span><span class="w"></span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="nx">err</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">    </span><span class="nx">c</span><span class="p">.</span><span class="nx">clientlog</span><span class="p">(</span><span class="s">&quot;received response %#v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">resp</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">    </span><span class="c1">// No context/timeout on this request - we&#39;ve actually received a response.</span><span class="w"></span>
+<span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="nx">resp</span><span class="p">.</span><span class="nx">Status</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusNotLeader</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nx">c</span><span class="p">.</span><span class="nx">clientlog</span><span class="p">(</span><span class="s">&quot;not leader: will try next address&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="nx">c</span><span class="p">.</span><span class="nx">assumedLeader</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="p">.</span><span class="nx">assumedLeader</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">c</span><span class="p">.</span><span class="nx">addrs</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="nx">retryCtxCancel</span><span class="p">()</span><span class="w"></span>
+<span class="w">      </span><span class="k">continue</span><span class="w"> </span><span class="nx">FindLeader</span><span class="w"></span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusOK</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nx">retryCtxCancel</span><span class="p">()</span><span class="w"></span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="w"></span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusFailedCommit</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nx">retryCtxCancel</span><span class="p">()</span><span class="w"></span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;commit failed; please retry&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">default</span><span class="p">:</span><span class="w"></span>
+<span class="w">      </span><span class="nb">panic</span><span class="p">(</span><span class="s">&quot;unreachable&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>There's some <tt class="docutils literal">context</tt> subtlety going on here - hopefully the comments
+make that clear enough.</p>
+<p>The client keeps track of the last service it saw that accepted a command as
+a leader. When asked to send a new command to the service, this is the service
+it starts from. If its request to the assumed leader times out, or that service
+says it's no longer the leader, the client retries to the next service in the
+cluster.</p>
+<p>During <em>normal operation</em>, the leader will typically be stable, each client
+will quickly discover who it is and from that point on will address the leader
+directly. When there's a cluster disruption, the client will spend a bit of
+time looking for the leader - but this can be optimized if needed <a class="footnote-reference" href="#footnote-4" id="footnote-reference-4">[4]</a>.</p>
+<p>If a client can't find a leader, it will just keep trying; since we use the Go
+<tt class="docutils literal">context</tt> idiom, this can always be controlled by the user - by imposing a
+timeout on client operations, or canceling them for other reasons.</p>
+</div>
+<div class="section" id="future-work">
+<h2>Future work</h2>
+<p>The KV service presented in this post provides strong consistency guarantees,
+as discussed. However, keeping systems linearizable all the way through the
+client is notoriously tricky, and the simple client we presented in this post
+is not immune to issues.</p>
+<p>The problem is with its retry logic; when a client sends a PUT command to
+a leader and the request times out, what is the right thing to do? Our client
+just retries, looking for a different leader. Is this the right approach?</p>
+<p>Not necessarily! Consider what happens if the leader committed the command,
+but crashed before responding to the client. If the client now retries, the
+command may end up duplicated in the log. While it may seem like this shouldn't
+be a problem because PUT is idempotent <a class="footnote-reference" href="#footnote-5" id="footnote-reference-5">[5]</a>, it can in fact cause
+non-linearizable behavior to be observed, if some other client managed to
+PUT <em>another</em> value for the same key in-between the replies.</p>
+<p>This isn't a trivial problem; in fact, it's also mentioned in section 8 of the
+Raft paper. We'll spend the next part in the series discussing this problem in
+detail, presenting one potential solution and talking about how real-world
+distributed KV services deal
+with it.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>For the terms used in this description, refer to <a class="reference external" href="../../2020/implementing-raft-part-0-introduction/index.html">Part 0</a>.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>This is exactly how <em>our</em> client implementation works, as we'll see soon.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>The paper also discusses some ideas for optimizations of this process.
+Since this optimizes the uncommon path (when crashes and disconnections
+disrupt the normal operation of the Raft cluster), I leave this out of
+my implementation.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-4" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-4">[4]</a></td><td>Here's an exercise: the <tt class="docutils literal">AppendEntries</tt> RPC sent by leaders to
+followers contains a &quot;leader ID&quot; field; so followers know who the current
+leader is. We already have it in our Raft implementation; try to plumb
+this information all the way through to the client. When a follower
+sends a &quot;I'm not a leader&quot; response to the client, it can include the ID
+of the service it thinks is the current leader; this can reduce the
+search time somewhat.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-5">[5]</a></td><td>Applying <tt class="docutils literal">PUT(k1, v1)</tt> right after another <tt class="docutils literal">PUT(k1,v1)</tt> doesn't
+affect the correctness of the DB.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/implementing-raft-part-4-keyvalue-database/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:11 GMT -->
+</html>

@@ -1,0 +1,54 @@
+<html>
+	
+<!-- Mirrored from 0x80.pl/articles/bresenham-demo-line.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:50:09 GMT -->
+<head>
+	<title>Bresenham algorithm demo - line drawing ((L) Wojciech Mula)</title>
+	<style type="text/css">
+	body {
+		margin: 10px;
+		padding: 0;
+	}
+	canvas {
+		border: 1px solid black;
+	}
+
+	div {
+		position: absolute;
+		top: 10;
+		left: 420;
+	}
+	</style>
+</head>
+<body>
+
+<canvas id="draw" width="400" height="400"></canvas>
+<script type="text/javascript" src="bresenham.js"></script>
+<script type="text/javascript" src="bresenham-demo.js"></script>
+<script type="text/javascript">
+var canvas = document.getElementById('draw');
+var ctx = canvas.getContext('2d');
+canvas.onclick = line_edit;
+update_line_view();
+</script>
+
+<div>
+<a href="../index.html">Main page</a>
+
+<h2>See also</h2>
+<ul>
+	<li><a href="bresenham-demo-circle.html">circle drawing</a></li>
+	<li><a href="bresenham-demo-ellipse.html">ellipse drawing</a></li>
+</ul>
+
+<h2>Downloads</h2>
+<ul>
+	<li><a href="bresenham.js">bresenham.js</a> &mdash; algorithms</li>
+	<li><a href="bresenham-demo.js">bresenham-demo.js</a> &mdash; all other stuff used here</li>
+</ul>
+</div>
+
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/bresenham-demo-line.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:50:09 GMT -->
+</html>
+

@@ -1,0 +1,1377 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2008-05-27-sse4-substring-locate.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:25 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła, wojciech_mula&#64;poczta.onet.pl" />
+<title>SSE4 string search &mdash; modification of Karp-Rabin algorithm</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="sse4-string-search-modification-of-karp-rabin-algorithm">
+<h1 class="title">SSE4 string search &mdash; modification of Karp-Rabin algorithm</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła, <a class="reference external last" href="mailto:wojciech_mula&#64;poczta.onet.pl">wojciech_mula&#64;poczta.onet.pl</a></td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2008-05-27</td>
+</tr>
+</tbody>
+</table>
+<div style="margin:3em; padding: 1ex; border: dotted 1px; background-color: Lavender"><p>This article is obsolete, refer to <a class="reference external" href="2016-11-28-simd-strfind.html">SIMD-friendly algorithms for substring searching</a>.</p>
+</div><div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#algorithm-outline" id="toc-entry-2">Algorithm outline</a></li>
+<li><a class="reference internal" href="#implementation" id="toc-entry-3">Implementation</a></li>
+<li><a class="reference internal" href="#performance-tests" id="toc-entry-4">Performance tests</a><ul>
+<li><a class="reference internal" href="#results" id="toc-entry-5">Results</a><ul>
+<li><a class="reference internal" href="#short-offsets" id="toc-entry-6">Short offsets</a></li>
+<li><a class="reference internal" href="#medium-offsets" id="toc-entry-7">Medium offsets</a></li>
+<li><a class="reference internal" href="#long-offsets" id="toc-entry-8">Long offsets</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#downloads" id="toc-entry-9">Downloads</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-10">See also</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>String search is a common task in text processing.  There are many
+algorithms that try to minimize number of exact comparing substrings.</p>
+<p>One of them is <a class="reference external" href="http://en.wikipedia.org/wiki/Karp-Rabin">Karp-Rabin algorithm</a> &mdash; char-wise
+comparison is performed only when values of hash function calculated for
+a part of text and a substring are equal.</p>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/SSE4">SSE4</a> introduced complex instruction <tt class="docutils literal">MPSADBW</tt> which
+calculate eight Manhattan distances (L1) between given 4-byte vector and
+8 subsequent vectors; if the distance is zero, then vectors are equal.</p>
+<p><strong>The idea of modification is to use equality of 4-byte substring's prefix
+instead of hash values equality.</strong> <tt class="docutils literal">MPSADBW</tt> is fast, it has latency 4
+cycles and throughput 2 cycles.  Even if latency is not compensated,
+overall performance is very promising &mdash; 0.5 cycle per one 4-byte
+vectors comparison.</p>
+<p>Unfortunately there are three disadvantages:</p>
+<ol class="arabic simple">
+<li>Searching a substring shorter than 4 chars need some additional
+work.</li>
+<li>A hash is calculated for whole substring, <tt class="docutils literal">MPSADBW</tt> consider
+just 4-byte prefix, thus the number of false-negative alarms
+could be greater.</li>
+<li>At least the length of a substring must be known.  In the sample
+application text length is also given &mdash; this make program
+shorter and faster.</li>
+</ol>
+</div>
+<div class="section" id="algorithm-outline">
+<h1>Algorithm outline</h1>
+<ol class="arabic">
+<li><p class="first">Load 4-byte prefix of substring (done once):</p>
+<pre class="literal-block">
+movdqu  (%%eax), %%xmm0         ; xmm0 = &quot;ABCD&quot;
+</pre>
+</li>
+<li><p class="first">Load next 16 bytes of text (<tt class="docutils literal">MPSADBW</tt> needs first 11 bytes):</p>
+<pre class="literal-block">
+movdqu  (%%esi), %%xmm1         ; xmm1 = &quot;ABCD__ABCD______&quot;
+                                ;         0123456789abcdef &lt;- index
+
+addl    $8, %%esi               ; advance pointer
+</pre>
+</li>
+<li><p class="first">Locate prefix &mdash; result is vector of 8 words:</p>
+<pre class="literal-block">
+mpsadbw $0, %%xmm0, %%xmm1      ; ABCD__ABCD______
+                                ; ABCD               =&gt; xmm1[0] := 0
+                                ;  ABCD              =&gt; xmm1[1] := x &gt; 0
+                                ;   ABCD             =&gt; xmm1[2] := x &gt; 0
+                                ;    ABCD            =&gt; xmm1[3] := x &gt; 0
+                                ;     ABCD           =&gt; xmm1[4] := x &gt; 0
+                                ;      ABCD          =&gt; xmm1[5] := x &gt; 0
+                                ;       ABCD         =&gt; xmm1[6] := 0
+                                ;        ABCD        =&gt; xmm1[7] := x &gt; 0
+</pre>
+</li>
+<li><p class="first"><tt class="docutils literal">MPSADBW</tt> result is converted to word-mask:</p>
+<pre class="literal-block">
+pcmpeqw ZEROS, %%xmm1           ; xmm1 = [ffff|0000|0000|0000|0000|0000|fffff|0000]
+</pre>
+</li>
+<li><p class="first">If <tt class="docutils literal">xmm1</tt> is equal zero, goto 2.</p>
+</li>
+<li><p class="first">Otherwise perform exact comparison of a substring and a text: words of
+value 0xffff indicate positions where the prefix is located.  Comparison
+could be done with built-in functions like <tt class="docutils literal">strncmp</tt> or <tt class="docutils literal">memcmp</tt>.</p>
+<p>However since the length of substring is known we can use few SSE
+instructions to compare short strings, up to 36 chars.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="implementation">
+<h1>Implementation</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/sse4-strstr/blob/master/original/sse4_strstr.c">sse4_strstr.c</a> include five functions:</p>
+<ul class="simple">
+<li><tt class="docutils literal">sse4_strstr_any</tt> &mdash; is the most generic procedure, it uses
+<tt class="docutils literal">MPSADBW</tt> to  locate possible positions of substring, but comparison
+is done by a standard library function <tt class="docutils literal">strncmp</tt>.</li>
+<li><tt class="docutils literal">sse4_strstr_len4</tt> &mdash; is the most specialized, it accepts only
+strings of length 4 chars, and no additional comparisons are needed.</li>
+<li><tt class="docutils literal">sse4_strstr_len3</tt> &mdash; this function accepts only strings of length
+3 chars, and no additional comparisons are needed.</li>
+<li><tt class="docutils literal">sse4_strstr_max20</tt> &mdash; this function accept strings of length
+in range 4..20 chars.  Substring's suffix of length 0..16 chars is
+loaded just once into a single XMM register, and comparison is done with few
+assembler instructions.</li>
+<li><tt class="docutils literal">sse4_strstr_max36</tt> &mdash; this function is similar to previous one:
+it stores suffix in two XMM register, comparison is also done with few
+assembler instructions.</li>
+</ul>
+<p>There is a wrapper <tt class="docutils literal">sse4_strstr</tt> that calls proper function depending on
+length of <tt class="docutils literal">s1</tt>.</p>
+<p>All functions fits following declaration:</p>
+<pre class="literal-block">
+foo(char* s1, int n1, char* s2, int n2);
+</pre>
+<p><strong>Note</strong>: these functions were not well optimized, I guess there are room
+for some improvements, but at the moment don't have any ideas.</p>
+</div>
+<div class="section" id="performance-tests">
+<h1>Performance tests</h1>
+<p>The application (<tt class="docutils literal">sse4_strstr.c</tt>) loads some text file, and in a loop
+perform repeat substring searching using built-in function <tt class="docutils literal">strstr</tt>
+or <tt class="docutils literal">sse4_strstr</tt> wrapper.</p>
+<p>With assistance of <a class="reference external" href="https://github.com/WojciechMula/sse4-strstr/blob/master/original/sse4_strstr-test.py">Python script</a> following tests were done.  Script
+loads desired text and picks 3*59 substring to locate.  Substrings have
+length from 4 to 63 chars, their positions are selected from 3 different
+ranges:</p>
+<ul class="simple">
+<li>first 64 bytes (short offsets, 0..63)</li>
+<li>first 1kB (medium offsets, 64..1023)</li>
+<li>rest of text (long offsets, 1024..)</li>
+</ul>
+<p>Then results of built-in <tt class="docutils literal">strstr</tt> and <tt class="docutils literal">sse4_strstr</tt> are compared and
+if matched, performance tests were done.  First <tt class="docutils literal">strstr</tt> is measured &mdash; the
+number of iterations is adjusted to make running time longer than
+one second.  Then <tt class="docutils literal">sse4_strstr</tt> is timed using the same number of
+iterations.</p>
+<p>Tests have been done on Core 2 Duo E8200 clocked at 2.6GHz, under Linux
+control.  Article <a class="reference external" href="http://en.wikipedia.org/wiki/Assembly_language">Assembly language</a> from Wikipedia has been used,
+it has 38 kilobytes.</p>
+<div class="section" id="results">
+<h2>Results</h2>
+<p>Speedup mostly depend on the offset, i.e. position of <tt class="docutils literal">s1</tt> the first occurrence
+in a text.</p>
+<img alt="chart" class="align-center" src="2008-05-27-sse4-substring-locate/ABC.png" />
+<table border="1" class="docutils">
+<colgroup>
+<col width="30%" />
+<col width="23%" />
+<col width="23%" />
+<col width="23%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">offsets</th>
+<th class="head" colspan="3">speedup</th>
+</tr>
+<tr><th class="head">min</th>
+<th class="head">avg</th>
+<th class="head">max</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>short</td>
+<td>0.97</td>
+<td>2.20</td>
+<td>4.75</td>
+</tr>
+<tr><td>medium</td>
+<td>2.45</td>
+<td>4.67</td>
+<td>8.04</td>
+</tr>
+<tr><td>long</td>
+<td>3.79</td>
+<td>6.21</td>
+<td>10.47</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="short-offsets">
+<h3>Short offsets</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head"><tt class="docutils literal">s1</tt> offset</th>
+<th class="head"><tt class="docutils literal">s1</tt> length</th>
+<th class="head"><tt class="docutils literal">strstr</tt> time</th>
+<th class="head"><tt class="docutils literal">SSE4_strstr</tt> time</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>4</td>
+<td>1.350s</td>
+<td>1.390s</td>
+<td>0.97</td>
+</tr>
+<tr><td>12</td>
+<td>5</td>
+<td>3.460s</td>
+<td>2.030s</td>
+<td>1.70</td>
+</tr>
+<tr><td>30</td>
+<td>6</td>
+<td>4.540s</td>
+<td>2.680s</td>
+<td>1.69</td>
+</tr>
+<tr><td>39</td>
+<td>7</td>
+<td>5.740s</td>
+<td>2.640s</td>
+<td>2.17</td>
+</tr>
+<tr><td>29</td>
+<td>8</td>
+<td>4.820s</td>
+<td>2.630s</td>
+<td>1.83</td>
+</tr>
+<tr><td>0</td>
+<td>9</td>
+<td>2.770s</td>
+<td>1.860s</td>
+<td>1.49</td>
+</tr>
+<tr><td>40</td>
+<td>10</td>
+<td>8.800s</td>
+<td>2.840s</td>
+<td>3.10</td>
+</tr>
+<tr><td>63</td>
+<td>11</td>
+<td>9.560s</td>
+<td>3.970s</td>
+<td>2.41</td>
+</tr>
+<tr><td>29</td>
+<td>12</td>
+<td>5.760s</td>
+<td>3.370s</td>
+<td>1.71</td>
+</tr>
+<tr><td>61</td>
+<td>13</td>
+<td>1.080s</td>
+<td>0.320s</td>
+<td>3.38</td>
+</tr>
+<tr><td>24</td>
+<td>14</td>
+<td>5.720s</td>
+<td>2.430s</td>
+<td>2.35</td>
+</tr>
+<tr><td>27</td>
+<td>15</td>
+<td>6.350s</td>
+<td>2.960s</td>
+<td>2.15</td>
+</tr>
+<tr><td>39</td>
+<td>16</td>
+<td>7.910s</td>
+<td>3.050s</td>
+<td>2.59</td>
+</tr>
+<tr><td>34</td>
+<td>17</td>
+<td>7.520s</td>
+<td>3.020s</td>
+<td>2.49</td>
+</tr>
+<tr><td>42</td>
+<td>18</td>
+<td>8.950s</td>
+<td>3.320s</td>
+<td>2.70</td>
+</tr>
+<tr><td>60</td>
+<td>19</td>
+<td>1.490s</td>
+<td>0.390s</td>
+<td>3.82</td>
+</tr>
+<tr><td>18</td>
+<td>20</td>
+<td>7.500s</td>
+<td>2.840s</td>
+<td>2.64</td>
+</tr>
+<tr><td>61</td>
+<td>21</td>
+<td>1.290s</td>
+<td>0.430s</td>
+<td>3.00</td>
+</tr>
+<tr><td>8</td>
+<td>22</td>
+<td>7.500s</td>
+<td>2.620s</td>
+<td>2.86</td>
+</tr>
+<tr><td>40</td>
+<td>23</td>
+<td>1.240s</td>
+<td>0.430s</td>
+<td>2.88</td>
+</tr>
+<tr><td>21</td>
+<td>24</td>
+<td>9.530s</td>
+<td>3.170s</td>
+<td>3.01</td>
+</tr>
+<tr><td>53</td>
+<td>25</td>
+<td>1.150s</td>
+<td>0.430s</td>
+<td>2.67</td>
+</tr>
+<tr><td>34</td>
+<td>26</td>
+<td>1.010s</td>
+<td>0.350s</td>
+<td>2.89</td>
+</tr>
+<tr><td>27</td>
+<td>27</td>
+<td>1.050s</td>
+<td>0.380s</td>
+<td>2.76</td>
+</tr>
+<tr><td>44</td>
+<td>28</td>
+<td>1.500s</td>
+<td>0.380s</td>
+<td>3.95</td>
+</tr>
+<tr><td>45</td>
+<td>29</td>
+<td>1.530s</td>
+<td>0.460s</td>
+<td>3.33</td>
+</tr>
+<tr><td>26</td>
+<td>30</td>
+<td>1.230s</td>
+<td>0.350s</td>
+<td>3.51</td>
+</tr>
+<tr><td>35</td>
+<td>31</td>
+<td>1.160s</td>
+<td>0.350s</td>
+<td>3.31</td>
+</tr>
+<tr><td>57</td>
+<td>32</td>
+<td>1.490s</td>
+<td>0.480s</td>
+<td>3.10</td>
+</tr>
+<tr><td>64</td>
+<td>33</td>
+<td>1.560s</td>
+<td>0.400s</td>
+<td>3.90</td>
+</tr>
+<tr><td>15</td>
+<td>34</td>
+<td>1.070s</td>
+<td>0.240s</td>
+<td>4.46</td>
+</tr>
+<tr><td>13</td>
+<td>35</td>
+<td>1.090s</td>
+<td>0.320s</td>
+<td>3.41</td>
+</tr>
+<tr><td>49</td>
+<td>36</td>
+<td>1.460s</td>
+<td>0.400s</td>
+<td>3.65</td>
+</tr>
+<tr><td>36</td>
+<td>37</td>
+<td>1.370s</td>
+<td>0.590s</td>
+<td>2.32</td>
+</tr>
+<tr><td>31</td>
+<td>38</td>
+<td>1.320s</td>
+<td>0.620s</td>
+<td>2.13</td>
+</tr>
+<tr><td>43</td>
+<td>39</td>
+<td>1.440s</td>
+<td>0.630s</td>
+<td>2.29</td>
+</tr>
+<tr><td>18</td>
+<td>40</td>
+<td>1.340s</td>
+<td>0.590s</td>
+<td>2.27</td>
+</tr>
+<tr><td>11</td>
+<td>41</td>
+<td>1.220s</td>
+<td>0.580s</td>
+<td>2.10</td>
+</tr>
+<tr><td>40</td>
+<td>42</td>
+<td>1.760s</td>
+<td>0.720s</td>
+<td>2.44</td>
+</tr>
+<tr><td>41</td>
+<td>43</td>
+<td>1.760s</td>
+<td>0.720s</td>
+<td>2.44</td>
+</tr>
+<tr><td>59</td>
+<td>44</td>
+<td>1.960s</td>
+<td>0.720s</td>
+<td>2.72</td>
+</tr>
+<tr><td>30</td>
+<td>45</td>
+<td>1.520s</td>
+<td>0.650s</td>
+<td>2.34</td>
+</tr>
+<tr><td>45</td>
+<td>46</td>
+<td>2.000s</td>
+<td>0.730s</td>
+<td>2.74</td>
+</tr>
+<tr><td>60</td>
+<td>47</td>
+<td>2.280s</td>
+<td>0.760s</td>
+<td>3.00</td>
+</tr>
+<tr><td>4</td>
+<td>48</td>
+<td>1.370s</td>
+<td>0.640s</td>
+<td>2.14</td>
+</tr>
+<tr><td>13</td>
+<td>49</td>
+<td>1.530s</td>
+<td>0.660s</td>
+<td>2.32</td>
+</tr>
+<tr><td>25</td>
+<td>50</td>
+<td>1.700s</td>
+<td>0.730s</td>
+<td>2.33</td>
+</tr>
+<tr><td>29</td>
+<td>51</td>
+<td>1.660s</td>
+<td>0.720s</td>
+<td>2.31</td>
+</tr>
+<tr><td>42</td>
+<td>52</td>
+<td>1.840s</td>
+<td>0.760s</td>
+<td>2.42</td>
+</tr>
+<tr><td>6</td>
+<td>53</td>
+<td>1.540s</td>
+<td>0.680s</td>
+<td>2.26</td>
+</tr>
+<tr><td>19</td>
+<td>54</td>
+<td>1.720s</td>
+<td>0.740s</td>
+<td>2.32</td>
+</tr>
+<tr><td>42</td>
+<td>55</td>
+<td>1.920s</td>
+<td>0.780s</td>
+<td>2.46</td>
+</tr>
+<tr><td>43</td>
+<td>56</td>
+<td>3.780s</td>
+<td>0.790s</td>
+<td>4.78</td>
+</tr>
+<tr><td>30</td>
+<td>57</td>
+<td>1.860s</td>
+<td>0.760s</td>
+<td>2.45</td>
+</tr>
+<tr><td>8</td>
+<td>58</td>
+<td>1.730s</td>
+<td>0.770s</td>
+<td>2.25</td>
+</tr>
+<tr><td>8</td>
+<td>59</td>
+<td>1.730s</td>
+<td>0.760s</td>
+<td>2.28</td>
+</tr>
+<tr><td>59</td>
+<td>60</td>
+<td>2.410s</td>
+<td>0.890s</td>
+<td>2.71</td>
+</tr>
+<tr><td>60</td>
+<td>61</td>
+<td>2.680s</td>
+<td>0.880s</td>
+<td>3.05</td>
+</tr>
+<tr><td>23</td>
+<td>62</td>
+<td>1.900s</td>
+<td>0.830s</td>
+<td>2.29</td>
+</tr>
+<tr><td>61</td>
+<td>63</td>
+<td>2.480s</td>
+<td>0.900s</td>
+<td>2.76</td>
+</tr>
+</tbody>
+</table>
+<img alt="chart" class="align-center" src="2008-05-27-sse4-substring-locate/A.png" />
+<p>Min: 0.97, max: 4.78, average: 2.20</p>
+</div>
+<div class="section" id="medium-offsets">
+<h3>Medium offsets</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head"><tt class="docutils literal">s1</tt> offset</th>
+<th class="head"><tt class="docutils literal">s1</tt> length</th>
+<th class="head"><tt class="docutils literal">strstr</tt> time</th>
+<th class="head"><tt class="docutils literal">SSE4_strstr</tt> time</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>699</td>
+<td>4</td>
+<td>9.860s</td>
+<td>1.940s</td>
+<td>5.08</td>
+</tr>
+<tr><td>556</td>
+<td>5</td>
+<td>2.900s</td>
+<td>0.950s</td>
+<td>3.05</td>
+</tr>
+<tr><td>120</td>
+<td>6</td>
+<td>1.870s</td>
+<td>0.480s</td>
+<td>3.90</td>
+</tr>
+<tr><td>691</td>
+<td>7</td>
+<td>1.040s</td>
+<td>0.190s</td>
+<td>5.47</td>
+</tr>
+<tr><td>202</td>
+<td>8</td>
+<td>3.380s</td>
+<td>0.670s</td>
+<td>5.04</td>
+</tr>
+<tr><td>464</td>
+<td>9</td>
+<td>3.850s</td>
+<td>1.020s</td>
+<td>3.77</td>
+</tr>
+<tr><td>73</td>
+<td>10</td>
+<td>1.450s</td>
+<td>0.360s</td>
+<td>4.03</td>
+</tr>
+<tr><td>362</td>
+<td>11</td>
+<td>5.170s</td>
+<td>1.720s</td>
+<td>3.01</td>
+</tr>
+<tr><td>790</td>
+<td>12</td>
+<td>1.680s</td>
+<td>0.220s</td>
+<td>7.64</td>
+</tr>
+<tr><td>207</td>
+<td>13</td>
+<td>3.050s</td>
+<td>0.670s</td>
+<td>4.55</td>
+</tr>
+<tr><td>664</td>
+<td>14</td>
+<td>1.020s</td>
+<td>0.220s</td>
+<td>4.64</td>
+</tr>
+<tr><td>321</td>
+<td>15</td>
+<td>6.750s</td>
+<td>1.010s</td>
+<td>6.68</td>
+</tr>
+<tr><td>189</td>
+<td>16</td>
+<td>2.970s</td>
+<td>0.700s</td>
+<td>4.24</td>
+</tr>
+<tr><td>539</td>
+<td>17</td>
+<td>7.970s</td>
+<td>1.620s</td>
+<td>4.92</td>
+</tr>
+<tr><td>634</td>
+<td>18</td>
+<td>9.330s</td>
+<td>1.870s</td>
+<td>4.99</td>
+</tr>
+<tr><td>214</td>
+<td>19</td>
+<td>2.890s</td>
+<td>1.180s</td>
+<td>2.45</td>
+</tr>
+<tr><td>643</td>
+<td>20</td>
+<td>6.850s</td>
+<td>1.900s</td>
+<td>3.61</td>
+</tr>
+<tr><td>416</td>
+<td>21</td>
+<td>6.270s</td>
+<td>1.330s</td>
+<td>4.71</td>
+</tr>
+<tr><td>714</td>
+<td>22</td>
+<td>1.020s</td>
+<td>0.200s</td>
+<td>5.10</td>
+</tr>
+<tr><td>278</td>
+<td>23</td>
+<td>5.430s</td>
+<td>0.960s</td>
+<td>5.66</td>
+</tr>
+<tr><td>638</td>
+<td>24</td>
+<td>9.230s</td>
+<td>1.960s</td>
+<td>4.71</td>
+</tr>
+<tr><td>549</td>
+<td>25</td>
+<td>6.540s</td>
+<td>1.060s</td>
+<td>6.17</td>
+</tr>
+<tr><td>403</td>
+<td>26</td>
+<td>6.420s</td>
+<td>1.230s</td>
+<td>5.22</td>
+</tr>
+<tr><td>736</td>
+<td>27</td>
+<td>7.570s</td>
+<td>0.960s</td>
+<td>7.89</td>
+</tr>
+<tr><td>576</td>
+<td>28</td>
+<td>6.990s</td>
+<td>1.780s</td>
+<td>3.93</td>
+</tr>
+<tr><td>273</td>
+<td>29</td>
+<td>4.120s</td>
+<td>0.960s</td>
+<td>4.29</td>
+</tr>
+<tr><td>767</td>
+<td>30</td>
+<td>8.000s</td>
+<td>2.440s</td>
+<td>3.28</td>
+</tr>
+<tr><td>184</td>
+<td>31</td>
+<td>3.760s</td>
+<td>0.740s</td>
+<td>5.08</td>
+</tr>
+<tr><td>468</td>
+<td>32</td>
+<td>8.680s</td>
+<td>1.740s</td>
+<td>4.99</td>
+</tr>
+<tr><td>747</td>
+<td>33</td>
+<td>1.060s</td>
+<td>0.210s</td>
+<td>5.05</td>
+</tr>
+<tr><td>753</td>
+<td>34</td>
+<td>9.390s</td>
+<td>2.510s</td>
+<td>3.74</td>
+</tr>
+<tr><td>847</td>
+<td>35</td>
+<td>1.240s</td>
+<td>0.230s</td>
+<td>5.39</td>
+</tr>
+<tr><td>359</td>
+<td>36</td>
+<td>5.990s</td>
+<td>1.470s</td>
+<td>4.07</td>
+</tr>
+<tr><td>927</td>
+<td>37</td>
+<td>1.660s</td>
+<td>0.280s</td>
+<td>5.93</td>
+</tr>
+<tr><td>931</td>
+<td>38</td>
+<td>9.110s</td>
+<td>2.900s</td>
+<td>3.14</td>
+</tr>
+<tr><td>643</td>
+<td>39</td>
+<td>7.380s</td>
+<td>2.180s</td>
+<td>3.39</td>
+</tr>
+<tr><td>871</td>
+<td>40</td>
+<td>1.580s</td>
+<td>0.310s</td>
+<td>5.10</td>
+</tr>
+<tr><td>121</td>
+<td>41</td>
+<td>2.750s</td>
+<td>0.840s</td>
+<td>3.27</td>
+</tr>
+<tr><td>630</td>
+<td>42</td>
+<td>1.010s</td>
+<td>0.220s</td>
+<td>4.59</td>
+</tr>
+<tr><td>419</td>
+<td>43</td>
+<td>6.500s</td>
+<td>1.980s</td>
+<td>3.28</td>
+</tr>
+<tr><td>565</td>
+<td>44</td>
+<td>5.670s</td>
+<td>0.970s</td>
+<td>5.85</td>
+</tr>
+<tr><td>764</td>
+<td>45</td>
+<td>5.700s</td>
+<td>1.020s</td>
+<td>5.59</td>
+</tr>
+<tr><td>681</td>
+<td>46</td>
+<td>1.260s</td>
+<td>0.240s</td>
+<td>5.25</td>
+</tr>
+<tr><td>331</td>
+<td>47</td>
+<td>5.790s</td>
+<td>1.780s</td>
+<td>3.25</td>
+</tr>
+<tr><td>561</td>
+<td>48</td>
+<td>7.720s</td>
+<td>0.960s</td>
+<td>8.04</td>
+</tr>
+<tr><td>879</td>
+<td>49</td>
+<td>1.380s</td>
+<td>0.280s</td>
+<td>4.93</td>
+</tr>
+<tr><td>929</td>
+<td>50</td>
+<td>1.050s</td>
+<td>0.330s</td>
+<td>3.18</td>
+</tr>
+<tr><td>845</td>
+<td>51</td>
+<td>1.860s</td>
+<td>0.270s</td>
+<td>6.89</td>
+</tr>
+<tr><td>397</td>
+<td>52</td>
+<td>9.450s</td>
+<td>1.640s</td>
+<td>5.76</td>
+</tr>
+<tr><td>128</td>
+<td>53</td>
+<td>4.180s</td>
+<td>0.980s</td>
+<td>4.27</td>
+</tr>
+<tr><td>155</td>
+<td>54</td>
+<td>3.040s</td>
+<td>1.070s</td>
+<td>2.84</td>
+</tr>
+<tr><td>777</td>
+<td>55</td>
+<td>4.640s</td>
+<td>1.280s</td>
+<td>3.62</td>
+</tr>
+<tr><td>254</td>
+<td>56</td>
+<td>4.980s</td>
+<td>2.020s</td>
+<td>2.47</td>
+</tr>
+<tr><td>293</td>
+<td>57</td>
+<td>5.590s</td>
+<td>1.420s</td>
+<td>3.94</td>
+</tr>
+<tr><td>387</td>
+<td>58</td>
+<td>9.520s</td>
+<td>2.180s</td>
+<td>4.37</td>
+</tr>
+<tr><td>710</td>
+<td>59</td>
+<td>6.060s</td>
+<td>0.950s</td>
+<td>6.38</td>
+</tr>
+<tr><td>1023</td>
+<td>60</td>
+<td>1.950s</td>
+<td>0.330s</td>
+<td>5.91</td>
+</tr>
+<tr><td>447</td>
+<td>61</td>
+<td>7.370s</td>
+<td>1.810s</td>
+<td>4.07</td>
+</tr>
+<tr><td>562</td>
+<td>62</td>
+<td>4.800s</td>
+<td>0.950s</td>
+<td>5.05</td>
+</tr>
+<tr><td>181</td>
+<td>63</td>
+<td>4.180s</td>
+<td>1.190s</td>
+<td>3.51</td>
+</tr>
+</tbody>
+</table>
+<img alt="chart" class="align-center" src="2008-05-27-sse4-substring-locate/B.png" />
+<p>Min: 2.45, max: 8.04, average: 4.67</p>
+</div>
+<div class="section" id="long-offsets">
+<h3>Long offsets</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head"><tt class="docutils literal">s1</tt> offset</th>
+<th class="head"><tt class="docutils literal">s1</tt> length</th>
+<th class="head"><tt class="docutils literal">strstr</tt> time</th>
+<th class="head"><tt class="docutils literal">SSE4_strstr</tt> time</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>9655</td>
+<td>4</td>
+<td>1.100s</td>
+<td>0.220s</td>
+<td>5.00</td>
+</tr>
+<tr><td>25113</td>
+<td>5</td>
+<td>3.800s</td>
+<td>0.610s</td>
+<td>6.23</td>
+</tr>
+<tr><td>33958</td>
+<td>6</td>
+<td>4.940s</td>
+<td>0.840s</td>
+<td>5.88</td>
+</tr>
+<tr><td>4696</td>
+<td>7</td>
+<td>8.720s</td>
+<td>1.840s</td>
+<td>4.74</td>
+</tr>
+<tr><td>3890</td>
+<td>8</td>
+<td>6.010s</td>
+<td>1.200s</td>
+<td>5.01</td>
+</tr>
+<tr><td>23649</td>
+<td>9</td>
+<td>6.100s</td>
+<td>1.000s</td>
+<td>6.10</td>
+</tr>
+<tr><td>9118</td>
+<td>10</td>
+<td>1.300s</td>
+<td>0.220s</td>
+<td>5.91</td>
+</tr>
+<tr><td>12530</td>
+<td>11</td>
+<td>2.530s</td>
+<td>0.300s</td>
+<td>8.43</td>
+</tr>
+<tr><td>15698</td>
+<td>12</td>
+<td>1.830s</td>
+<td>0.380s</td>
+<td>4.82</td>
+</tr>
+<tr><td>24124</td>
+<td>13</td>
+<td>4.190s</td>
+<td>0.590s</td>
+<td>7.10</td>
+</tr>
+<tr><td>9425</td>
+<td>14</td>
+<td>1.860s</td>
+<td>0.230s</td>
+<td>8.09</td>
+</tr>
+<tr><td>24289</td>
+<td>15</td>
+<td>3.020s</td>
+<td>0.590s</td>
+<td>5.12</td>
+</tr>
+<tr><td>8296</td>
+<td>16</td>
+<td>1.350s</td>
+<td>0.200s</td>
+<td>6.75</td>
+</tr>
+<tr><td>29318</td>
+<td>17</td>
+<td>6.880s</td>
+<td>0.720s</td>
+<td>9.56</td>
+</tr>
+<tr><td>3785</td>
+<td>18</td>
+<td>4.280s</td>
+<td>0.950s</td>
+<td>4.51</td>
+</tr>
+<tr><td>19056</td>
+<td>19</td>
+<td>4.970s</td>
+<td>0.680s</td>
+<td>7.31</td>
+</tr>
+<tr><td>29172</td>
+<td>20</td>
+<td>4.720s</td>
+<td>0.720s</td>
+<td>6.56</td>
+</tr>
+<tr><td>30185</td>
+<td>21</td>
+<td>8.220s</td>
+<td>0.960s</td>
+<td>8.56</td>
+</tr>
+<tr><td>35429</td>
+<td>22</td>
+<td>3.300s</td>
+<td>0.860s</td>
+<td>3.84</td>
+</tr>
+<tr><td>30084</td>
+<td>23</td>
+<td>4.030s</td>
+<td>0.850s</td>
+<td>4.74</td>
+</tr>
+<tr><td>21020</td>
+<td>24</td>
+<td>2.470s</td>
+<td>0.510s</td>
+<td>4.84</td>
+</tr>
+<tr><td>1940</td>
+<td>25</td>
+<td>3.030s</td>
+<td>0.580s</td>
+<td>5.22</td>
+</tr>
+<tr><td>32933</td>
+<td>26</td>
+<td>3.840s</td>
+<td>0.960s</td>
+<td>4.00</td>
+</tr>
+<tr><td>28921</td>
+<td>27</td>
+<td>2.820s</td>
+<td>0.740s</td>
+<td>3.81</td>
+</tr>
+<tr><td>24984</td>
+<td>28</td>
+<td>2.830s</td>
+<td>0.620s</td>
+<td>4.56</td>
+</tr>
+<tr><td>12179</td>
+<td>29</td>
+<td>1.780s</td>
+<td>0.300s</td>
+<td>5.93</td>
+</tr>
+<tr><td>8794</td>
+<td>30</td>
+<td>8.940s</td>
+<td>2.190s</td>
+<td>4.08</td>
+</tr>
+<tr><td>26064</td>
+<td>31</td>
+<td>6.700s</td>
+<td>0.640s</td>
+<td>10.47</td>
+</tr>
+<tr><td>26132</td>
+<td>32</td>
+<td>5.140s</td>
+<td>0.640s</td>
+<td>8.03</td>
+</tr>
+<tr><td>37875</td>
+<td>33</td>
+<td>4.230s</td>
+<td>0.950s</td>
+<td>4.45</td>
+</tr>
+<tr><td>36593</td>
+<td>34</td>
+<td>4.430s</td>
+<td>1.110s</td>
+<td>3.99</td>
+</tr>
+<tr><td>31745</td>
+<td>35</td>
+<td>3.400s</td>
+<td>0.780s</td>
+<td>4.36</td>
+</tr>
+<tr><td>10705</td>
+<td>36</td>
+<td>1.420s</td>
+<td>0.260s</td>
+<td>5.46</td>
+</tr>
+<tr><td>30480</td>
+<td>37</td>
+<td>5.150s</td>
+<td>0.760s</td>
+<td>6.78</td>
+</tr>
+<tr><td>15060</td>
+<td>38</td>
+<td>3.290s</td>
+<td>0.430s</td>
+<td>7.65</td>
+</tr>
+<tr><td>28798</td>
+<td>39</td>
+<td>3.080s</td>
+<td>0.710s</td>
+<td>4.34</td>
+</tr>
+<tr><td>30460</td>
+<td>40</td>
+<td>7.170s</td>
+<td>0.750s</td>
+<td>9.56</td>
+</tr>
+<tr><td>3355</td>
+<td>41</td>
+<td>4.890s</td>
+<td>0.870s</td>
+<td>5.62</td>
+</tr>
+<tr><td>20004</td>
+<td>42</td>
+<td>5.130s</td>
+<td>0.660s</td>
+<td>7.77</td>
+</tr>
+<tr><td>31452</td>
+<td>43</td>
+<td>7.580s</td>
+<td>0.780s</td>
+<td>9.72</td>
+</tr>
+<tr><td>30040</td>
+<td>44</td>
+<td>3.660s</td>
+<td>0.750s</td>
+<td>4.88</td>
+</tr>
+<tr><td>8599</td>
+<td>45</td>
+<td>2.020s</td>
+<td>0.210s</td>
+<td>9.62</td>
+</tr>
+<tr><td>37178</td>
+<td>46</td>
+<td>1.020s</td>
+<td>0.140s</td>
+<td>7.29</td>
+</tr>
+<tr><td>35331</td>
+<td>47</td>
+<td>3.480s</td>
+<td>0.860s</td>
+<td>4.05</td>
+</tr>
+<tr><td>24538</td>
+<td>48</td>
+<td>9.340s</td>
+<td>0.960s</td>
+<td>9.73</td>
+</tr>
+<tr><td>31491</td>
+<td>49</td>
+<td>6.310s</td>
+<td>0.790s</td>
+<td>7.99</td>
+</tr>
+<tr><td>9371</td>
+<td>50</td>
+<td>1.230s</td>
+<td>0.240s</td>
+<td>5.12</td>
+</tr>
+<tr><td>11476</td>
+<td>51</td>
+<td>1.100s</td>
+<td>0.290s</td>
+<td>3.79</td>
+</tr>
+<tr><td>2153</td>
+<td>52</td>
+<td>4.740s</td>
+<td>0.960s</td>
+<td>4.94</td>
+</tr>
+<tr><td>36412</td>
+<td>53</td>
+<td>5.780s</td>
+<td>0.900s</td>
+<td>6.42</td>
+</tr>
+<tr><td>15820</td>
+<td>54</td>
+<td>3.230s</td>
+<td>0.420s</td>
+<td>7.69</td>
+</tr>
+<tr><td>18578</td>
+<td>55</td>
+<td>3.340s</td>
+<td>0.730s</td>
+<td>4.58</td>
+</tr>
+<tr><td>17378</td>
+<td>56</td>
+<td>6.930s</td>
+<td>1.500s</td>
+<td>4.62</td>
+</tr>
+<tr><td>22165</td>
+<td>57</td>
+<td>3.180s</td>
+<td>0.550s</td>
+<td>5.78</td>
+</tr>
+<tr><td>21275</td>
+<td>58</td>
+<td>2.060s</td>
+<td>0.520s</td>
+<td>3.96</td>
+</tr>
+<tr><td>14870</td>
+<td>59</td>
+<td>3.460s</td>
+<td>0.360s</td>
+<td>9.61</td>
+</tr>
+<tr><td>26933</td>
+<td>60</td>
+<td>3.800s</td>
+<td>0.890s</td>
+<td>4.27</td>
+</tr>
+<tr><td>16482</td>
+<td>61</td>
+<td>3.990s</td>
+<td>0.450s</td>
+<td>8.87</td>
+</tr>
+<tr><td>5921</td>
+<td>62</td>
+<td>7.380s</td>
+<td>1.620s</td>
+<td>4.56</td>
+</tr>
+<tr><td>13398</td>
+<td>63</td>
+<td>3.370s</td>
+<td>0.330s</td>
+<td>10.21</td>
+</tr>
+</tbody>
+</table>
+<img alt="chart" class="align-center" src="2008-05-27-sse4-substring-locate/C.png" />
+<p>Min: 3.79, max: 10.47, average: 6.21</p>
+</div>
+</div>
+</div>
+<div class="section" id="downloads">
+<h1>Downloads</h1>
+<p>All files are available at <a class="reference external" href="https://github.com/WojciechMula/sse4-strstr">github repository</a>. Subdirectory
+<strong>original</strong> contains a 32-bit code from 2008, the root directory
+contains fresh C++11 programs.</p>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2014-03-11-simd-friendly-karp-rabin.html">SIMD-friendly Rabin-Karp modification</a> &mdash; universal
+modification, suitable also for <a class="reference external" href="http://en.wikipedia.org/wiki/SWAR">SWAR</a> solutions</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2008-05-27-sse4-substring-locate.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:29 GMT -->
+</html>

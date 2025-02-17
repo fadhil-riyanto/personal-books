@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/fillpolygon.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Wypełnianie wielokątów</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="wypelnianie-wielokatow">
+<h1 class="title">Wypełnianie wielokątów</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">17.07.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">18.07.2005</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#wypelnianie-wielokatow-1" id="toc-entry-2">Wypełnianie wielokątów</a></li>
+<li><a class="reference internal" href="#implementacja" id="toc-entry-3">Implementacja</a></li>
+<li><a class="reference internal" href="#piksele-brzegowe" id="toc-entry-4">Piksele brzegowe</a></li>
+<li><a class="reference internal" href="#antyaliasing" id="toc-entry-5">Antyaliasing</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>W artykule przedstawię algorytm wypełniania dowolnych wielokątów, także
+<strong>samoprzecinających</strong> się. Z racji swojej ogólności algorytm nie
+jest zbyt efektywny.</p>
+</div>
+<div class="section" id="wypelnianie-wielokatow-1">
+<h1>Wypełnianie wielokątów</h1>
+<p>Ekran jest przeglądany wierszami <strong>od góry do dołu</strong> (rosnący Y),
+odcinki w bieżącej linii które należy wypełnić, są wyznaczane przez
+współrzędne przecięć linii poziomej z krawędziami wielokąta.</p>
+<img alt="wypełnianie pojedynczej linii" class="align-center" src="img/fillpolygon/fill.png" />
+<p>O tym które odcinki będą wypełniane decyduje reguła parzystości, tak jak to
+przedstawiono na tysunku. W tym celu wystarczy posortować przecięcia względem
+współrzędnej X, a następnie wypełniać odcinki pomiędzy kolejnymi parami
+punktów. Proszę zauważyć, że w prawidłowo zdefiniowanym wielokącie liczba
+przecięć jest zawsze parzysta.</p>
+<p>Obliczanie przecięć nie jest konieczne. Jeśli dla każdej krawędzi
+zostanie obliczony przyrost <span class="math"><i>d</i>X/<i>d</i>Y</span>, to mając współrzędna
+<span class="math">X</span> przecięcia dla linii <span class="math">Y &minus; 1</span>,
+wyznaczanie <span class="math">X</span> w linii <span class="math">Y</span>
+sprowadzi się do dodania tego przyrostu: <span class="math">X<sub>Y</sub> = X<sub>Y &minus; 1</sub> + <i>d</i>X/<i>d</i>Y</span>. Potrzebna jest jeszcze początkowa
+wartość <span class="math">X</span> &mdash; jest to współrzędna X wierzchołka
+o najmniejszej współrzędnej Y, jest to bowiem punkt z którym po raz pierwszy
+przecina się scanline.</p>
+<p>Przyrost dla <span class="math"><i>d</i>Y = 0</span> jest nieokreślony, dlatego też krawędzie
+poziome są <strong>ignorowane</strong>.</p>
+<p>Pewnym problemem może być dublowanie wyników i co za tym idzie błędy w
+wyświetlaniu na wspólnych wierzchołkach. Można temu zaradzić, przyjmując
+założenie, że końcowy punkt o maksymalnej współrzędnej Y nie
+należy już do krawędzi.</p>
+<p>Warto zauważyć, że w ogólnym przypadku nie wszystkie krawędzie
+wielokąta mają przecięcie z linią <span class="math">Y</span>, dlatego też tworzy się listę
+tzw. <strong>aktywnych krawędzi</strong>, czyli tych krawędzi dla których
+wykonywane są obliczenia. Krawędź jest dodawana gdy <span class="math">Y = min(Y<sub><i>edge</i></sub>)</span>,
+usuwana gdy <span class="math">Y = max(Y<sub><i>edge</i></sub>)</span>.
+W przypadku, gdy liczba krawędzi jest względnie mała nie opłaca się budować
+dodatkowej listy &mdash; wystarczy przeglądać istniejącą listę krawędzi.</p>
+</div>
+<div class="section" id="implementacja">
+<h1>Implementacja</h1>
+<p>Wielokąt jest opisywany przez <strong>listę wierzchołków</strong> (większość API
+graficznych stosuję tę konwencję). Do wypełnienia potrzebne są jednak
+krawędzie, struktura danych przechowująca wszystkie <strong>niezbędne</strong>
+informacje może wyglądać tak:</p>
+<pre class="literal-block">
+typedef struct {
+    int minY;      // minimalna i
+    iny maxY;      // maksymalna wartość wsp. Y
+    float x;       // początkowa wartość wsp. X
+    float dXdY;    // przyrost
+} EDGE;
+
+// (x0,y0), (x1, y1) - wsp. końców krawędzi
+int setup_edge(int x0, int y0, int x1, int y1, EDGE* e) {
+ int t;
+
+ if (y1 == y0)     // poziome krawędzie są ignorowane
+   return 0;
+
+ if (y0 &gt; y1) {    // posortuje względem y-ka
+    t = x0; x0 = x1; x1 = t;
+    t = y0; y0 = y1; y1 = t;
+ }
+
+ float dX = x1 - x0;
+ float dY = y1 - y0;
+
+ e-&gt;dXdY = dX/dY;
+ e-&gt;Ymin = y0;
+ e-&gt;Ymax = y1;
+ e-&gt;x    = x0;
+
+ return 1;
+}
+</pre>
+<p>Pozwolę sobie na zaprezentowanie pseudokodu, przede wszystkim z tego
+względu iż wykonywane są operacje na listach, a te jak wiadomo można
+bardzo różnie implementować (albo wcale, o czym pisałem nieco wyżej).
+Będą używane nazwy pól ze struktury <tt class="docutils literal">EDGE</tt>.</p>
+<pre class="literal-block">
+1. utwórz listę krawędzi, ignoruj wszystkie krawędzie poziome
+2. wyznacz minimalną i maksymalną wartość współrzędnej Y
+   (nie ma potrzeby przeglądać linii leżących poza wielokątem)
+3. utwórz pustą listę aktywnych krawędzi
+4. for y:=minimum to maksimum do
+       begin
+       for wszystkie element z listy krawędzi do
+           if ``minY`` i-tej krawędzi jest równe y then
+               przenieś element do listy aktywnych krawędzi
+
+       for wszystkie element z listy aktywnych krawędzi do
+           if ``maxY`` i-tej krawędzi jest równe y then
+              usuń element z listy
+
+       utwórz listę przecięć poprzez skopiowanie
+       pól ``x`` z elementów listy aktywnych krawędzi
+
+       posortuj tę listę
+
+       for i:=0 to rozmiar listy przecięć/2 do
+           wypełnij poziomy odcinek pomiędzy wsp. z listy przecięć
+           o indeksach ``2i`` i ``2i+1``
+
+       for wszystkie elementy z listy aktywnych krawędzi do
+           x[i] := x[i] + dXdY[i]
+
+       end
+</pre>
+<p>Poniżej program w Pythonie, który zapisuje wynik do pliku PNM.</p>
+<pre class="literal-block">
+# file: fillpolygon.py
+# -*- coding: iso-8859-2 -*-
+
+def fillpolygon(image, points):
+    &quot;&quot;&quot;
+    points - lista par (x,y)
+    &quot;&quot;&quot;
+    X = [p[0] for p in points]
+    Y = [p[1] for p in points]
+
+    # stwórz listę krawędzi
+    class Edge: pass
+    edges = []
+    n =  len(points)
+    for i in xrange(n):
+        j = (i+1) % n
+
+        x1,y1 = points[i]
+        x2,y2 = points[j]
+        if y2-y1 == 0: # poziome krawędzie są ignorowane
+            continue
+
+        if y1 &gt; y2:
+            x1,x2 = x2,x1
+            y1,y2 = y2,y1
+
+        e      = Edge()
+        e.x    = float(x1)
+        e.minY = y1
+        e.maxY = y2
+        e.dXdY = float(x2-x1)/(y2-y1)
+        edges.append(e)
+
+    # wypełnianie
+    active_edges = []
+    for y in xrange( min(Y), max(Y)+1 ):
+
+        # dodanie tych krawędzi, dla których edge.minY == y
+        tmp   = [edge for edge in edges if edge.minY == y]
+        active_edges.extend(tmp)
+        edges = [edge for edge in edges if edge.minY &gt; y]
+
+        # usunięcie tych krawędzi z listy aktywnych, dla których
+        # edge.maxY == y
+        active_edges = [edge for edge in active_edges if edge.maxY &gt; y]
+
+        # stworzenie listy posortowanych współrzędnych x
+        x = [edge.x for edge in active_edges]
+        x.sort()
+
+        # wypełnienie
+        for i in xrange(0, len(x), 2):
+            fillsegment(image, int(x[i]),int(x[i+1]),y)
+
+        # uaktualnienie wsp. X aktywnych krawędzi
+        for i in xrange(len(active_edges)):
+            active_edges[i].x += active_edges[i].dXdY
+
+# funkcje pomocnicze
+def make_image(w,h):
+    &quot;funkcja tworzy białą pixmapę&quot;
+    line  = [(255,255,255)]*w
+    image = [line[:] for _ in xrange(h)]
+    return image
+
+def putpixel(image, x,y):
+    &quot;funkcja stawia czarny piksel&quot;
+    image[y][x] = (0,0,0)
+
+def fillsegment(image, x1,x2,y):
+    &quot;funkcja wypełnia segment (x1,y)-(x2,y)&quot;
+
+    line = image[y]
+    for x in xrange(x1,x2+1):
+        line[x] = (0,0,0)
+
+def writePNM(image, filename):
+    &quot;f-cja zapisuje obrazek w formacie PNM&quot;
+    f = open(filename, 'w')
+    # write header
+    f.write('P6\n')
+    f.write('%d %d\n' % (len(image[0]), len(image)))
+    f.write('255\n')
+
+    # write data
+    for line in image:
+        raw = [chr(r)+chr(g)+chr(b) for r,g,b in line]
+        f.write(&rdquo;.join(raw))
+    f.close()
+
+# program główny
+if __name__ == '__main__':
+    w = 500
+    h = 500
+    n = 10  # liczba punktów
+
+    from random import randint
+    poly = []
+    for i in xrange(n):
+        poly.append( (randint(0,w-1), randint(0,h-1)) )
+
+    image = make_image(w,h)
+    fillpolygon(image, poly)
+
+    writePNM(image, '%d.pnm' % n)
+
+# eof
+</pre>
+<p>Kilka przykładowych obrazków (100, 50 i 2x10 wierzchołków).</p>
+<img alt="wielokąt (100 wierzchołków)" src="img/fillpolygon/100.png" style="width: 250px; height: 250px;" />
+<img alt="wielokąt (50 wierzchołków)" src="img/fillpolygon/50.png" style="width: 250px; height: 250px;" />
+<img alt="wielokąt (10 wierzchołków)" src="img/fillpolygon/10a.png" style="width: 250px; height: 250px;" />
+<img alt="wielokąt (10 wierzchołków)" src="img/fillpolygon/10b.png" style="width: 250px; height: 250px;" />
+</div>
+<div class="section" id="piksele-brzegowe">
+<h1>Piksele brzegowe</h1>
+<p>Współrzędne <span class="math">X</span> końców każdego z wypełnianych odcinków (nazwijmy je
+<strong>segmentami</strong>) są wyznaczane w procesie obliczeń na liczbach
+niecałkowitych: floating-point, albo fixed-point. Oczywiście przed
+wypełnieniem segmentu należy zaokrąglić wyniki.</p>
+<p>Może zdarzyć się tak, że będą wypełniane wielokąty mające jakieś wspólne
+krawędzie, tak jak przedstawiono to na rysunku.</p>
+<img alt="wspólna krawędź dwóch wielokątów" class="align-center" src="img/fillpolygon/cs.png" />
+<p>Wtedy punkt końcowy jednego segmentu, będzie punktem początkowym
+drugiego, co w efekcie spowoduje dwukrotne zapisanie piksela. W
+przypadku typowego wypełniania obraz będzie zależał od kolejności
+wyświetlania wielokątów i czasem może być to zupełnie niezauważalne. W
+przypadku wielokątów przezroczystych podwójnie rysowane piksele będą
+wyraźnie widoczne. Rozwiązanie  problemu jest proste &mdash; punkt końcowy
+segmentu nigdy nie jest stawiany.</p>
+<pre class="literal-block">
+void fill_segment(float xs, float xe, int y) {
+ int Xs = round(xs);
+ int Xe = round(xe)-1;
+ horizontal_line(Xs, Xe, y);
+}
+</pre>
+<p>W przypadku liczb fixed-point zaokrąglanie jest kosztowne, o wiele
+korzystniejsze byłoby ucinanie (<tt class="docutils literal">floor</tt>) części ułamkowej za
+pomocą operacji <tt class="docutils literal">and</tt>. Nic nie stoi na przeszkodzie by tak
+właśnie postępować, jedyną konsekwencją będzie przesunięcie obrazu o
+<strong>pół</strong>  piksela w lewo. Moim zdaniem różnica jest niezauważalna,
+praktycznie można ją dostrzec po nałożeniu na siebie obrazów tych samych
+wielokątów wyrenderowanymi na dwa sposoby.</p>
+<pre class="literal-block">
+; fixed-point 24:8
+
+; eax - x;
+floor:
+    and eax, 0xffffff00
+    ret
+
+; korzystamy z zależności: round(x) = floor(x+0.5)
+; eax - x;
+round:
+    add eax, 0x00000080
+    and eax, 0xffffff00
+        ret
+</pre>
+<p><strong>Dlaczego nastąpi przesunięcie?</strong></p>
+<p>Domyślnie przyjmuje się, że piksel jest kwadratem o wierzchołkach
+<span class="math">(X &minus; 0.5, Y &minus; 0.5)</span> i <span class="math">(X + 0.5, Y + 0.5)</span>,
+gdzie <span class="math">X</span>, <span class="math">Y</span> to współrzędne całkowitoliczbowe.</p>
+<p>Rzeczywiście, używając funkcji <tt class="docutils literal">round</tt> każdy punkt <span class="math">(<i>x</i>, <i>y</i>)</span>
+z tego kwadratu trafia w jego środek.</p>
+<p>W przypadku stosowania funkcji <tt class="docutils literal">floor</tt> punkt <span class="math">P = (<i>x</i>, <i>y</i>)</span>
+zostanie przekształcony w punkt <span class="math">(X, Y)</span> tylko wtedy, gdy będzie
+należał do kwadratu <span class="math">(X, Y)</span> &mdash; <span class="math">(X + 1.0, Y + 1.0)</span>.</p>
+</div>
+<div class="section" id="antyaliasing">
+<h1>Antyaliasing</h1>
+<img alt="antyaliasing" class="align-center" src="img/fillpolygon/aa.png" />
+<p>Antyaliasing polega na obliczeniu sumy ważonej pikseli tła i pikseli
+<strong>częściowo</strong> pokrytych przez wielokąt. Na rysunku kolorem
+ciemnoszarym zaznaczono są te piksele które w całości leżą wewnątrz
+wielokąta, natomiast jasnoszarym te które wielokąt pokrywa częściowo.
+**</p>
+<p>Najdokładniejszy obraz otrzymamy obliczając <strong>wagę</strong> jako pole
+powierzchni jakie zajmuje część wielokąta pokrywająca dany piksel
+(przyjmujemy, że piksel ma pole jednostkowe). Jednakże policzenie
+tego nie jest trywialne i pojawiają się pewne dodatkowe problemy, np.
+czy krawędzie mają końce na środku pikseli.</p>
+<p>Zamiast tego proponuję by wagę liczyć jako współczynnik pokrycia piksela
+o niezerowych współrzędnych &mdash; czyli w sposób analogiczny jak w
+filtrowaniu bilinearnym. Środek tego piksela
+będzie wyznaczony przez przecięcie krawędzi wielokąta z prostą poziomą
+(albo pionową, zaraz wyjaśnię dlaczego) przechodzącą przez środki
+pikseli, wobec czego jedna ze współrzędnych będzie <strong>zawsze</strong>
+całkowita.</p>
+<p>Liczba pikseli jakie należy wypełnić &bdquo;częściowo&rdquo; jest uzależniona
+od stopnia nachylenia krawędzi, należy rozpatrzyć dwa przypadki:</p>
+<ul class="simple">
+<li><span class="math">|<i>d</i>X<i>d</i>Y| &le; 1</span></li>
+<li><span class="math">|<i>d</i>X<i>d</i>Y| &gt 1</span></li>
+</ul>
+<p>W przypadku pierwszym różnica pomiędzy końcami dwóch kolejnych segmentów
+jest mniejsza lub równa jedności. Wystarczy zatem policzyć współczynnik
+pokrycia <strong>jednego</strong> piksela o współrzędnych <span class="math">(X.<i>u</i>, Y.0)</span>.</p>
+<img alt="`|dx| &lt;= 1`" class="align-center" src="img/fillpolygon/dx1.png" />
+<p>Na rysunku został przedstawiony segment wyznaczony przez dwie krawędzie,
+których <span class="math">|<i>d</i>X<i>d</i>Y| &le; 0</span>, przy czym <span class="math"><i>d</i>X<i>d</i>Y</span>
+lewej krawędzi jest mniejszy od zera, natomiast prawej większy. W przypadku prawej
+krawędzi piksel pokryty częściowo ma współrzędną
+<span class="math">(floor(X<sub><i>s</i></sub>), Y)</span>, natomiast w przypadku prawej krawędzi
+<span class="math">(ceil(X<sub><i>e</i></sub>), Y)</span>. Poniżej fragment kodu, który wypełnia
+segment:</p>
+<pre class="literal-block">
+void putpixel_aa(int x, int y, int fore, float u) {
+
+ int back = getpixel(x, y);
+ putpixel(x,y, back*(1.0-u) + fore*u);
+}
+
+void fillsegment_aa(EDGE start, EDGE end, int y, int color) {
+
+ int xs;
+ int xe;
+
+ if (abs(start.dXdY) &lt;= 1)
+    {
+     float u = fraction(start.x);
+     xs = floor(start.x)+1;
+
+     putpixel_aa(xs-1, y, color, 1.0-u);
+    }
+
+ if (abs(end.dXdY) &lt;= 1)
+    {
+     float u = fraction(end.x);
+     xe = ceil(end.x)-1;
+
+     putpixel_aa(xs-1, y, color, u);
+    }
+
+ // ...
+
+ fill_segment(xs, xe, y, color); // wypełnij wewnętrzny obszar segmentu
+}
+</pre>
+<p>Zupełnie inaczej jest w drugim przypadku, tutaj różnica pomiędzy końcami
+dwóch kolejnych segmentów jest większa niż piksel, co zostało pokazane
+na rysunku.</p>
+<img alt="`|dXdY| &gt;= 1`" class="align-center" src="img/fillpolygon/dx2.png" />
+<p>Tu również dokonujemy uproszczenia, przy czym piksele mają współrzędne
+postaci <span class="math">(X.0, <i>y</i>.<i>u</i>)</span>. Dodatkowo interpolacja <strong>części
+ułamkowej</strong> <span class="math"><i>u</i></span> jest przeprowadzana na odcinku o końcach zaczepionych w
+środkach pikseli &mdash; tak w ogólnym przypadku nie musi być i jest to
+kolejne uproszczenie.</p>
+<p>Długość odcinka jaki należy wypełnić waha się od <span class="math">ceil(<i>d</i>X<i>d</i>Y)</span>
+do <span class="math">ceil(<i>d</i>X<i>d</i>Y) + 1</span>, tak więc można albo prekalkulować dwa różne
+przyrosty <span class="math"><i>dud</i>X</span> (<span class="math"><i>dud</i>X = 1/<i>d</i>X</span>), albo
+arbitralnie przyjąć jeden z nich. Poniżej brakujący fragment funkcji
+<tt class="docutils literal">fillsegment_aa</tt>.</p>
+<pre class="literal-block">
+void fillsegment_aa(EDGE start, EDGE end, int y, int color)
+{
+ int xs;
+ int xe;
+
+ // ...
+
+ // krawędź początkowa nachylona &quot;w lewo&quot;
+ if (start.dXdY &lt; -1)
+    {
+     int xs_y0 = round(start.x);
+     int xs_y1 = round(start.x + start.dXdY);
+
+     xs = xs_y0;
+
+     // tak jak zostało powiedziane wcześniej tę wartość można
+     // prekalkulować, bowiem jest stała dla krawędzi.
+     float dudY = 1/(xs_y1 - xs_y0);
+     float    u = 0;
+
+     for (int x=xs_y1; i &lt; xs_y0; i++)
+        {
+     putpixel_aa(x, y, u);
+     u += dudY;
+    }
+    }
+ // w podobny sposób postępujemy dla
+ // * start.dXdY &gt; 1
+ // *   end.dXdY &lt; -1
+ // *   end.dXdY &gt; 1
+
+ fill_segment(xs, xe, y, color); // wypełnij wewnętrzny obszar segmentu
+}
+</pre>
+<p>Nic nie stoi na przeszkodzie by powyższych metod używać dla
+teksturowanych, bądź cieniowanych wielokątów (trójkątów).</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/fillpolygon.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:22 GMT -->
+</html>

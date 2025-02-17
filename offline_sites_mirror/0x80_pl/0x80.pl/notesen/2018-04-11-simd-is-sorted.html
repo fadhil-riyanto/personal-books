@@ -1,0 +1,1066 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-04-11-simd-is-sorted.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Is sorted using SIMD instructions</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="is-sorted-using-simd-instructions">
+<h1 class="title">Is sorted using SIMD instructions</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-04-11</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-04-25 (sync source codes with github version), 2018-04-18 (links to HN and reddit discussions, test performance of unrolled SSE and AVX2 procedures, and AVX512 procedures)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#vectorization" id="toc-entry-2">Vectorization</a><ul>
+<li><a class="reference internal" href="#generic-simd" id="toc-entry-3">Generic SIMD</a><ul>
+<li><a class="reference internal" href="#sample-sse-implementation" id="toc-entry-4">Sample SSE implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sse" id="toc-entry-5">SSE</a><ul>
+<li><a class="reference internal" href="#sample-implementation" id="toc-entry-6">Sample implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx2" id="toc-entry-7">AVX2</a><ul>
+<li><a class="reference internal" href="#sample-implementation-1" id="toc-entry-8">Sample implementation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#performance-comparison" id="toc-entry-9">Performance comparison</a><ul>
+<li><a class="reference internal" href="#skylake" id="toc-entry-10">Skylake</a></li>
+<li><a class="reference internal" href="#skylake-x" id="toc-entry-11">Skylake-X</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-12">See also</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-13">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Recently, I came across a function that checks whether an array is sorted, i.e.
+if there is no element which would be greater than its successor. Below is
+a sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">is_sorted</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">input</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">])</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>I was sure that such a trivial loop is autovectorized by all decent compilers.
+I checked this on <a class="reference external" href="https://godbolt.org/">Compiler Explorer</a> and to my surprise <strong>none of compilers</strong>
+does it. This is the state for GCC 7.3 (and upcoming GCC 8.0), clang 6.0 and ICC 19.</p>
+<p>This text explores possible vectorization schemas.</p>
+</div>
+<div class="section" id="vectorization">
+<h1>Vectorization</h1>
+<p>In the following examples vectors of signed 32-bit integers are assumed.</p>
+<div class="section" id="generic-simd">
+<span id="generic"></span><h2>Generic SIMD</h2>
+<p>The simplest vectorized solution is suitable for all SIMD flavours. In a loop
+two vectors are filled; one vector contains items <tt class="docutils literal">a = input[0 .. k - 1]</tt>,
+another <tt class="docutils literal">b = input[1 .. k]</tt> (where <tt class="docutils literal">k</tt> is the vector size; for SSE <tt class="docutils literal">k=4</tt>,
+for AVX2 <tt class="docutils literal">k=8</tt> and for AVX512 <tt class="docutils literal">k=16</tt>).</p>
+<p>Then the comparison for greater yields a vector <tt class="docutils literal">a[i] &gt; b[i]</tt>. If all its
+elements are zero (false) it means that in the range <tt class="docutils literal">0 .. <span class="pre">k-1</span></tt> the relation
+is not violated.</p>
+<p>Below is the outline of the algorithm's loop (with <tt class="docutils literal">k=4</tt>):</p>
+<ol class="arabic">
+<li><p class="first">Load the first vector:</p>
+<pre class="literal-block">
+curr = [    a0   |    a1   |    a2   |    a3   ]
+</pre>
+</li>
+<li><p class="first">Load the second vector:</p>
+<pre class="literal-block">
+next = [    a1   |    a2   |    a3   |    a4   ]
+</pre>
+</li>
+<li><p class="first">Compare <tt class="docutils literal">curr &gt; next</tt>:</p>
+<pre class="literal-block">
+mask = [ a0 &gt; a1 | a1 &gt; a2 | a2 &gt; a3 | a3 &gt; a4 ]
+</pre>
+</li>
+<li><p class="first">If any element of <tt class="docutils literal">mask</tt> is not zero, then return false.</p>
+</li>
+<li><p class="first">Otherwise advance the input pointer by <tt class="docutils literal">k</tt> and go back to 1.</p>
+</li>
+</ol>
+<div class="section" id="sample-sse-implementation">
+<h3>Sample SSE implementation</h3>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">is_sorted_sse</span><span class="p">(</span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">curr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">));</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">));</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpgt_epi32</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">);</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">_mm_test_all_zeros</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">])</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="sse">
+<span id="sse-specific"></span><h2>SSE</h2>
+<p>The generic approach has one issue. The vector <tt class="docutils literal">next</tt> shares <tt class="docutils literal"><span class="pre">k-1</span></tt> elements
+with <tt class="docutils literal">curr</tt>, but we anyway read from the memory all <tt class="docutils literal">k</tt> elements.</p>
+<p>With help of the SSE instruction <tt class="docutils literal">_mm_palignr_epi8</tt> (<tt class="docutils literal">palingr</tt>) the number
+of memory accesses can be reduced. The instruction gets two 16-byte vectors,
+joins them into a 32-byte temporary array and then copies the selected subarray
+into a 16-byte vector.</p>
+<p>We keep two vectors (<tt class="docutils literal">chunk0</tt> and <tt class="docutils literal">chunk1</tt>) containing as a whole an
+eight-element subarray of the input.  In each iteration this subarray
+is shifted right by one element. In each iteration we read just one chunk,
+i.e. it done at cost of single memory load.</p>
+<p>The algorithm works as follows:</p>
+<ol class="arabic simple" start="0">
+<li>Before the main loop load into vector <tt class="docutils literal">chunk0</tt> the first portion of input:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// chunk0 = [    a0   |    a1   |    a2   |    a3   ]
+</span><span class="kr">__m128i</span><span class="w"> </span><span class="n">chunk0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">array</span><span class="p">));</span>
+</pre>
+<ol class="arabic simple">
+<li>In the loop read the next portion of array into <tt class="docutils literal">chunk1</tt>:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// chunk1 = [    a4   |    a5   |    a6   |    a7   ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">chunk1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">4</span><span class="p">));</span>
+</pre>
+<ol class="arabic simple" start="2">
+<li>Now build the vector <tt class="docutils literal">curr</tt> &mdash; it is simply an alias for <tt class="docutils literal">chunk0</tt>:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// curr   = [    a0   |    a1   |    a2   |    a3   ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">curr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">chunk0</span><span class="p">;</span>
+</pre>
+<ol class="arabic simple" start="3">
+<li>The vector <tt class="docutils literal">next</tt> is build from the pair <tt class="docutils literal">chunk1:chunk0</tt> using <tt class="docutils literal">_mm_alignr_epi8</tt>:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// tem    = [    a0   |    a1   |    a2   |    a3   |    a4   |    a5   |    a6   |    a7   ]
+//          |              chunk0                   |                 chunk1                |
+</span><span class="w">
+</span><span class="c1">// next   = [    a1   |    a2   |    a3   |    a4   ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_alignr_epi8</span><span class="p">(</span><span class="n">chunk1</span><span class="p">,</span><span class="w"> </span><span class="n">chunk0</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="4">
+<li>Finally the vectors are compared:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// mask   = [ a0 &gt; a1 | a1 &gt; a2 | a2 &gt; a3 | a3 &gt; a4 ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpgt_epi32</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="5">
+<li>If any element of <tt class="docutils literal">mask</tt> is not zero, then return false.</li>
+<li>Shift right the input view:</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="n">chunk0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">chunk1</span><span class="p">;</span><span class="w">
+</span><span class="c1">// chunk1 will be updated at the loop beginning</span>
+</pre>
+<ol class="arabic simple" start="7">
+<li>Advance the input pointer by 4 and go to 1.</li>
+</ol>
+<div class="section" id="sample-implementation">
+<h3>Sample implementation</h3>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">is_sorted_sse_2</span><span class="p">(</span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">chunk0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">a</span><span class="p">));</span><span class="w">
+        </span><span class="k">do</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">chunk1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">4</span><span class="p">));</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">curr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">chunk0</span><span class="p">;</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_alignr_epi8</span><span class="p">(</span><span class="n">chunk1</span><span class="p">,</span><span class="w"> </span><span class="n">chunk0</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpgt_epi32</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">);</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">_mm_test_all_zeros</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+
+            </span><span class="n">chunk0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">chunk1</span><span class="p">;</span><span class="w">
+            </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">])</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="avx2">
+<span id="avx2-sepcific"></span><h2>AVX2</h2>
+<p>Unfortunately the AVX2 version of <tt class="docutils literal">_mm256_alignr_epi8</tt> doesn't operate on the
+whole 32-byte register, but on its 16-byte halves (<em>lanes</em>).</p>
+<p>The AVX2 approach uses instruction <tt class="docutils literal">_mm256_permutevar8x32_epi32</tt>, which
+moves 32-bit elements across the lanes in the given order.</p>
+<p>In a single iteration we read eight elements:</p>
+<pre class="literal-block">
+curr = [ a0 | a1 | a2 | a3 | a4 | a5 | a6 | a7 ]
+</pre>
+<p>Then the vector <tt class="docutils literal">curr</tt> is shifted (permuted) by one element right, only
+the last item (<tt class="docutils literal">a7</tt>) is kept on the same position:</p>
+<pre class="literal-block">
+next = [ a1 | a2 | a3 | a4 | a5 | a6 | a7 | a7 ]
+</pre>
+<p>The comparison efficiently tests <strong>the first seven elements</strong>:</p>
+<pre class="literal-block">
+mask = [ a0 &gt; a1 | a1 &gt; a2 | a2 &gt; a3 | a3 &gt; a4 | a4 &gt; a5 | a5 &gt; a6 | a6 &gt; a7 | a7 &gt; a7 ]
+                                                                              always false
+</pre>
+<div class="section" id="sample-implementation-1">
+<h3>Sample implementation</h3>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">is_sorted_avx2</span><span class="p">(</span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">shuffle_pattern</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">);</span><span class="w">
+
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// curr = [ a0 | a1 | a2 | a3 | a4 | a5 | a6 | a7 ]
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">curr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">));</span><span class="w">
+        </span><span class="c1">// next = [ a1 | a2 | a3 | a4 | a5 | a6 | a7 | a7 ]
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_permutevar8x32_epi32</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span><span class="w"> </span><span class="n">shuffle_pattern</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// Note: the last element of curr and next is a7, thus for this element
+</span><span class="w">        </span><span class="c1">//       the comparison result is always zero.
+</span><span class="w">        </span><span class="c1">//
+</span><span class="w">        </span><span class="c1">// In fact, the first 7 elements are being tested.
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpgt_epi32</span><span class="p">(</span><span class="n">curr</span><span class="p">,</span><span class="w"> </span><span class="n">next</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">_mm256_testz_si256</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">7</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">])</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="performance-comparison">
+<h1>Performance comparison</h1>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><strong>scalar</strong></td>
+<td><tt class="docutils literal">is_sorted</tt></td>
+</tr>
+<tr><td><strong>SSE (generic)</strong></td>
+<td><a class="reference internal" href="#generic">the generic SIMD algorithm</a> using SSE instructions</td>
+</tr>
+<tr><td><strong>SSE (generic, unrolled 4 times)</strong></td>
+<td>the above procedure unrolled 4 times</td>
+</tr>
+<tr><td><strong>AVX2 (generic)</strong></td>
+<td><a class="reference internal" href="#generic">the generic SIMD algorithm</a> using AVX2 instructions</td>
+</tr>
+<tr><td><strong>AVX2 (generic, unrolled 4 times)</strong></td>
+<td>the above procedure unrolled 4 times</td>
+</tr>
+<tr><td><strong>AVX512 (generic)</strong></td>
+<td><a class="reference internal" href="#generic">the generic SIMD algorithm</a> using AVX512F instructions</td>
+</tr>
+<tr><td><strong>SSE</strong></td>
+<td><a class="reference internal" href="#sse-specific">SSE-specific</a> procedure</td>
+</tr>
+<tr><td><strong>SSE (unrolled 4 times)</strong></td>
+<td>implementation of the above procedure proposed by <strong>HeroicKatora</strong> on reddit; thank you!</td>
+</tr>
+<tr><td><strong>AVX2</strong></td>
+<td><a class="reference internal" href="#avx2-sepcific">AVX2-specific</a> procedure</td>
+</tr>
+<tr><td><strong>AVX2 (unrolled 4 times)</strong></td>
+<td>the above procedure unrolled 4 times; processes 4*7 items per iteration</td>
+</tr>
+<tr><td><strong>AVX512</strong></td>
+<td>AVX512 variant of the AVX2 approach</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="skylake">
+<h2>Skylake</h2>
+<p>Compiler: GCC 7.3.0</p>
+<p>CPU: Intel(R) Core(TM) i7-6700 CPU &#64; 3.40GHz</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="62%" />
+<col width="20%" />
+<col width="18%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [us]</th>
+<th class="head">speed-up</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="3">element count 128</td>
+</tr>
+<tr><td>scalar</td>
+<td>8080</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>2970</td>
+<td>2.72</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>1917</td>
+<td>4.21</td>
+</tr>
+<tr><td>SSE</td>
+<td>3696</td>
+<td>2.19</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>1845</td>
+<td>4.38</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>1769</td>
+<td>4.57</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>3216</td>
+<td>2.51</td>
+</tr>
+<tr><td>AVX2</td>
+<td>1945</td>
+<td>4.15</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>1571</td>
+<td>5.14</td>
+</tr>
+<tr><td colspan="3">element count 256</td>
+</tr>
+<tr><td>scalar</td>
+<td>13982</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>5022</td>
+<td>2.78</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>2865</td>
+<td>4.88</td>
+</tr>
+<tr><td>SSE</td>
+<td>7054</td>
+<td>1.98</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>3139</td>
+<td>4.45</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>4037</td>
+<td>3.46</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>4395</td>
+<td>3.18</td>
+</tr>
+<tr><td>AVX2</td>
+<td>3722</td>
+<td>3.76</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>2263</td>
+<td>6.18</td>
+</tr>
+<tr><td colspan="3">element count 512</td>
+</tr>
+<tr><td>scalar</td>
+<td>25039</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>9222</td>
+<td>2.72</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>5951</td>
+<td>4.21</td>
+</tr>
+<tr><td>SSE</td>
+<td>13525</td>
+<td>1.85</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>6407</td>
+<td>3.91</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>6806</td>
+<td>3.68</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>6850</td>
+<td>3.66</td>
+</tr>
+<tr><td>AVX2</td>
+<td>6759</td>
+<td>3.70</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>5071</td>
+<td>4.94</td>
+</tr>
+<tr><td colspan="3">element count 1024</td>
+</tr>
+<tr><td>scalar</td>
+<td>46586</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>17792</td>
+<td>2.62</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>10671</td>
+<td>4.37</td>
+</tr>
+<tr><td>SSE</td>
+<td>26160</td>
+<td>1.78</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>11598</td>
+<td>4.02</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>12483</td>
+<td>3.73</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>11602</td>
+<td>4.02</td>
+</tr>
+<tr><td>AVX2</td>
+<td>12346</td>
+<td>3.77</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>8770</td>
+<td>5.31</td>
+</tr>
+<tr><td colspan="3">element count 2048</td>
+</tr>
+<tr><td>scalar</td>
+<td>86920</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>34936</td>
+<td>2.49</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>20131</td>
+<td>4.32</td>
+</tr>
+<tr><td>SSE</td>
+<td>51254</td>
+<td>1.70</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>21978</td>
+<td>3.95</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>23776</td>
+<td>3.66</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>21038</td>
+<td>4.13</td>
+</tr>
+<tr><td>AVX2</td>
+<td>23976</td>
+<td>3.63</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>17327</td>
+<td>5.02</td>
+</tr>
+<tr><td colspan="3">element count 4096</td>
+</tr>
+<tr><td>scalar</td>
+<td>171457</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>68884</td>
+<td>2.49</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>39006</td>
+<td>4.40</td>
+</tr>
+<tr><td>SSE</td>
+<td>101823</td>
+<td>1.68</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>42858</td>
+<td>4.00</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>46424</td>
+<td>3.69</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>39651</td>
+<td>4.32</td>
+</tr>
+<tr><td>AVX2</td>
+<td>47139</td>
+<td>3.64</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>33659</td>
+<td>5.09</td>
+</tr>
+<tr><td colspan="3">element count 16384</td>
+</tr>
+<tr><td>scalar</td>
+<td>671985</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>311616</td>
+<td>2.16</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>210776</td>
+<td>3.19</td>
+</tr>
+<tr><td>SSE</td>
+<td>409935</td>
+<td>1.64</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>191207</td>
+<td>3.51</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>210032</td>
+<td>3.20</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>207815</td>
+<td>3.23</td>
+</tr>
+<tr><td>AVX2</td>
+<td>219203</td>
+<td>3.07</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>164703</td>
+<td>4.08</td>
+</tr>
+<tr><td colspan="3">element count 65536</td>
+</tr>
+<tr><td>scalar</td>
+<td>2587279</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>1258949</td>
+<td>2.06</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>870655</td>
+<td>2.97</td>
+</tr>
+<tr><td>SSE</td>
+<td>1645715</td>
+<td>1.57</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>796933</td>
+<td>3.25</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>850206</td>
+<td>3.04</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>860592</td>
+<td>3.01</td>
+</tr>
+<tr><td>AVX2</td>
+<td>899470</td>
+<td>2.88</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>724050</td>
+<td>3.57</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-x">
+<h2>Skylake-X</h2>
+<p>Compiler: GCC 5.4.0</p>
+<p>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="62%" />
+<col width="20%" />
+<col width="18%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">time [us]</th>
+<th class="head">speed-up</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="3">element count 128</td>
+</tr>
+<tr><td>scalar</td>
+<td>6091</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>2634</td>
+<td>2.31</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>2084</td>
+<td>2.92</td>
+</tr>
+<tr><td>SSE</td>
+<td>3329</td>
+<td>1.83</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>2327</td>
+<td>2.62</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>1648</td>
+<td>3.70</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>2191</td>
+<td>2.78</td>
+</tr>
+<tr><td>AVX2</td>
+<td>1774</td>
+<td>3.43</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>1657</td>
+<td>3.68</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>1367</td>
+<td>4.46</td>
+</tr>
+<tr><td>AVX512</td>
+<td>1150</td>
+<td>5.30</td>
+</tr>
+<tr><td colspan="3">element count 256</td>
+</tr>
+<tr><td>scalar</td>
+<td>11445</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>5008</td>
+<td>2.29</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>3363</td>
+<td>3.40</td>
+</tr>
+<tr><td>SSE</td>
+<td>6593</td>
+<td>1.74</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>3976</td>
+<td>2.88</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>3021</td>
+<td>3.79</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>2954</td>
+<td>3.87</td>
+</tr>
+<tr><td>AVX2</td>
+<td>3455</td>
+<td>3.31</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>2061</td>
+<td>5.55</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>1938</td>
+<td>5.91</td>
+</tr>
+<tr><td>AVX512</td>
+<td>2012</td>
+<td>5.69</td>
+</tr>
+<tr><td colspan="3">element count 512</td>
+</tr>
+<tr><td>scalar</td>
+<td>22133</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>12736</td>
+<td>1.74</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>6163</td>
+<td>3.59</td>
+</tr>
+<tr><td>SSE</td>
+<td>14349</td>
+<td>1.54</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>7268</td>
+<td>3.05</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>5937</td>
+<td>3.73</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>5141</td>
+<td>4.31</td>
+</tr>
+<tr><td>AVX2</td>
+<td>8279</td>
+<td>2.67</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>4053</td>
+<td>5.46</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>3094</td>
+<td>7.15</td>
+</tr>
+<tr><td>AVX512</td>
+<td>3562</td>
+<td>6.21</td>
+</tr>
+<tr><td colspan="3">element count 1024</td>
+</tr>
+<tr><td>scalar</td>
+<td>43534</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>24440</td>
+<td>1.78</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>12885</td>
+<td>3.38</td>
+</tr>
+<tr><td>SSE</td>
+<td>27446</td>
+<td>1.59</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>13877</td>
+<td>3.14</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>12664</td>
+<td>3.44</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>7503</td>
+<td>5.80</td>
+</tr>
+<tr><td>AVX2</td>
+<td>14728</td>
+<td>2.96</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>8034</td>
+<td>5.42</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>5380</td>
+<td>8.09</td>
+</tr>
+<tr><td>AVX512</td>
+<td>5443</td>
+<td>8.00</td>
+</tr>
+<tr><td colspan="3">element count 2048</td>
+</tr>
+<tr><td>scalar</td>
+<td>86305</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>47782</td>
+<td>1.81</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>24381</td>
+<td>3.54</td>
+</tr>
+<tr><td>SSE</td>
+<td>53797</td>
+<td>1.60</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>27908</td>
+<td>3.09</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>24044</td>
+<td>3.59</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>13547</td>
+<td>6.37</td>
+</tr>
+<tr><td>AVX2</td>
+<td>28291</td>
+<td>3.05</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>15484</td>
+<td>5.57</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>10813</td>
+<td>7.98</td>
+</tr>
+<tr><td>AVX512</td>
+<td>11200</td>
+<td>7.71</td>
+</tr>
+<tr><td colspan="3">element count 4096</td>
+</tr>
+<tr><td>scalar</td>
+<td>171882</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>94751</td>
+<td>1.81</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>47284</td>
+<td>3.64</td>
+</tr>
+<tr><td>SSE</td>
+<td>106064</td>
+<td>1.62</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>54288</td>
+<td>3.17</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>47036</td>
+<td>3.65</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>26236</td>
+<td>6.55</td>
+</tr>
+<tr><td>AVX2</td>
+<td>55040</td>
+<td>3.12</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>29973</td>
+<td>5.73</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>19904</td>
+<td>8.64</td>
+</tr>
+<tr><td>AVX512</td>
+<td>21735</td>
+<td>7.91</td>
+</tr>
+<tr><td colspan="3">element count 16384</td>
+</tr>
+<tr><td>scalar</td>
+<td>685498</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>417421</td>
+<td>1.64</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>266764</td>
+<td>2.57</td>
+</tr>
+<tr><td>SSE</td>
+<td>438934</td>
+<td>1.56</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>239919</td>
+<td>2.86</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>204391</td>
+<td>3.35</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>181020</td>
+<td>3.79</td>
+</tr>
+<tr><td>AVX2</td>
+<td>253740</td>
+<td>2.70</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>165795</td>
+<td>4.13</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>182358</td>
+<td>3.76</td>
+</tr>
+<tr><td>AVX512</td>
+<td>117629</td>
+<td>5.83</td>
+</tr>
+<tr><td colspan="3">element count 65536</td>
+</tr>
+<tr><td>scalar</td>
+<td>2740076</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (generic)</td>
+<td>1663774</td>
+<td>1.65</td>
+</tr>
+<tr><td>SSE (generic, unrolled 4 times)</td>
+<td>1062554</td>
+<td>2.58</td>
+</tr>
+<tr><td>SSE</td>
+<td>1756262</td>
+<td>1.56</td>
+</tr>
+<tr><td>SSE (unrolled 4 times)</td>
+<td>938962</td>
+<td>2.92</td>
+</tr>
+<tr><td>AVX2 (generic)</td>
+<td>973695</td>
+<td>2.81</td>
+</tr>
+<tr><td>AVX2 (generic, unrolled 4 times)</td>
+<td>792764</td>
+<td>3.46</td>
+</tr>
+<tr><td>AVX2</td>
+<td>1011261</td>
+<td>2.71</td>
+</tr>
+<tr><td>AVX2 (unrolled 4 times)</td>
+<td>660586</td>
+<td>4.15</td>
+</tr>
+<tr><td>AVX512 (generic)</td>
+<td>729784</td>
+<td>3.75</td>
+</tr>
+<tr><td>AVX512</td>
+<td>467945</td>
+<td>5.86</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li>Great discussion on <a class="reference external" href="https://news.ycombinator.com/item?id=16841553">Hacker News</a>.</li>
+<li>Also an interesting one on <a class="reference external" href="https://www.reddit.com/r/cpp/comments/8bkaj3/is_sorted_using_simd_instructions">cpp/reddit</a></li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All implementations are available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/is_sorted">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-04-11-simd-is-sorted.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+</html>

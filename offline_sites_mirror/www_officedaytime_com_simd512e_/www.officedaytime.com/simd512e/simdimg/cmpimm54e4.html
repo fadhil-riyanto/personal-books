@@ -1,0 +1,293 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/cmpimm.php?f=VCMPPH by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:36 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/cmpimm.php?f=VCMPPH" />
+<link rel="alternate" hreflang="en" href="cmpimm54e4.html?f=VCMPPH" />
+    <title>vcmpph</title>
+</head>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+        td {
+            background-color: #FFFFFF;
+            font-size: 9pt;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+</style>
+</head>
+<body>
+
+<h2>VCMPPH - CoMPare Packed Half<br /></h2>
+VCMPPH<span class="operand"> k1{k2}, xmm2, xmm3/m128/m16bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br>
+<span class="intr">__mmask8  _mm_cmp_ph_mask(__m128h a, __m128h b, int imm8)</span><br><span class="intr">__mmask8  _mm_mask_cmp_ph_mask(__mmask8 k2, __m128h a, __m128h b, int imm8)</span><br><div style="height: 2px;"></div><img src="cmp_word_1.png" /><br />
+<div style="padding-left: 110px">For each FP16, if the condition specified in imm8 is met, store 1, else store 0,  in the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VCMPPH<span class="operand"> k1{k2}, ymm2, ymm3/m256/m16bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br>
+<span class="intr">__mmask16 _mm256_cmp_ph_mask(__m256h a, __m256h b, int imm8)</span><br><span class="intr">__mmask16 _mm256_mask_cmp_ph_mask(__mmask16 k2, __m256h a, __m256h b, int imm8)</span><br><div style="height: 2px;"></div><img src="cmp_word_2.png" /><br />
+<div style="padding-left: 110px">For each FP16, if the condition specified in imm8 is met, store 1, else store 0,  in the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VCMPPH<span class="operand"> k1{k2}, zmm2, zmm3/m512/m16bcst{sae}, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16<br>
+<span class="intr">__mmask32 _mm512_cmp_ph_mask(__m512h a, __m512h b, int imm8)</span><br><span class="intr">__mmask32 _mm512_mask_cmp_ph_mask(__mmask32 k2, __m512h a, __m512h b, int imm8)</span><br><span class="intr">__mmask32 _mm512_cmp_round_ph_mask(__m512h a, __m512h b, int imm8, int sae)</span><br><span class="intr">__mmask32 _mm512_mask_cmp_round_ph_mask(__mmask32 k2, __m512h a, __m512h b, int imm8, int sae)</span><br><div style="height: 2px;"></div><img src="cmp_word_3.png" /><br />
+<div style="padding-left: 110px">For each FP16, if the condition specified in imm8 is met, store 1, else store 0,  in the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+
+    <p>imm8</p>
+    <table>
+
+        <tr>
+            <th>when either (or both) is Nan</th>
+            <th colspan="2">condition unmet<br>(Ordered)</th>
+            <th colspan="2">condition met<br>(Unordered)</th>
+        </tr>
+
+        <tr>
+            <th>
+                Exception on QNaN
+            </th>
+            <th>YES<br>(Signaling)</th>
+            <th>NO<br>(Quiet)</th>
+            <th>YES<br>(Signaling)</th>
+            <th>NO<br>(Quiet)</th>
+        </tr>
+
+        <tr>
+            <th>compare for ==</th>
+            <td>
+                10h<br />
+                <span class="intr">_CMP_EQ_OS</span>
+            </td>
+            <td>
+                0h<br />
+                <span class="intr">_CMP_EQ_OQ</span>
+            </td>
+            <td>
+                18h<br />
+                <span class="intr">_CMP_EQ_US</span>
+            </td>
+            <td>
+                8h<br />
+                <span class="intr">_CMP_EQ_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>compare for &lt;</th>
+            <td>
+                1h<br />
+                <span class="intr">_CMP_LT_OS</span>
+            </td>
+            <td>
+                11h<br />
+                <span class="intr">_CMP_LT_OQ</span>
+            </td>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+        </tr>
+        <tr>
+            <th>compare for &lt;=</th>
+            <td>
+                2h<br />
+                <span class="intr">_CMP_LE_OS</span>
+            </td>
+            <td>
+                12h<br />
+                <span class="intr">_CMP_LE_OQ</span>
+            </td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <th>compare for &gt;</th>
+            <td>
+                0Eh<br />
+                <span class="intr">_CMP_GT_OS</span>
+            </td>
+            <td>
+                1Eh<br />
+                <span class="intr">_CMP_GT_OQ</span>
+            </td>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+        </tr>
+        <tr>
+            <th>compare for &gt;=</th>
+            <td>
+                0Dh<br />
+                <span class="intr">_CMP_GE_OS</span>
+            </td>
+            <td>
+                1Dh<br />
+                <span class="intr">_CMP_GE_OQ</span>
+            </td>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+        </tr>
+        <tr>
+            <th>compare for !=</th>
+            <td>
+                1Ch<br />
+                <span class="intr">_CMP_NEQ_OS</span>
+            </td>
+            <td>
+                0Ch<br />
+                <span class="intr">_CMP_NEQ_OQ</span>
+            </td>
+            <td>
+                14h<br />
+                <span class="intr">_CMP_NEQ_US</span>
+            </td>
+            <td>
+                04h<br />
+                <span class="intr">_CMP_NEQ_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>compare for ! &lt;</th>
+            <td></td>
+            <td></td>
+            <td>
+                5h<br />
+                <span class="intr">_CMP_NLT_US</span>
+            </td>
+            <td>
+                15h<br />
+                <span class="intr">_CMP_NLT_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>compare for ! &lt;=</th>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+            <td>
+                6h<br />
+                <span class="intr">_CMP_NLE_US</span>
+            </td>
+            <td>
+                16h<br />
+                <span class="intr">_CMP_NLE_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>compare for ! &gt;</th>
+            <td></td>
+            <td></td>
+            <td>
+                0Ah<br />
+                <span class="intr">_CMP_NGT_US</span>
+            </td>
+            <td>
+                1Ah<br />
+                <span class="intr">_CMP_NGT_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>compare for ! &gt;=</th>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+            <td>
+                9h<br />
+                <span class="intr">_CMP_NGE_US</span>
+            </td>
+            <td>
+                19h<br />
+                <span class="intr">_CMP_NGE_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>compare for ordered</th>
+            <td>
+                17h<br />
+                <span class="intr">_CMP_ORD_S</span>
+            </td>
+            <td>
+                7h<br />
+                <span class="intr">_CMP_ORD_Q</span>
+            </td>
+            <td></td>
+            <td></td>
+        </tr>
+        <tr>
+            <th>compare for unordered</th>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+            <td>
+                13h<br />
+                <span class="intr">_CMP_UNORD_S</span>
+            </td>
+            <td>
+                3h<br />
+                <span class="intr">_CMP_UNORD_Q</span>
+            </td>
+        </tr>
+        <tr>
+            <th>TRUE</th>
+            <td></td>
+            <td></td>
+            <td>
+                1Fh<br />
+                <span class="intr">_CMP_TRUE_US</span>
+            </td>
+            <td>
+                0Fh<br />
+                <span class="intr">_CMP_TRUE_UQ</span>
+            </td>
+        </tr>
+        <tr>
+            <th>FALSE</th>
+            <td>
+                1Bh<br />
+                <span class="intr"> _CMP_FALSE_OS</span>
+            </td>
+            <td>
+                0Bh<br />
+                <span class="intr">_CMP_FALSE_OQ</span>
+            </td>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+        </tr>
+
+    </table>
+
+
+
+
+    <hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=VCMPPH" target="_blank">Feedback</a>
+
+
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/cmpimm.php?f=VCMPPH by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:36 GMT -->
+</html>

@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-10-08-avx512-sort-register.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Sorting an AVX512 register</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="sorting-an-avx512-register">
+<h1 class="title">Sorting an AVX512 register</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-10-08</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Presented method allows to sort a whole AVX512 register or its subrange, it is
+a variant of <a class="reference external" href="http://en.wikipedia.org/wiki/Counting_sort">counting sort</a>. The time complexity is linear, moreover method
+works entirely on registers, no extra memory operations are done. It may also
+be easily extended to sorting more than one register.</p>
+<p>The method is suitable for sorting 32- and 64-bit integers, and also floating
+point numbers, both single and double precision.</p>
+</div>
+<div class="section" id="algorithm">
+<h1>Algorithm</h1>
+<p>A single step of the algorithm consist:</p>
+<ol class="arabic simple">
+<li>Broadcast i-th element of the input.</li>
+<li>Compare for less the broadcast vector with the input. This
+yields the number of items less than i-th item.</li>
+<li>Likewise compare for equality. This yields number of item's
+repetitions</li>
+<li>Having these two numbers we can form a mask which can be
+used to merge the broadcast vector with a result vector,
+putting i-th number at the correct position.</li>
+</ol>
+<p>This is repeated for <strong>every item</strong> of input. When sorting 32-bit numbers
+16 iterations have to be done.</p>
+<div class="section" id="example">
+<h2>Example</h2>
+<pre class="literal-block">
+result = [   0,   0,   0,   0,   0,   0,   0,   0]
+input  = [  10,   1,   5,  20,  10,   8,  60,  99]
+brds   = [  10,  10,  10,  10,  10,  10,  10,  10] - broadcast 10
+
+less   = [   0,   1,   1,   0,   0,   1,   0,   0] -&gt; 3 items less than 10
+equal  = [   1,   0,   0,   0,   1,   0,   0,   0] -&gt; 10 repeats 2 times
+
+mask   = (1 &lt;&lt; (3 + 2)) - (1 &lt;&lt; 3) = 0b00011000
+
+result = merge(brds, mask)
+         [   0,   0,   0,  10,  10,   0,   0,   0]
+</pre>
+</div>
+<div class="section" id="implementation">
+<h2>Implementation</h2>
+<p>Sample implementation with loop. It is slower than fully unrolled
+code.</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">avx512_sort_loop_epi32</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">index</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">();</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">incr</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w">  </span><span class="n">b</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">lt</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_popcnt_u32</span><span class="p">(</span><span class="n">_mm512_cmplt_epi32_mask</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">eq</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_popcnt_u32</span><span class="p">(</span><span class="n">_mm512_cmpeq_epi32_mask</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="n">lt</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">eq</span><span class="p">))</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">lt</span><span class="p">);</span><span class="w">
+        </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_mov_epi32</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">);</span><span class="w">
+        </span><span class="n">index</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">incr</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="performance-results">
+<h2>Performance results</h2>
+<p>Compiler: GCC 5.3.0
+CPU: Knights Landing 7120</p>
+<p>Sorting 16 x 32-bit numbers (one AVX512 register)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="65%" />
+<col width="35%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">algorithm</th>
+<th class="head">time [s]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>std::sort</td>
+<td>1.53</td>
+</tr>
+<tr><td>insertion sort</td>
+<td>5.55</td>
+</tr>
+<tr><td>AVX512F unrolled</td>
+<td>1.77</td>
+</tr>
+<tr><td>AVX512F (for loop)</td>
+<td>2.04</td>
+</tr>
+</tbody>
+</table>
+<p>Sorting 32 x 32-bit numbers (two AVX512 registers)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="65%" />
+<col width="35%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">algorithm</th>
+<th class="head">time [s]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>std::sort</td>
+<td>5.24</td>
+</tr>
+<tr><td>insertion sort</td>
+<td>12.99</td>
+</tr>
+<tr><td>AVX512F unrolled</td>
+<td>5.78</td>
+</tr>
+</tbody>
+</table>
+<p>Speed of vectorized algorithms is comparable to std::sort for C++ library.
+However, the algorithms are not meant to be used as a replacement of library
+function, but as a part of other algorithms. For instance the unrolled
+vectorized algorithm was used in <a class="reference external" href="http://en.wikipedia.org/wiki/Quicksort">quicksort</a> implementation
+to sort short ranges, making the whole sorting substantially faster.</p>
+</div>
+<div class="section" id="source-code">
+<h2>Source code</h2>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/avx512-sort">Github repository</a> contains various variants of sorting and a test program.</p>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-10-08-avx512-sort-register.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+</html>

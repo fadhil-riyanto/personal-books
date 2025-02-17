@@ -1,0 +1,226 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/fixup.php?f=vfixupimmps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:22 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/fixup.php?f=vfixupimmps" />
+<link rel="alternate" hreflang="en" href="fixup4ba3.html?f=vfixupimmps" />
+    <title>vfixupimmps</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+<body>
+
+<h2>VFIXUPIMMPS - FIX UP IMMediate Packed Single</h2>
+VFIXUPIMMPS <span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m32bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128  _mm_fixupimm_ps(__m128  a, __m128  b, __m128i  c, int imm8);</span><br />
+<span class="intr">__m128  _mm_mask_fixupimm_ps(__m128  a, __mmask8  k, __m128  b, __m128i  c, int imm8);</span><br />
+<span class="intr">__m128  _mm_maskz_fixupimm_ps(__mmask8  k, __m128  a, __m128  b, __m128i  c, int imm8);</span><br />
+<br />
+<div style="height: 2px;"></div><img src="ternlog_dword_128.png" /><br />
+<span style="padding-left: 110px">For each float, look up the table of (3) using the value of (2), and set the value indicated by (3) to the first operand <span class="intr">(return value)</span>.</span><br />
+<div style="height: 30px"></div>
+VFIXUPIMMPS <span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m32bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256  _mm256_fixupimm_ps(__m256  a, __m256  b, __m256i  c, int imm8);</span><br />
+<span class="intr">__m256  _mm256_mask_fixupimm_ps(__m256  a, __mmask8  k, __m256  b, __m256i  c, int imm8);</span><br />
+<span class="intr">__m256  _mm256_maskz_fixupimm_ps(__mmask8  k, __m256  a, __m256  b, __m256i  c, int imm8);</span><br />
+<br />
+<div style="height: 2px;"></div><img src="ternlog_dword_256.png" /><br />
+<span style="padding-left: 110px">For each float, look up the table of (3) using the value of (2), and set the value indicated by (3) to the first operand <span class="intr">(return value)</span>.</span><br />
+<div style="height: 30px"></div>
+VFIXUPIMMPS <span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m32bcst{sae}, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512  _mm512_fixupimm_ps(__m512  a, __m512  b, __m512i  c, int imm8);</span><br />
+<span class="intr">__m512  _mm512_mask_fixupimm_ps(__m512  a, __mmask16  k, __m512  b, __m512i  c, int imm8);</span><br />
+<span class="intr">__m512  _mm512_maskz_fixupimm_ps(__mmask16  k, __m512  a, __m512  b, __m512i  c, int imm8);</span><br />
+<span class="intr">__m512  _mm512_fixupimm_round_ps(__m512  a, __m512  b, __m512i  c, int imm8, int sae);</span><br />
+<span class="intr">__m512  _mm512_mask_fixupimm_round_ps(__m512  a, __mmask16  k, __m512  b, __m512i  c, int imm8, int sae);</span><br />
+<span class="intr">__m512  _mm512_maskz_fixupimm_round_ps(__mmask16  k, __m512  a, __m512  b, __m512i  c, int imm8, int sae);</span><br />
+<br />
+<div style="height: 2px;"></div><img src="ternlog_dword_512.png" /><br />
+<span style="padding-left: 110px">For each float, look up the table of (3) using the value of (2), and set the value indicated by (3) to the first operand <span class="intr">(return value)</span>.</span><br />
+<div style="height: 30px"></div>
+
+<p>The table of (3)</p>
+
+<p>Specify the following in each DWORD of (3).</p>
+<table>
+    <tr>
+        <th>bit 3:0</th>
+        <td>Specify what to return when (2) is QNaN.</td>
+    </tr>
+    <tr>
+        <th>bit 7:4</th>
+        <td>Specify what to return when (2) is SNaN.</td>
+    </tr>
+    <tr>
+        <th>bit 11:8</th>
+        <td>Specify what to return when (2) is zero.</td>
+    </tr>
+    <tr>
+        <th>bit 15:12</th>
+        <td>Specify what to return when (2) is positive 1.</td>
+    </tr>
+    <tr>
+        <th>bit 19:16</th>
+        <td>Specify what to return when (2) is negative infinity.</td>
+    </tr>
+    <tr>
+        <th>bit 23:20</th>
+        <td>Specify what to return when (2) is positive inifinity.</td>
+    </tr>
+    <tr>
+        <th>bit 27:24</th>
+        <td>Specify what to return when (2) is negative.</td>
+    </tr>
+    <tr>
+        <th>bit 31:28</th>
+        <td>Specify what to return when (2) is positive.</td>
+    </tr>
+
+</table>
+<p></p>
+<p>What to return:</p>
+<table>
+    <tr>
+        <th>0000</th>
+        <td>the value of (1)</td>
+    </tr>
+    <tr>
+        <th>0001</th>
+        <td>the value of (2)</td>
+    </tr>
+    <tr>
+        <th>0010</th>
+        <td>QNaN( (2) )</td>
+    </tr>
+    <tr>
+        <th>0011</th>
+        <td>QNaN_Indefinite</td>
+    </tr>
+    <tr>
+        <th>0100</th>
+        <td>negative infinity</td>
+    </tr>
+    <tr>
+        <th>0101</th>
+        <td>positive infinity</td>
+    </tr>
+    <tr>
+        <th>0110</th>
+        <td>infinity with the sign of (2)</td>
+    </tr>
+    <tr>
+        <th>0111</th>
+        <td>negative zero</td>
+    </tr>
+    <tr>
+        <th>1000</th>
+        <td>positive zero</td>
+    </tr>
+    <tr>
+        <th>1001</th>
+        <td>negative 1</td>
+    </tr>
+    <tr>
+        <th>1010</th>
+        <td>positive 1</td>
+    </tr>
+    <tr>
+        <th>1011</th>
+        <td>0.5</td>
+    </tr>
+    <tr>
+        <th>1100</th>
+        <td>90.0</td>
+    </tr>
+    <tr>
+        <th>1101</th>
+        <td>PI / 2</td>
+    </tr>
+    <tr>
+        <th>1110</th>
+        <td>the max value of float type</td>
+    </tr>
+    <tr>
+        <th>1111</th>
+        <td> - (the max value of float type)</td>
+    </tr>
+</table>
+<p>If each bit of imm8 is set, MXCSR IE/ZE flags are set when any elements of (2) have the specific value.</p>
+<table>
+    <tr>
+        <th>imm8 bit 7</th>
+        <td>positive infinity -&gt; IE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 6</th>
+        <td>negative -&gt; IE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 5</th>
+        <td>negative infinity -&gt; IE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 4</th>
+        <td>SNaN -&gt; IE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 3</th>
+        <td>1 -&gt; IE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 2</th>
+        <td>1 -&gt; ZE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 1</th>
+        <td>zero -&gt; IE</td>
+    </tr>
+    <tr>
+        <th>imm8 bit 0</th>
+        <td>zero -&gt; ZE</td>
+    </tr>
+</table>
+
+
+
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vfixupimmps" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/fixup.php?f=vfixupimmps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:25 GMT -->
+</html>

@@ -1,0 +1,538 @@
+<!DOCTYPE html><html lang="zh">
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter2.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+<head>
+        <title>2 Task Classification &#xB7; Linux Process Schedule</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content>
+        <meta name="generator" content="GitBook 3.1.1">
+        <meta name="author" content="Ezio Zhang">
+        
+        
+    
+    <link rel="stylesheet" href="gitbook/style.css">
+
+    
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-comment/plugin.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-highlight/website.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-search/search.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-fontsettings/website.css">
+                
+            
+        
+
+    
+
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+
+        
+    
+    
+    <meta name="HandheldFriendly" content="true">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="gitbook/images/apple-touch-icon-precomposed-152.png">
+    <link rel="shortcut icon" href="https://gstatic.gitbook.com/images/b1c4c86ca817a71628d2debe73be9a64.ico" type="image/x-icon">
+
+    
+    <link rel="next" href="chapter3.html">
+    
+    
+    <link rel="prev" href="chapter1.html">
+    
+
+    
+<style>
+    .book .book-summary .book-search,
+    .book .book-summary ul.summary {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        bottom: auto;
+    }
+    .book-summary {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        display: flex;
+        flex-direction: column;
+        -webkit-box-orient: vertical;
+        -webkit-box-direction: normal;
+        overflow-y: auto;
+    }
+    .book-summary > nav {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overflow-y: overlay;
+    }
+    .gl-wrapper {
+        margin: 0;
+        display: block;
+        padding: 0;
+        position: relative;
+        line-height: 15px;
+        background: #fafafa;
+    }
+    .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        background: -moz-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        top: -24px;
+        width: 100%;
+        height: 24px;
+        content: "";
+        display: block;
+        position: absolute;
+        background: linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+    }
+    .book.color-theme-1 .gl-wrapper {
+        background: #121212;
+    }
+    .book.color-theme-1 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: -moz-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+    }
+    .book.color-theme-2 .gl-wrapper {
+        background: #2e3243;
+    }
+    .book.color-theme-2 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: -moz-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+    }
+    .gl-wrapper .gitbook-link {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        color: #9DAAB6;
+        margin: 16px;
+        display: flex;
+        padding: 0;
+        align-items: center;
+        margin-left: 32px;
+        padding-top: 8px;
+        padding-left: 16px;
+        border-radius: 3px;
+        padding-right: 16px;
+        padding-bottom: 8px;
+        text-decoration: none;
+        background-color: #E6ECF1;
+        -webkit-box-align: center;
+    }
+    .gl-wrapper .tm-logo {
+        margin: 0;
+        display: block;
+        padding: 0;
+        font-size: 40px;
+    }
+    .gl-wrapper .tm-content {
+        flex: 1;
+        margin: 0;
+        display: block;
+        padding: 0;
+        padding-left: 16px;
+    }
+    .gl-wrapper .tm-content .container {
+        margin: 0;
+        display: block;
+        padding: 0;
+    }
+    .gl-wrapper .tm-content .tm-container .tm-text {
+        font-size: 12px;
+        font-family: "Roboto", sans-serif;
+        font-weight: 400;
+        line-height: 1.625;
+    }
+</style></head>
+    <body>
+        
+<div class="book">
+    <div class="book-summary">
+        
+            
+<div id="book-search-input" role="search">
+    <input type="text" placeholder="Type to search">
+</div>
+
+            
+                <nav role="navigation">
+                
+
+
+<ul class="summary">
+    
+    
+    
+        
+        <li>
+            <a href="https://www.gitbook.com/book/oska874/process-scheduling-in-linux" target="_blank" class="custom-link">Linux Process Schedule</a>
+        </li>
+    
+    
+
+    
+    <li class="divider"></li>
+    
+
+    
+        
+        
+    
+        <li class="chapter " data-level="1.1" data-path="./">
+            
+                <a href="index.html">
+            
+                    
+                    Introduction
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.2" data-path="chapter1.html">
+            
+                <a href="chapter1.html">
+            
+                    
+                    1 Process Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter active" data-level="1.3" data-path="chapter2.html">
+            
+                <a href="chapter2.html">
+            
+                    
+                    2 Task Classification
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.4" data-path="chapter3.html">
+            
+                <a href="chapter3.html">
+            
+                    
+                    3 Scheduling Classes
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.5" data-path="chapter4.html">
+            
+                <a href="chapter4.html">
+            
+                    
+                    4 Main Runqueue
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.6" data-path="chapter5.html">
+            
+                <a href="chapter5.html">
+            
+                    
+                    5 Scheduler Skeleton
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.7" data-path="chapter6.html">
+            
+                <a href="chapter6.html">
+            
+                    
+                    6 Short Scheduling Algorithm History
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.8" data-path="chapter7.html">
+            
+                <a href="chapter7.html">
+            
+                    
+                    7 Completely Fair Scheduler (CFS)
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.9" data-path="chapter8.html">
+            
+                <a href="chapter8.html">
+            
+                    
+                    8 CFS Implementation Details
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.10" data-path="chapter9.html">
+            
+                <a href="chapter9.html">
+            
+                    
+                    9 Soft Real-Time Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.11" data-path="chapter10.html">
+            
+                <a href="chapter10.html">
+            
+                    
+                    10 Load Balancing on SMP Systems
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.12" data-path="chapter11.html">
+            
+                <a href="chapter11.html">
+            
+                    
+                    11 Real Time Load Balancing
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.13" data-path="chapter12.html">
+            
+                <a href="chapter12.html">
+            
+                    
+                    12. Resources
+            
+                </a>
+            
+
+            
+        </li>
+    
+
+    
+
+    <li class="divider"></li>
+
+    
+</ul>
+
+
+                </nav>
+            
+        
+    
+<div class="gl-wrapper">
+    <a class="gitbook-link" href="https://www.gitbook.com/?utm_source=public_site_legacy&amp;utm_medium=referral&amp;utm_campaign=trademark&amp;utm_term=oska874&amp;utm_content=powered_by" target="blank">
+        <div class="tm-logo">
+            <svg preserveAspectRatio="xMidYMid meet" height="1em" width="1em" fill="currentColor" viewBox="0 0 1067 769" xmlns="http://www.w3.org/2000/svg" stroke="none" class="icon-7f6730be--text-3f89f380"><g><path d="M480.026 640.677c17.205 0 31.2 13.997 31.2 31.194s-13.995 31.193-31.2 31.193c-17.197 0-31.193-13.996-31.193-31.193 0-17.197 13.996-31.194 31.193-31.194m489.93-193.226c-17.203 0-31.2-13.998-31.2-31.195 0-17.204 13.997-31.2 31.2-31.2 17.198 0 31.194 13.996 31.194 31.2 0 17.197-13.996 31.195-31.193 31.195m0-127.804c-53.269 0-96.609 43.34-96.609 96.609 0 10.373 1.723 20.702 5.123 30.741L559.328 616.879c-18.132-26.128-47.521-41.617-79.302-41.617-36.821 0-70.391 21.065-86.63 54.003L106.68 478.109c-30.288-15.927-52.965-65.817-50.56-111.223 1.248-23.687 9.438-42.071 21.897-49.17 7.916-4.493 17.436-4.099 27.526 1.188l1.916 1.01c75.96 40.022 324.6 170.981 335.063 175.844 16.157 7.47 25.14 10.5 52.659-2.547l513.958-267.3c7.53-2.844 16.315-10.062 16.315-21.023 0-15.205-15.72-21.199-15.765-21.199-29.218-14.018-74.163-35.054-117.987-55.57C798.033 84.26 691.861 34.547 645.23 10.132c-40.253-21.072-72.655-3.311-78.432.282l-11.227 5.555C345.727 119.743 64.898 258.826 48.911 268.553 20.278 285.973 2.547 320.679.252 363.768c-3.586 68.304 31.261 139.506 81.069 165.634l303.172 156.354c6.83 47.306 47.55 82.725 95.532 82.725 52.78 0 95.808-42.546 96.603-95.14L910.541 492.38c16.93 13.233 37.92 20.486 59.416 20.486 53.268 0 96.61-43.341 96.61-96.61s-43.342-96.61-96.61-96.61" fill-rule="evenodd"/></g></svg>
+        </div>
+        <div class="tm-content">
+            <div class="tm-container">
+                <span class="tm-text">
+                    Powered by <b>GitBook</b>
+                </span>
+            </div>
+        </div>
+    </a>
+</div></div>
+
+    <div class="book-body">
+        
+            <div class="body-inner">
+                
+                    
+
+<div class="book-header" role="navigation">
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href=".html">2 Task Classification</a>
+    </h1>
+</div>
+
+
+
+
+                    <div class="page-wrapper" tabindex="-1" role="main">
+                        <div class="page-inner">
+                            
+<div id="book-search-results">
+    <div class="search-noresults">
+    
+                                <section class="normal markdown-section">
+                                
+                                <h1 id="2-task-classification">2. Task Classification</h1>
+<h2 id="21-cpu-bound-vs-io-bound">2.1. CPU-bound vs. I/O bound</h2>
+<p>Tasks tend to be either CPU-bound or I/O bound. That is, some threads spend a lot of time using the CPU to do computations, and others spend a lot of time waiting for relatively slow I/O operations to complete. I/O operations, in that context, can be waiting for user input, disk or network accesses.</p>
+<p>This also strongly depends on the system the tasks are running on. A server or HPC (high performance computing) workload generally consists mostly of CPU-bound tasks whereas desktop or mobile workloads are mainly I/O bound.</p>
+<p>The Linux OS runs on all those system and is therefore designed to handle all types of tasks. To cope with that, its scheduler needs to be responsive for I/O bound tasks and efficient for CPU-bound ones. If tasks run for longer periods of time, they can accomplish more work but responsiveness suffers. If time periods per task get shorter, the system can react faster on I/O events but more time is spent on running the scheduling algorithm between task switches and efficiency suffers. This puts the scheduler in a give and take situation which needs it to find a balance betweenthose two requirements.</p>
+<h2 id="22-real-time-vs-normal">2.2. Real Time vs. Normal</h2>
+<p>Furthermore, tasks running on Linux can explicitly be classified as real time (RT) or normal tasks.Real time tasks have strict timing requirements and therefore priority over any other task on the system. Different scheduling policies are used for RT and normal tasks which are implemented in the scheduler by using scheduling classes.</p>
+<h2 id="23-task-priority-values">2.3. Task Priority Values</h2>
+<p>Higher priorities in the kernel have a numerical smaller value. Real time priorities range from 1 (highest) &#x2013; 99 whereas normal priorities range from 100 &#x2013; 139 (lowest). There can, however, be confusion when using system calls or scheduler library functions to set priorities. There, the numerical order can be reversed and/or mapped to different values (nice values).</p>
+<hr>
+<h1 id="2-&#x4EFB;&#x52A1;&#x5206;&#x7C7B;">2. &#x4EFB;&#x52A1;&#x5206;&#x7C7B;</h1>
+<h2 id="21-cpu-&#x9650;&#x5236;-vs-io-&#x9650;&#x5236;">2.1. CPU &#x9650;&#x5236; vs. I/O &#x9650;&#x5236;</h2>
+<p>&#x4EFB;&#x52A1;&#x8981;&#x4E48;&#x662F;&#x9650;&#x5236;&#x5728; CPU &#x8981;&#x4E48;&#x9650;&#x5236;&#x5728; I/O&#x3002;&#x4E5F;&#x5C31;&#x662F;&#x8BF4;&#xFF0C;&#x4E00;&#x4E9B;&#x7EBF;&#x7A0B;&#x4F1A;&#x4F7F;&#x7528; CPU &#x8FDB;&#x884C;&#x5927;&#x91CF;&#x7684;&#x8FD0;&#x7B97;&#xFF0C;&#x800C;&#x53E6;&#x4E00;&#x4E9B;&#x5219;&#x4F1A;&#x82B1;&#x8D39;&#x5F88;&#x591A;&#x65F6;&#x95F4;&#x7B49;&#x5F85;&#x76F8;&#x5BF9;&#x8F83;&#x6162;&#x7684; I/O &#x64CD;&#x4F5C;&#x5B8C;&#x6210;&#x3002;&#x5728;&#x672C;&#x6587;&#xFF0C; I/O &#x64CD;&#x4F5C;&#x53EF;&#x80FD;&#x662F;&#x7B49;&#x5F85;&#x7528;&#x6237;&#x8F93;&#x5165;&#xFF0C;&#x78C1;&#x76D8;&#x6216;&#x7F51;&#x7EDC;&#x8BBF;&#x95EE;&#x3002;</p>
+<p>&#x540C;&#x65F6;&#x8FD9;&#x79CD;&#x5206;&#x7C7B;&#x4E5F;&#x5F3A;&#x70C8;&#x4F9D;&#x8D56;&#x4E8E;&#x4EFB;&#x52A1;&#x8FD0;&#x884C;&#x7684;&#x7CFB;&#x7EDF;&#x3002;&#x4E00;&#x4E2A;&#x670D;&#x52A1;&#x5668;&#x6216;&#x8005; HPC &#xFF08;&#x8D85;&#x7EA7;&#x8BA1;&#x7B97;&#x673A;&#xFF09;&#x7684;&#x8D1F;&#x8F7D;&#x901A;&#x5E38;&#x662F; CPU &#x9650;&#x5236;&#x4EFB;&#x52A1;&#xFF0C;&#x800C;&#x684C;&#x9762;&#x6216;&#x8005;&#x79FB;&#x52A8;&#x5E73;&#x53F0;&#x7684;&#x8D1F;&#x8F7D;&#x4E3B;&#x8981;&#x662F; I/O &#x9650;&#x5236;&#x4EFB;&#x52A1;&#x3002;</p>
+<p>Linux &#x64CD;&#x4F5C;&#x7CFB;&#x7EDF;&#x8FD0;&#x884C;&#x5728;&#x8FD9;&#x4E9B;&#x7CFB;&#x7EDF;&#x4E4B;&#x4E0A;&#xFF0C;&#x4E5F;&#x56E0;&#x6B64;&#x8BBE;&#x8BA1;&#x65F6;&#x5C31;&#x662F;&#x8981;&#x5E94;&#x5BF9;&#x6240;&#x6709;&#x7C7B;&#x578B;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x8981;&#x89E3;&#x51B3;&#x8FD9;&#x4E2A;&#x95EE;&#x9898;&#xFF0C; Linux &#x7684;&#x8C03;&#x5EA6;&#x5668;&#x9700;&#x8981;&#x8D1F;&#x8D23;&#x53CA;&#x65F6;&#x54CD;&#x5E94; I/O &#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;&#xFF0C;&#x63D0;&#x9AD8; CPU &#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;&#x7684;&#x6548;&#x7387;&#x3002;&#x5982;&#x679C;&#x4EFB;&#x52A1;&#x8981;&#x8FD0;&#x884C;&#x66F4;&#x957F;&#x7684;&#x65F6;&#x95F4;&#x5468;&#x671F;&#xFF0C;&#x8FD9;&#x6837;&#x4ED6;&#x4EEC;&#x5462;&#x5C31;&#x80FD;&#x5B8C;&#x6210;&#x66F4;&#x591A;&#x7684;&#x5DE5;&#x4F5C;&#xFF0C;&#x4F46;&#x662F;&#x54CD;&#x5E94;&#x6027;&#x4F1A;&#x53D7;&#x5F71;&#x54CD;&#x3002;&#x5982;&#x679C;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x7684;&#x65F6;&#x95F4;&#x5468;&#x671F;&#x77ED;&#x4E00;&#x4E9B;&#xFF0C;&#x5219;&#x7CFB;&#x7EDF;&#x80FD;&#x66F4;&#x5FEB;&#x7684;&#x76F8;&#x5E94; I/O &#x4E8B;&#x4EF6;&#xFF0C;&#x4F46;&#x662F;&#x8FD9;&#x53C8;&#x4F1A;&#x5BFC;&#x81F4;&#x82B1;&#x8D39;&#x66F4;&#x591A;&#x7684;&#x65F6;&#x95F4;&#x5728;&#x8FD0;&#x884C;&#x8C03;&#x5EA6;&#x7B97;&#x6CD5;&#x5728;&#x4EFB;&#x52A1;&#x5207;&#x6362;&#x4E0A;&#xFF0C;&#x6548;&#x7387;&#x4F1A;&#x4F1A;&#x53D7;&#x5230;&#x5F71;&#x54CD;&#x3002;&#x8FD9;&#x5C31;&#x8981;&#x6C42;&#x8C03;&#x5EA6;&#x5668;&#x9700;&#x8981;&#x6709;&#x53D6;&#x6709;&#x820D;&#xFF0C;&#x5E76;&#x4E14;&#x8981;&#x5728;&#x4E24;&#x4E2A;&#x9700;&#x6C42;&#x4E4B;&#x95F4;&#x53D6;&#x5F97;&#x5E73;&#x8861;&#x3002;</p>
+<h2 id="22-&#x5B9E;&#x65F6;-vs-&#x666E;&#x901A;">2.2. &#x5B9E;&#x65F6; vs. &#x666E;&#x901A;</h2>
+<p>&#x66F4;&#x8FDB;&#x4E00;&#x6B65;&#xFF0C;&#x8FD0;&#x884C;&#x5728; Linux &#x4E0A;&#x7684;&#x4EFB;&#x52A1;&#x53EF;&#x4EE5;&#x660E;&#x786E;&#x7684;&#x5206;&#x4E3A;&#x5B9E;&#x65F6;&#xFF08;RT&#xFF09;&#x4EFB;&#x52A1;&#x548C;&#x666E;&#x901A;&#x4EFB;&#x52A1;&#x3002;&#x5B9E;&#x65F6;&#x4EFB;&#x52A1;&#x6709;&#x4E25;&#x683C;&#x7684;&#x65F6;&#x5E8F;&#x8981;&#x6C42;&#xFF0C;&#x4E5F;&#x56E0;&#x6B64;&#x6BD4;&#x7CFB;&#x7EDF;&#x4E0A;&#x7684;&#x5176;&#x4ED6;&#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x8981;&#x9AD8;&#x3002;&#x901A;&#x8FC7;&#x8C03;&#x5EA6;&#x5206;&#x7C7B;&#xFF0C;&#x9488;&#x5BF9; RT &#x4EFB;&#x52A1;&#x548C;&#x666E;&#x901A;&#x4EFB;&#x52A1;&#x91C7;&#x7528;&#x4E86;&#x4E0D;&#x540C;&#x7684;&#x8C03;&#x5EA6;&#x7B56;&#x7565;&#x5B9E;&#x73B0;&#x8C03;&#x5EA6;&#x5668;&#x3002;</p>
+<h2 id="23-&#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x503C;">2.3. &#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x503C;</h2>
+<p>&#x5728;&#x5185;&#x6838;&#x91CC;&#xFF0C;&#x9AD8;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x5728;&#x6570;&#x503C;&#x4E0A;&#x66F4;&#x5C0F;&#x3002;&#x5B9E;&#x65F6;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x4ECE; 1&#xFF08;&#x6700;&#x9AD8;&#xFF09;&#x5230; 99&#xFF0C;&#x800C;&#x666E;&#x901A;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x4ECE; 100 &#x5230; 139&#xFF08;&#x6700;&#x4F4E;&#xFF09;&#x3002;&#x7136;&#x800C;&#x8FD9;&#x6837;&#x53C8;&#x4F1A;&#x5728;&#x4F7F;&#x7528;&#x7CFB;&#x7EDF;&#x8C03;&#x7528;&#x6216;&#x8005;&#x8C03;&#x5EA6;&#x5668;&#x5E93;&#x51FD;&#x6570;&#x4FEE;&#x6539;&#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x65F6;&#x4EA7;&#x751F;&#x6DF7;&#x4E71;&#x3002;&#x56E0;&#x4E3A;&#x6570;&#x5B57;&#x7684;&#x987A;&#x5E8F;&#x53EF;&#x4EE5;&#x88AB;&#x53CD;&#x8F6C;&#x548C;/&#x6216;&#x88AB;&#x6620;&#x5C04;&#x5230;&#x4E0D;&#x540C;&#x7684;&#x503C;&#xFF08;&#x5373; <a href="https://zh.wikipedia.org/wiki/Nice值" target="_blank">nice &#x503C;</a>&#xFF09;</p>
+
+                                
+                                </section>
+                            
+    </div>
+    <div class="search-results">
+        <div class="has-results">
+            
+            <h1 class="search-results-title"><span class="search-results-count"></span> results matching &quot;<span class="search-query"></span>&quot;</h1>
+            <ul class="search-results-list"></ul>
+            
+        </div>
+        <div class="no-results">
+            
+            <h1 class="search-results-title">No results matching &quot;<span class="search-query"></span>&quot;</h1>
+            
+        </div>
+    </div>
+</div>
+
+                        </div>
+                    </div>
+                
+            </div>
+
+            
+                
+                <a href="chapter1.html" class="navigation navigation-prev " aria-label="Previous page: 1 Process Scheduling">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+                
+                
+                <a href="chapter3.html" class="navigation navigation-next " aria-label="Next page: 3 Scheduling Classes">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+                
+            
+        
+    </div>
+
+    <script>
+        var gitbook = gitbook || [];
+        gitbook.push(function() {
+            gitbook.page.hasChanged({"page":{"title":"2 Task Classification","level":"1.3","depth":1,"next":{"title":"3 Scheduling Classes","level":"1.4","depth":1,"path":"chapter3.md","ref":"chapter3.md","articles":[]},"previous":{"title":"1 Process Scheduling","level":"1.2","depth":1,"path":"chapter1.md","ref":"chapter1.md","articles":[]},"dir":"ltr"},"config":{"plugins":["comment"],"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"pluginsConfig":{"comment":{"highlightCommented":true},"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"theme":"default","author":"Ezio Zhang","pdf":{"pageNumbers":true,"fontSize":16,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"variables":{},"title":"Linux Process Schedule","language":"zh","links":{"sidebar":{"Linux Process Schedule":"https://www.gitbook.com/book/oska874/process-scheduling-in-linux"},"gitbook":true},"gitbook":"*","description":"tittle : Process Scheduling in Linux\r\n\r\nauthor : Volker Seeker – University of Edinburgh\r\n\r\ntype : technology translation\r\n\r\ninterpret : Ezio"},"file":{"path":"chapter2.md","mtime":"2016-08-11T15:51:40.000Z","type":"markdown"},"gitbook":{"version":"3.1.1","time":"2016-08-12T02:04:09.535Z"},"basePath":".","book":{"language":""}});
+        });
+    </script>
+</div>
+
+        
+    <script src="gitbook/gitbook.js"></script>
+    <script src="gitbook/theme.js"></script>
+    
+        
+        <script src="gitbook/gitbook-plugin-comment/plugin.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search-engine.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-sharing/buttons.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+        
+    
+
+    
+
+
+</body>
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter2.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+</html>

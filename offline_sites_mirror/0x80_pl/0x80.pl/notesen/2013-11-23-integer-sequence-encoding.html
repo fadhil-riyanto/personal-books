@@ -1,0 +1,800 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2013-11-23-integer-sequence-encoding.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Encoding array of unsigned integers</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="encoding-array-of-unsigned-integers">
+<h1 class="title">Encoding array of unsigned integers</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2013-11-23</td>
+</tr>
+<tr class="update field"><th class="docinfo-name">Update:</th><td class="field-body">2013-11-24 (minor updates), 2013-12-01 (pair encoding)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#better-compression" id="toc-entry-2">Better compression</a><ul>
+<li><a class="reference internal" href="#encoding-subsets-of-close-values" id="toc-entry-3">Encoding subsets of close values</a><ul>
+<li><a class="reference internal" href="#subset-selection-algorithm" id="toc-entry-4">Subset selection algorithm</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#varnibble" id="toc-entry-5">Varnibble</a></li>
+<li><a class="reference internal" href="#varbits" id="toc-entry-6">Varbits</a></li>
+<li><a class="reference internal" href="#pair-encoding" id="toc-entry-7">Pair encoding</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-8">Experiments</a><ul>
+<li><a class="reference internal" href="#sample-data" id="toc-entry-9">Sample data</a></li>
+<li><a class="reference internal" href="#method-1-variable-length-bitfields" id="toc-entry-10">Method 1 &mdash; Variable length bitfields</a></li>
+<li><a class="reference internal" href="#method-2-varnibble" id="toc-entry-11">Method 2 &mdash; Varnibble</a></li>
+<li><a class="reference internal" href="#method-3-subsets-of-close-values" id="toc-entry-12">Method 3 &mdash; Subsets of close values</a></li>
+<li><a class="reference internal" href="#method-4-pick-better-subsets-of-close-values-or-varint-varnibble" id="toc-entry-13">Method 4 &mdash; Pick better: subsets of close values or varint/varnibble</a></li>
+<li><a class="reference internal" href="#method-5-varbits" id="toc-entry-14">Method 5 &mdash; Varbits</a></li>
+<li><a class="reference internal" href="#method-6-pair-encoding" id="toc-entry-15">Method 6 &mdash; Pair encoding</a></li>
+<li><a class="reference internal" href="#summary-and-discussion" id="toc-entry-16">Summary and discussion</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-17">Source code</a></li>
+<li><a class="reference internal" href="#bibliography" id="toc-entry-18">Bibliography</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p><strong>Russ Cox</strong> wrote <a class="reference external" href="http://swtch.com/~rsc/regexp/regexp4.html">very interesting article</a> about algorithms behind
+service Google Code Search. In short: files are indexed with trigrams, the query
+string is split to trigrams and then an index is used to limit number
+of searched files.</p>
+<p>Code search manages a reverse index &mdash; there is a file list, and for
+each trigram there is a list of file's id. I've interested how the list
+of file's id is stored on a disc. In the Russ implementation such
+list is built as follows:</p>
+<ul class="simple">
+<li>ids are sorted in ascending order;</li>
+<li>differences between current and previous id are encoded using
+<strong>variable length integers</strong> (<tt class="docutils literal">varint</tt>).</li>
+</ul>
+<p>The variable length integer is a byte-oriented encoding, similar to UTF-8, where
+each byte holds 7 bit of data and 1 bit (MSB) is used as the end-of-word marker.
+Thus smaller values require less bytes: integers less than 128 occupy 1 byte,
+less than 16384 occupy 2 bytes, and so on.</p>
+<p>Important: lists of file's id are encoded <strong>independently</strong>, because
+of that it is not possible to use any common attributes to increase
+compression.</p>
+</div>
+<div class="section" id="better-compression">
+<h1>Better compression</h1>
+<div class="section" id="encoding-subsets-of-close-values">
+<h2>Encoding subsets of close values</h2>
+<p>Downside of byte-oriented encoding is wasting bits if values are
+small. For example list of id:</p>
+<pre class="literal-block">
+[10000, 10001, 10003, 10004, 10006, 10007, 10009, 10010, 10017, 11500]
+</pre>
+<p>after calculating differences becomes:</p>
+<pre class="literal-block">
+[10000, 1, 2, 1, 2, 1, 2, 1, 7, 1488]
+</pre>
+<p>The first and the last value could be saved on 2 bytes, rest on 1 byte &mdash; total 12
+bytes.  Small values are stored on one byte, but in fact require 1, 2 or 3
+bits, so 5-7 bits in a byte are unused.</p>
+<p>It's possible to efficient encode such subset of small values on a <strong>bitset</strong>
+of constant size.  Difference between each value and the first value (&quot;head&quot;)
+are encoded as bit positions. For subset:</p>
+<pre class="literal-block">
+[10000, 10001, 10003, 10004, 10006, 10007, 10009, 10010, 10017]
+</pre>
+<p>we have:</p>
+<ul class="simple">
+<li>head: <tt class="docutils literal">10000</tt> (encoded separately),</li>
+<li>differences set: <tt class="docutils literal">[1, 3, 4, 6, 7, 9, 10, 17]</tt>,</li>
+<li>and differences encoded as 32-bit bitset <tt class="docutils literal">00000000000000010000001101101101</tt>.</li>
+</ul>
+<p>Instead of 12 bytes we got 2 + 4 + 2 = 8. Of course for longer subsets results
+are better, in the best case we can encode one value using just one bit; however,
+for subsets smaller than 6 elements this operation has no sense.</p>
+<p>Note: There is an encoding scheme called <tt class="docutils literal">Simple9</tt> (see the first position in
+bibliography) that can achieve similar compression ratio, but <tt class="docutils literal">Simple9</tt>
+requires a 4-bit header per 28-bit data word, thus compression ratio in the same
+scenario would be smaller.</p>
+<div class="section" id="subset-selection-algorithm">
+<h3>Subset selection algorithm</h3>
+<p>I've checked two methods:</p>
+<ul class="simple">
+<li><strong>greedy</strong> &mdash; find longest subset in the values, then remove it,
+repeat until no more subsets could be found;</li>
+<li><strong>first match</strong> &mdash; sequence scan on sequence elements, get the
+longest subset starting from the current value.</li>
+</ul>
+<p>Although <strong>first match</strong> seems to be &quot;too easy&quot;, this method
+gives better compression ratio than <strong>greedy</strong>. Moreover is very
+fast and simple to implement. Greedy is very, very slow &mdash; well
+maybe some kind of dynamic programming would help, but this wasn't
+the main subject of research, so I left it &quot;as is&quot;.</p>
+<p>All results presented here use <strong>first match</strong> searching.</p>
+</div>
+</div>
+<div class="section" id="varnibble">
+<h2>Varnibble</h2>
+<p><tt class="docutils literal">Varnibble</tt> encoding is similar to <tt class="docutils literal">varint</tt>, in this case we operate on
+4-bit words instead of 8 bits &mdash; each word contains 3 bits of data and 1 bit
+of end-value marker. This encoding require some bit operations (shift, and, or)
+but with constant shifts amounts/masks, so this isn't as expansive as other
+bit-level encoding schemes.</p>
+<p><tt class="docutils literal">Varnibble</tt> decreases mentioned earlier &quot;bit-wasting&quot; for small values.</p>
+</div>
+<div class="section" id="varbits">
+<h2>Varbits</h2>
+<p>This is generalization of <tt class="docutils literal">varint</tt> and <tt class="docutils literal">varnibble</tt> &mdash; the number of
+data bits can be arbitrary. Selecting the number of bits is done once
+for the whole sequence, this number is saved on one byte, then all elements
+are encoded.</p>
+</div>
+<div class="section" id="pair-encoding">
+<h2>Pair encoding</h2>
+<p>There is compression method called &quot;byte pair encoding&quot;, in pair encoding
+'values' are used instead of bytes. Algorithm:</p>
+<ol class="arabic simple">
+<li>Find the pair of symbols occur most frequently in a sequence</li>
+<li>If there is no such pair &mdash; exit</li>
+<li>Assign new value to that pair</li>
+<li>Replace all occurrences of the pair with the new value</li>
+<li>Goto 1</li>
+</ol>
+</div>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<div class="section" id="sample-data">
+<h2>Sample data</h2>
+<p>A set of trigrams and associated file's id were collected from subtree
+of Linux source.  Each list was saved in a separate file, then I picked
+some of them.  Here are some statistics about lists:</p>
+<ul class="simple">
+<li>lists count: 853</li>
+<li>min length: 5</li>
+<li>max length: 13002</li>
+<li>avg length: 711</li>
+</ul>
+<p>The plot shows size of lists encoded as differences with <tt class="docutils literal">varint</tt>. Most
+of them are quite short, only few are long.</p>
+<img alt="2013-11-23-integer-sequence-encoding/varint_diff_samples_size.png" class="align-center" src="2013-11-23-integer-sequence-encoding/varint_diff_samples_size.png" />
+<p>The total size of all lists:</p>
+<ul class="simple">
+<li>values encoded using <tt class="docutils literal">varint</tt>: 1,208,400 B</li>
+<li>differences encoded using <tt class="docutils literal">varint</tt>: 621,208 B</li>
+</ul>
+<p>It's clear that using differences can save up to 50% of space, so other methods
+always use differences instead of plain values.  Results for differences
+encoded with <tt class="docutils literal">varint</tt> (called for short <tt class="docutils literal">varint diff</tt>) are set as
+reference.</p>
+<p>Comparisons with other methods are done for following properties:</p>
+<ol class="arabic simple">
+<li>total size of all encoded lists;</li>
+<li>how many encoded lists have size greater/less/equal;</li>
+<li>relative space save, calculated as: <tt class="docutils literal">(encoded size - varint diff size) / varint diff size</tt>.</li>
+</ol>
+</div>
+<div class="section" id="method-1-variable-length-bitfields">
+<h2>Method 1 &mdash; Variable length bitfields</h2>
+<p>This algorithm finds the minimum number of bits required to save the largest
+value from single list. Then each value is saved on a bitfield of the
+calculated width.</p>
+<p>Algorithm:</p>
+<ul class="simple">
+<li>get the maximum value of differences (except first one)</li>
+<li>calculate number of bits (<span class="math"><i>k</i></span>) required to save max:
+<span class="math">ceil(log<sub>2</sub>max(<i>values</i>))</span>;</li>
+<li>save the first value as a 4-byte word;</li>
+<li>save <span class="math"><i>k</i></span> on 1 byte;</li>
+<li>save differences on k-bits fields.</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>369</td>
+<td>43.26</td>
+<td>121,264</td>
+<td>21.61</td>
+<td rowspan="2">25.04</td>
+</tr>
+<tr><td>equal</td>
+<td>49</td>
+<td>5.74</td>
+<td>19,240</td>
+<td>3.43</td>
+</tr>
+<tr><td>less</td>
+<td>435</td>
+<td>51.00</td>
+<td>420,537</td>
+<td colspan="2">74.96</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">561,041</td>
+</tr>
+<tr><td colspan="3">improvement</td>
+<td colspan="3">90.31%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/bitfields_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/bitfields_vs_varint.png" />
+</div>
+<div class="section" id="method-2-varnibble">
+<h2>Method 2 &mdash; Varnibble</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>48</td>
+<td>5.63</td>
+<td>766</td>
+<td>0.20</td>
+<td rowspan="2">0.52</td>
+</tr>
+<tr><td>equal</td>
+<td>82</td>
+<td>9.61</td>
+<td>1,234</td>
+<td>0.32</td>
+</tr>
+<tr><td>less</td>
+<td>723</td>
+<td>84.76</td>
+<td>385,867</td>
+<td colspan="2">99.48</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">387,867</td>
+</tr>
+<tr><td colspan="3">improvement</td>
+<td colspan="3">62.44%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/varnibble_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/varnibble_vs_varint.png" />
+</div>
+<div class="section" id="method-3-subsets-of-close-values">
+<h2>Method 3 &mdash; Subsets of close values</h2>
+<p>Encoding is done in two steps:</p>
+<ol class="arabic simple">
+<li>Split values to list of pairs (head, differences subset); a difference
+subset <strong>could be empty</strong> if a subset contains less elements then
+cutoff value; in experiments it was 6 elements. Size of such subset
+would be greater than encoded values.</li>
+<li>Head values are treated as a separated sequence (again: differences of
+values are considered) and encoded using <tt class="docutils literal">varint</tt> or <tt class="docutils literal">varnibble</tt>.
+Encoded values are multiplied by 2 and the lowest bit is set when
+subset is not empty.</li>
+</ol>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>461</td>
+<td>54.04</td>
+<td>66,427</td>
+<td>17.78</td>
+<td rowspan="2">18.68</td>
+</tr>
+<tr><td>equal</td>
+<td>101</td>
+<td>11.84</td>
+<td>3,329</td>
+<td>0.89</td>
+</tr>
+<tr><td>less</td>
+<td>291</td>
+<td>34.11</td>
+<td>303,752</td>
+<td colspan="2">81.32</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">373,508</td>
+</tr>
+<tr><td colspan="3">improvement</td>
+<td colspan="3">60.13%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/subsets_varint_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/subsets_varint_vs_varint.png" />
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>372</td>
+<td>43.61</td>
+<td>34,494</td>
+<td>9.43</td>
+<td rowspan="2">10.34</td>
+</tr>
+<tr><td>equal</td>
+<td>62</td>
+<td>7.27</td>
+<td>3,322</td>
+<td>0.91</td>
+</tr>
+<tr><td>less</td>
+<td>419</td>
+<td>49.12</td>
+<td>327,922</td>
+<td colspan="2">89.66</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">365,738</td>
+</tr>
+<tr><td colspan="3">improvement</td>
+<td colspan="3">58.88%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/subsets_varnibble_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/subsets_varnibble_vs_varint.png" />
+<p>Varnibble is a bit better than varint backend, however the number of samples
+greater/equal is significant in both cases.</p>
+</div>
+<div class="section" id="method-4-pick-better-subsets-of-close-values-or-varint-varnibble">
+<h2>Method 4 &mdash; Pick better: subsets of close values or varint/varnibble</h2>
+<p>As we saw subsets methods are not always better, so there is a room
+for some improvement. This method is combination of two encodings:
+method 3 with <tt class="docutils literal">varint</tt> or <tt class="docutils literal">varnibble</tt> encoding.</p>
+<p>List of integers is encoded using subsets method and also with <tt class="docutils literal">varint</tt>/<tt class="docutils literal">varnibble</tt>,
+then shorter form is saved.</p>
+<p>We need to save which method is used, this require just one bit &mdash; the first element
+of list is multiplied by 2 and the lowest bit is set/unset depending of the selected
+method. This solution is cheap, because in the worst case costs an additional
+byte/nibble, while in average case increase compression ratio.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>0</td>
+<td>0.00</td>
+<td>0</td>
+<td>0.00</td>
+<td rowspan="2">17.63</td>
+</tr>
+<tr><td>equal</td>
+<td>562</td>
+<td>65.89</td>
+<td>65,026</td>
+<td>17.63</td>
+</tr>
+<tr><td>less</td>
+<td>291</td>
+<td>34.11</td>
+<td>303,752</td>
+<td colspan="2">82.37</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">368,778</td>
+</tr>
+<tr><td colspan="3">improvement</td>
+<td colspan="3">59.36%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/subsets_varint_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/subsets_varint_vs_varint.png" />
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>48</td>
+<td>5.63</td>
+<td>766</td>
+<td>0.23</td>
+<td rowspan="2">0.59</td>
+</tr>
+<tr><td>equal</td>
+<td>82</td>
+<td>9.61</td>
+<td>1,234</td>
+<td>0.37</td>
+</tr>
+<tr><td>less</td>
+<td>723</td>
+<td>84.76</td>
+<td>335,743</td>
+<td colspan="2">99.41</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">337,743</td>
+</tr>
+<tr><td colspan="3">improvement</td>
+<td colspan="3">54.37%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/subsets_varnibble_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/subsets_varnibble_vs_varint.png" />
+</div>
+<div class="section" id="method-5-varbits">
+<h2>Method 5 &mdash; Varbits</h2>
+<p>Selecting number of data bits is done in straightforward way: encode
+data on bits 1..16, then the best one is picked:</p>
+<img alt="2013-11-23-integer-sequence-encoding/varbits_histogram.png" class="align-center" src="2013-11-23-integer-sequence-encoding/varbits_histogram.png" />
+<p>For sample set of data, optimal number of bits is usually smaller
+than 7 bits used by <tt class="docutils literal">varint</tt>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>57</td>
+<td>6.68</td>
+<td>780</td>
+<td>0.23</td>
+<td rowspan="2">0.53</td>
+</tr>
+<tr><td>equal</td>
+<td>71</td>
+<td>8.32</td>
+<td>1,032</td>
+<td>0.30</td>
+</tr>
+<tr><td>less</td>
+<td>725</td>
+<td>84.99</td>
+<td>339,788</td>
+<td colspan="2">99.47</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">341,600</td>
+</tr>
+<tr><td colspan="3">compression</td>
+<td colspan="3">54.99%</td>
+</tr>
+</tbody>
+</table>
+<img alt="2013-11-23-integer-sequence-encoding/varbits_vs_varint.png" class="align-center" src="2013-11-23-integer-sequence-encoding/varbits_vs_varint.png" />
+</div>
+<div class="section" id="method-6-pair-encoding">
+<h2>Method 6 &mdash; Pair encoding</h2>
+<p>New values for pair numbers are selected starting from 1, excluding
+already used values that present in a sequence. Each pair is saved as
+three values: (pair number, value 1, value 2). The end of a pair list
+is marked with value 0, then values from sequence are stored.  Finally
+to save values <tt class="docutils literal">varint</tt> and <tt class="docutils literal">varnibble</tt> encoders were used.</p>
+<p>Results for <tt class="docutils literal">varint</tt>:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>652</td>
+<td>76.44</td>
+<td>131,606</td>
+<td>29.65</td>
+<td rowspan="2">29.83</td>
+</tr>
+<tr><td>equal</td>
+<td>4</td>
+<td>0.47</td>
+<td>806</td>
+<td>0.18</td>
+</tr>
+<tr><td>less</td>
+<td>197</td>
+<td>23.09</td>
+<td>311,480</td>
+<td colspan="2">70.17</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">443,892</td>
+</tr>
+<tr><td colspan="3">compression</td>
+<td colspan="3">71.46%</td>
+</tr>
+</tbody>
+</table>
+<p>Results for <tt class="docutils literal">varnibble</tt>:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="16%" />
+<col width="12%" />
+<col width="19%" />
+<col width="28%" />
+<col width="14%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head">count</th>
+<th class="head">count [%]</th>
+<th class="head">size [B]</th>
+<th class="head" colspan="2">size [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>greater</td>
+<td>167</td>
+<td>19.58</td>
+<td>30,823</td>
+<td>7.36</td>
+<td rowspan="2">8.43</td>
+</tr>
+<tr><td>equal</td>
+<td>61</td>
+<td>7.15</td>
+<td>4,471</td>
+<td>1.07</td>
+</tr>
+<tr><td>less</td>
+<td>625</td>
+<td>73.27</td>
+<td>383,365</td>
+<td colspan="2">91.57</td>
+</tr>
+<tr><td colspan="3">total size</td>
+<td colspan="3">418,659</td>
+</tr>
+<tr><td colspan="3">compression</td>
+<td colspan="3">67.39%</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="summary-and-discussion">
+<h2>Summary and discussion</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="4%" />
+<col width="2%" />
+<col width="24%" />
+<col width="10%" />
+<col width="14%" />
+<col width="45%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">#</th>
+<th class="head" colspan="2">method</th>
+<th class="head">size</th>
+<th class="head" colspan="2">improvement</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>a</td>
+<td>0</td>
+<td>varint - reference</td>
+<td>621,208</td>
+<td>100.00%</td>
+<td><tt class="docutils literal"><span class="pre">===================================</span></tt></td>
+</tr>
+<tr><td>b</td>
+<td>1</td>
+<td>bitfields</td>
+<td>561,041</td>
+<td>90.31%</td>
+<td><tt class="docutils literal"><span class="pre">===============================</span></tt></td>
+</tr>
+<tr><td>c</td>
+<td>2</td>
+<td>varnibble</td>
+<td>387,867</td>
+<td>62.44%</td>
+<td><tt class="docutils literal"><span class="pre">=====================</span></tt></td>
+</tr>
+<tr><td>d</td>
+<td>3</td>
+<td>subsets [varnibble]</td>
+<td>365,738</td>
+<td>58.88%</td>
+<td><tt class="docutils literal"><span class="pre">====================</span></tt></td>
+</tr>
+<tr><td>e</td>
+<td>3</td>
+<td>subsets [varint]</td>
+<td>373,508</td>
+<td>60.13%</td>
+<td><tt class="docutils literal"><span class="pre">=====================</span></tt></td>
+</tr>
+<tr><td>f</td>
+<td>4</td>
+<td>subsets or varnibble</td>
+<td>337,743</td>
+<td>54.37%</td>
+<td><tt class="docutils literal"><span class="pre">===================</span></tt></td>
+</tr>
+<tr><td>g</td>
+<td>4</td>
+<td>subsets or varint</td>
+<td>368,778</td>
+<td>59.36%</td>
+<td><tt class="docutils literal"><span class="pre">====================</span></tt></td>
+</tr>
+<tr><td>h</td>
+<td>5</td>
+<td>varbits</td>
+<td>341,600</td>
+<td>54.99%</td>
+<td><tt class="docutils literal"><span class="pre">===================</span></tt></td>
+</tr>
+<tr><td>i</td>
+<td>6</td>
+<td>pair [varint]</td>
+<td>443,892</td>
+<td>71.46%</td>
+<td><tt class="docutils literal"><span class="pre">=========================</span></tt></td>
+</tr>
+<tr><td>j</td>
+<td>6</td>
+<td>pair [varnibble]</td>
+<td>387,867</td>
+<td>67.39%</td>
+<td><tt class="docutils literal"><span class="pre">=======================</span></tt></td>
+</tr>
+</tbody>
+</table>
+<ol class="arabic simple">
+<li>The bitfields method is not much better then <tt class="docutils literal">varint</tt>, moreover
+operating on variable length bitfields is not easy to implement.</li>
+<li><tt class="docutils literal">Varnibble</tt> is surprisingly good. With a bit harder writing and
+reading offers nice results.</li>
+<li>Subsets method is as good as <tt class="docutils literal">varnibble</tt> encoding (c). Additionally,
+it can be used with <tt class="docutils literal">varint</tt> backend reaching similar compression ratio.</li>
+<li>The best results brought combined subsets and <tt class="docutils literal">varnibble</tt> or <tt class="docutils literal">varint</tt>
+methods.</li>
+<li><tt class="docutils literal">Varbits</tt> is comparable to <tt class="docutils literal">subsets</tt> (f), however this method
+requires reading/writing at bit level.</li>
+<li>Pair encoding is the worst in group of &quot;better&quot; methods: save
+only 30% space at cost of very expansive encoding/decoding
+algorithms.</li>
+</ol>
+<p>Random thought:</p>
+<ul class="simple">
+<li>Again fancy algorithms (&quot;greedy&quot; search of subsets) gave worse
+results and is slower then straightforward implementation (&quot;first match&quot;).</li>
+</ul>
+</div>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All data and sources are available at <a class="reference external" href="https://github.com/WojciechMula/integer-sequence-encoding">github</a>.</p>
+</div>
+<div class="section" id="bibliography">
+<h1>Bibliography</h1>
+<ol class="arabic simple">
+<li>Some encoding techniques are described in paper <a class="reference external" href="https://www.researchgate.net/publication/221023128_Inverted_index_compression_and_query_processing_with_optimized_document_ordering">Inverted Index Compression
+and Query Processing with Optimized Document Ordering</a> by Hao Yan, Shuai
+Ding and Torsten Suel.</li>
+<li><a class="reference external" href="http://arxiv.org/abs/1209.2137">Decoding billions of integers per second through vectorization</a> by
+<a class="reference external" href="http://lemire.me/">Daniel Lemire</a>, Leonid Boytsov</li>
+</ol>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2013-11-23-integer-sequence-encoding.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:56 GMT -->
+</html>

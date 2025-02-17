@@ -1,0 +1,25 @@
+Lustro pr±dowe
+* "Uk³ady pr±du sta³ego.pdf", str. 3
+* Wojciech Mu³a, 17.10.2005
+
+* uk³ad
+* - zacisk wyj¶ciowy: 1 0
+Q1	3 2 0	tr
+Q2	1 2 0	tr
+Rref	4 3	100
+* Rz -- po³±czenie pomiêdzy baz± a kolektorem Q1
+Rz	2 3	0.1
+Vref	4 0	DC 5V
+.model tr NPN(Bf=300)
+
+* ga³±¼ w której w³±czone jest lustro pr±dowe
+V	10 0	DC 3V
+R	10 1	100
+
+* analiza
+.options nopages
+.DC V	0V 15V 0.5V
+* wykresy pr±du (pr±d mierzony na rezystorach): pr±d referencyjny, pr±d wyj¶ciowy
+.print DC V(4,3) V(10,1)
+
+.end

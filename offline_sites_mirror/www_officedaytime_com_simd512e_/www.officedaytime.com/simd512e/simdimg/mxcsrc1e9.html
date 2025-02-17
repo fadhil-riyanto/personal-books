@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/mxcsr.php?f=ldmxcsr by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:00 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/mxcsr.php?f=ldmxcsr" />
+<link rel="alternate" hreflang="en" href="mxcsrc1e9.html?f=ldmxcsr" />
+<title>ldmxcsr</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+
+</style>
+</head>
+
+<body>
+<h2>
+LDMXCSR - LoaD MXCSR<br />
+STMXCSR - STore MXCSR
+</h2>
+LDMXCSR <span class="operand">m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(S1&nbsp;&nbsp;&nbsp;&nbsp;MXCSR &lt;- memory<br />
+VLDMXCSR <span class="operand">m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">void _mm_setcsr(unsigned int i)</span><br />
+STMXCSR <span class="operand">m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(S1&nbsp;&nbsp;&nbsp;&nbsp;MXCSR -&gt; memory<br />
+VSTMXCSR <span class="operand">m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">unsigned int _mm_getcsr(void)<br />
+<br />
+</span><br />
+
+<table>
+<tr>
+<th>Bit</th>
+<th>Name</th>
+<th colspan="2">Meaning</th>
+</tr>
+
+<tr>
+<th>0</th>
+<td>IE</td>
+<td rowspan="6">Flags to indicate if any exception was detected.</td>
+<td>Invalid Operation</td>
+</tr>
+
+<tr>
+<th>1</th>
+<td>DE</td>
+<td>Denormal</td>
+</tr>
+
+<tr>
+<th>2</th>
+<td>ZE</td>
+<td>Divide-by-Zero</td>
+</tr>
+
+<tr>
+<th>3</th>
+<td>OE</td>
+<td>Overflow</td>
+</tr>
+
+<tr>
+<th>4</th>
+<td>UE</td>
+<td>Underflow</td>
+</tr>
+
+<tr>
+<th>5</th>
+<td>PE</td>
+<td>Precision</td>
+</tr>
+
+<tr>
+<th>6</th>
+<td>DAZ</td>
+<td colspan="2">Denormals Are Zeros</td>
+</tr>
+
+<tr>
+<th>7</th>
+<td>IM</td>
+<td rowspan="6">Mask for each type of exception.</td>
+<td>Invalid Operation</td>
+</tr>
+
+<tr>
+<th>8</th>
+<td>DM</td>
+<td>Denormal</td>
+</tr>
+
+<tr>
+<th>9</th>
+<td>ZM</td>
+<td>Divide-by-Zero</td>
+</tr>
+
+<tr>
+<th>10</th>
+<td>OM</td>
+<td>Overflow</td>
+</tr>
+
+<tr>
+<th>11</th>
+<td>UM</td>
+<td>Underflow</td>
+</tr>
+
+<tr>
+<th>12</th>
+<td>PM</td>
+<td>Precision</td>
+</tr>
+
+<tr>
+<th>14:13</th>
+<td>RC</td>
+<td colspan="2">Round Control<br />
+00: round to nearest even<br />
+01: round toward negative infinity<br />
+10: round toward positive infinity<br />
+11: round toward zero</td>
+</tr>
+
+<tr>
+<th>15</th>
+<td>FZ</td>
+<td colspan="2">Flush to Zero</td>
+</tr>
+
+
+</table>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=ldmxcsr" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/mxcsr.php?f=ldmxcsr by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:00 GMT -->
+</html>

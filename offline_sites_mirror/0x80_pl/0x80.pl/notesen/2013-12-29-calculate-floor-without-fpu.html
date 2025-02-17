@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2013-12-29-calculate-floor-without-fpu.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Calculate floor value without FPU/SSE instruction</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="calculate-floor-value-without-fpu-sse-instruction">
+<h1 class="title">Calculate floor value without FPU/SSE instruction</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2013-12-29</td>
+</tr>
+</tbody>
+</table>
+<p>Presented algorithm works properly for any normalized floating point
+value, examples are given for double precision numbers (64-bit).</p>
+<p>The layout of value 8192.625:</p>
+<div class="asciidiag"><pre class="asciidiag"> S  exp + bias  fraction
+┌─┬───────────┬────────────────────────────────────────────────────┐
+│0│10000001100│0000000000000101000000000000000000000000000000000000│
+└─┴───────────┴────────────────────────────────────────────────────┘
+63 62       52 51                                                  0</pre></div><p>The exponent value is 13, thus fraction bits spans range 0 .. 52 - 13:</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌─┬───────────┬────────────────────────────────────────────────────┐
+│0│10000001100│000000000000<span style="color: blue; font-weight: bold">0101000000000000000000000000000000000000</span>│
+└─┴───────────┴────────────────────────────────────────────────────┘
+                           │                                      │
+                           ╰──────╴ bits after decimal dot ╶──────╯</pre></div><p>To calculate the floor of value, the bits after decimal dot have to be clear.
+This operation doesn't alter the exponent, so only single bit-and is
+required, and no extra calculations are needed.</p>
+<p>To be precise, value of <tt class="docutils literal">dot_position := 52 - exponent</tt> decides what
+have to be done:</p>
+<ol class="arabic simple">
+<li>If <tt class="docutils literal">dot_position &gt; 52</tt> then the value is less than 1.0, i.e. <tt class="docutils literal">floor(x) = 0</tt>.</li>
+<li>If <tt class="docutils literal">dot_position &lt;= 0</tt> then the value have no fraction part (it is
+larger than <span class="math">2<sup>52</sup></span>), i.e. <tt class="docutils literal">floor(x) = x</tt>.</li>
+<li>If <tt class="docutils literal">0 &lt; dot_position &lt;= 52</tt> then the value have fraction part and
+bits after <tt class="docutils literal">dot_position</tt> bits have to be cleared.</li>
+</ol>
+<p>The number of operations:</p>
+<ul class="simple">
+<li>Extracting exponent value requires: 1 shift, 1 bit-and, 1 subtract.</li>
+<li>Determining which case have to be selected requires up to 4
+comparisons.</li>
+<li>When clearing bits is needed, then building bit-mask require: 1 shift,
+1 subtract, 1 bit negation, 1 bit-and.</li>
+</ul>
+<p>Sample program is <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/floor">available</a>:</p>
+<pre class="literal-block">
+$ ./demo 123.75 0.012 120000000000000 0.99999999 99.999
+floor(123.75000000) = 123.00000000
+floor(0.01200000) = 0.00000000
+floor(120000000000000.00000000) = 120000000000000.00000000
+floor(0.99999999) = 0.00000000
+floor(99.99900000) = 99.00000000
+</pre>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2013-12-29-calculate-floor-without-fpu.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

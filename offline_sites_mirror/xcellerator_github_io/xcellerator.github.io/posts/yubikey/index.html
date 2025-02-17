@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from xcellerator.github.io/posts/yubikey/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:22:53 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=utf-8" /><!-- /Added by HTTrack -->
+<head>
+  
+    <title>Reversing Yubikey&#39;s Static Password :: TheXcellerator</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="description" content="One of the functions that that Yubikey can provide is the option to &amp;ldquo;store&amp;rdquo; a static password on the token which will be &amp;ldquo;typed&amp;rdquo; out on the host whenever you press the button. Having already done quite of a lot of work on the USB HID implementation, I was curious to know how Yubico had decided to emulate the keyboard functionality. Ultimately, I was hoping that I&amp;rsquo;d be able to set all kinds of different modifiers like Ctrl&#43;Alt&#43;Del and Super&#43;R to have a little more fun with it (BadUSB/Rubber Ducky style)." />
+<meta name="keywords" content="" />
+<meta name="robots" content="noodp" />
+<link rel="canonical" href="index.html" />
+
+
+
+
+<link rel="stylesheet" href="../../assets/style.css">
+
+  <link rel="stylesheet" href="../../assets/blue.css">
+
+
+
+
+
+
+<link rel="apple-touch-icon-precomposed" sizes="144x144" href="../../img/apple-touch-icon-144-precomposed.html">
+
+  <link rel="shortcut icon" href="../../img/favicon/blue.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+<meta name="twitter:creator" content="" />
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="Reversing Yubikey&#39;s Static Password :: TheXcellerator">
+<meta property="og:description" content="One of the functions that that Yubikey can provide is the option to &amp;ldquo;store&amp;rdquo; a static password on the token which will be &amp;ldquo;typed&amp;rdquo; out on the host whenever you press the button. Having already done quite of a lot of work on the USB HID implementation, I was curious to know how Yubico had decided to emulate the keyboard functionality. Ultimately, I was hoping that I&amp;rsquo;d be able to set all kinds of different modifiers like Ctrl&#43;Alt&#43;Del and Super&#43;R to have a little more fun with it (BadUSB/Rubber Ducky style)." />
+<meta property="og:url" content="/posts/yubikey/" />
+<meta property="og:site_name" content="Reversing Yubikey&#39;s Static Password" />
+
+  
+    <meta property="og:image" content="../../img/favicon/blue.png">
+  
+
+<meta property="og:image:width" content="2048">
+<meta property="og:image:height" content="1024">
+
+  <meta property="article:section" content="reverse_engineering" />
+
+
+  <meta property="article:published_time" content="2019-06-11 14:35:00 &#43;0100 BST" />
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body class="">
+
+
+<div class="container center headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="../../index.html">
+  <div class="logo">
+    TheXcellerator
+  </div>
+</a>
+
+    </div>
+    <div class="menu-trigger">menu</div>
+  </div>
+  
+    <nav class="menu">
+  <ul class="menu__inner menu__inner--desktop">
+    
+      
+        
+          <li><a href="../../categories/cryptography/index.html">Cryptography</a></li>
+        
+      
+        
+          <li><a href="../../categories/linux/index.html">Linux</a></li>
+        
+      
+        
+          <li><a href="../../categories/other/index.html">Other</a></li>
+        
+      
+        
+          <li><a href="../../categories/reverse_engineering/index.html">Reverse Engineering</a></li>
+        
+      
+      
+    
+
+    
+  </ul>
+
+  <ul class="menu__inner menu__inner--mobile">
+    
+      
+        <li><a href="../../categories/cryptography/index.html">Cryptography</a></li>
+      
+    
+      
+        <li><a href="../../categories/linux/index.html">Linux</a></li>
+      
+    
+      
+        <li><a href="../../categories/other/index.html">Other</a></li>
+      
+    
+      
+        <li><a href="../../categories/reverse_engineering/index.html">Reverse Engineering</a></li>
+      
+    
+    
+  </ul>
+</nav>
+
+  
+</header>
+
+
+  <div class="content">
+    
+<div class="post">
+  <h1 class="post-title">
+    <a href="index.html">Reversing Yubikey&rsquo;s Static Password</a></h1>
+  <div class="post-meta">
+      
+    <span class="post-date">
+      2019-06-11
+    </span>
+    
+    
+  </div>
+
+  
+
+  
+
+  <div class="post-content"><div>
+        <p>One of the functions that that Yubikey can provide is the option to &ldquo;store&rdquo; a static password on the token which will be &ldquo;typed&rdquo; out on the host whenever you press the button. Having already done <a href="https://github.com/xcellerator/usbninja">quite of a lot of work on the USB HID implementation</a>, I was curious to know how Yubico had decided to emulate the keyboard functionality. Ultimately, I was hoping that I&rsquo;d be able to set all kinds of different modifiers like Ctrl+Alt+Del and Super+R to have a little more fun with it (BadUSB/Rubber Ducky style).</p>
+<h1 id="a-look-at-the-source-code">A look at the source code<a href="#a-look-at-the-source-code" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<p>Luckily for us, the source for the Yubikey personalization tool has been <a href="https://github.com/Yubico/yubikey-personalization-gui/">open sourced</a> and is on their Github page. The main file of interest here is <a href="https://github.com/Yubico/yubikey-personalization-gui/blob/master/lib/us-scanedit.cpp">this</a> one. It defines what is basically a dictionary called <code>keyMap</code> in a function called <code>UsScanEdit()</code>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#75715e">#define SHIFT = 0x80;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>UsScanEdit<span style="color:#f92672">::</span>UsScanEdit() {
+</span></span><span style="display:flex;"><span>	keyMap <span style="color:#f92672">=</span> QMap<span style="color:#f92672">&lt;</span><span style="color:#66d9ef">int</span>, <span style="color:#66d9ef">int</span><span style="color:#f92672">&gt;</span>();
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x00</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x09</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x2b</span>; <span style="color:#75715e">/* \t */</span>
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x0a</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x28</span>; <span style="color:#75715e">/* \n */</span>
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x2c</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x36</span>; <span style="color:#75715e">/* , */</span>
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x41</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x04</span> <span style="color:#f92672">|</span> SHIFT; <span style="color:#75715e">/* A */</span>
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x61</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x04</span>; <span style="color:#75715e">/* a*/</span>
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x7f</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>So, what&rsquo;s going on here? Well, the binary exploitation fans among you would probably have spotted that <code>A</code> is commented next to the <code>0x41</code> entry of the dictionary <code>keyMap</code>. For those who aren&rsquo;t aware, <code>0x41</code> is the ASCII for the uppercase letter <code>A</code> so we know that this is just a lookup table of keyboard characters. (In fact, it turns out at Yubico are using <code>Latin1</code> rather that ASCII as can be seen on line 57 <a href="https://github.com/Yubico/yubikey-personalization-gui/blob/master/lib/scanedit.cpp">here</a>, but it doesn&rsquo;t really make any difference).</p>
+<p>This is why most of <code>keyMap</code> is just set to <code>0</code> - they&rsquo;re all the ASCII characters that don&rsquo;t appear on a keyboard!</p>
+<h1 id="keyboard-scan-codes">Keyboard Scan Codes<a href="#keyboard-scan-codes" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<p>The question now is: if this is lookup table, what is it looking up? These are actually the keyboard &ldquo;scan codes&rdquo;. Taking a look at <a href="https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf">this beast of PDF</a> from the USB Foundation, all the way down on page 53, we get the table of all the scan codes listed under &ldquo;Usage ID (Hex)&rdquo; and their &ldquo;Usage Name&quot;s (or the names of the keys).</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">Scan Code</th>
+<th style="text-align:center">Keyboard Key</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">00</td>
+<td style="text-align:center">Reserved</td>
+</tr>
+<tr>
+<td style="text-align:center">01</td>
+<td style="text-align:center">ErrorRollOver</td>
+</tr>
+<tr>
+<td style="text-align:center">02</td>
+<td style="text-align:center">POSTFail</td>
+</tr>
+<tr>
+<td style="text-align:center">03</td>
+<td style="text-align:center">ErrorUndefined</td>
+</tr>
+<tr>
+<td style="text-align:center">04-1D</td>
+<td style="text-align:center">a/A &hellip; z/Z</td>
+</tr>
+<tr>
+<td style="text-align:center">1E-27</td>
+<td style="text-align:center">1/!, 2/@, 3/#, 4/$, 5/%, 6/^, 7/&amp;, 8/*, 9/(, 0/)</td>
+</tr>
+<tr>
+<td style="text-align:center">28</td>
+<td style="text-align:center">Return</td>
+</tr>
+<tr>
+<td style="text-align:center">29</td>
+<td style="text-align:center">Escape</td>
+</tr>
+<tr>
+<td style="text-align:center">2A</td>
+<td style="text-align:center">Delete</td>
+</tr>
+<tr>
+<td style="text-align:center">2B</td>
+<td style="text-align:center">Tab</td>
+</tr>
+<tr>
+<td style="text-align:center">2C</td>
+<td style="text-align:center">Space</td>
+</tr>
+<tr>
+<td style="text-align:center">2D-38</td>
+<td style="text-align:center">-/_, =/+, [/{, ]/}, \/|, ;/:, &lsquo;/&rdquo;, `/~, ,,&lt;, .,&gt;, //?</td>
+</tr>
+<tr>
+<td style="text-align:center">39</td>
+<td style="text-align:center">CapsLock</td>
+</tr>
+<tr>
+<td style="text-align:center">3A-45</td>
+<td style="text-align:center">F1-F12</td>
+</tr>
+<tr>
+<td style="text-align:center">&hellip;</td>
+<td style="text-align:center">&hellip;</td>
+</tr>
+<tr>
+<td style="text-align:center">E0</td>
+<td style="text-align:center">Left Ctrl</td>
+</tr>
+<tr>
+<td style="text-align:center">E1</td>
+<td style="text-align:center">Left Shift</td>
+</tr>
+<tr>
+<td style="text-align:center">E2</td>
+<td style="text-align:center">Left Alt</td>
+</tr>
+<tr>
+<td style="text-align:center">E3</td>
+<td style="text-align:center">Left Super</td>
+</tr>
+<tr>
+<td style="text-align:center">E4</td>
+<td style="text-align:center">Right Control</td>
+</tr>
+<tr>
+<td style="text-align:center">E5</td>
+<td style="text-align:center">Right Shift</td>
+</tr>
+<tr>
+<td style="text-align:center">E6</td>
+<td style="text-align:center">Right Alt</td>
+</tr>
+<tr>
+<td style="text-align:center">E7</td>
+<td style="text-align:center">Right Super</td>
+</tr>
+<tr>
+<td style="text-align:center">E8-FFFF</td>
+<td style="text-align:center">Reserved</td>
+</tr>
+</tbody>
+</table>
+<p>You get the idea. What&rsquo;s important here is that every possible keypress corresponds to a two byte scan code which is what actually gets sent to the host to be interpreted as input. The Yubico personalization tool is taking our password as input, looking up each character&rsquo;s scan code and configuring the Yubikey to spit this string of bytes back at the host whenever the button is pressed.</p>
+<p>However, there&rsquo;s still one thing we haven&rsquo;t explained: modifiers. What happens if I want to send an input that requires <em>multiple keys to be pressed at once</em>, like a capital A (Shift+a) or Ctrl+r? It turns out that it&rsquo;s got something to do with the <code>#DEFINE SHIFT=0x80;</code> from the source code extract further back. To understand what&rsquo;s going on, we need to know a little bit about HID packets.</p>
+<h1 id="hid-packets">HID Packets<a href="#hid-packets" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<p>If we restrict our attention to USB keyboards, then the HID protocol is surprisingly simple. Ignoring the USB layer stuff which initiates the connection by sending across a bunch of identifying information like VID/PIDs, serial numbers, etc (plug in a USB and check the output of <code>dmesg</code> to get an idea), let&rsquo;s assume that you&rsquo;ve plugged a USB keyboard into your computer and the correct drivers have been loaded.</p>
+<p>(Note for the curious:
+Part of the initialization involves sending across a HID descriptor along with all the other USB descriptors (like VID/PID). This HID descriptor lays out how it&rsquo;s packets should be interpreted by the host. It&rsquo;s not really important for our present discussion though as it&rsquo;s essentially just another <a href="https://github.com/xcellerator/usbninja/blob/70327416ba8d0fab69f67ae4b768252bff93645c/src/hid_payload.go#L32">hard-coded value</a>.)</p>
+<p>What happens when you push a key and release it? The microcontroller that handles the bus, sends a HID packet down the wire. Unlike TCP or one of the other common network protocols that you may be more familiar with, there are no chunks or encapsulation going on - each packet simply contains the information about a single complete keyboard instruction. The key here is &ldquo;complete&rdquo;, so holding <code>Ctrl</code> and then tapping <code>a</code> results in a <em>single</em> packet being send across (again, this is a slight simplification. Today, modern keyboards sometimes do some funky things like sending <strong>incomplete</strong> reports across like just holding down <code>Ctrl</code>, but is all to do with what report descriptor is sendt across (see the comment above)).</p>
+<p>A HID packet is 8 bytes long, but we actually only care about 2 of those bytes.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">00</th>
+<th style="text-align:center">02</th>
+<th style="text-align:center">04</th>
+<th style="text-align:center">06</th>
+<th style="text-align:center">08</th>
+<th style="text-align:center">0A</th>
+<th style="text-align:center">0C</th>
+<th style="text-align:center">0E</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">Modifier</td>
+<td style="text-align:center">Reserved</td>
+<td style="text-align:center">Scan Code</td>
+<td style="text-align:center">Reserved</td>
+<td style="text-align:center">Reserved</td>
+<td style="text-align:center">Reserved</td>
+<td style="text-align:center">Reserved</td>
+<td style="text-align:center">Reserved</td>
+</tr>
+</tbody>
+</table>
+<p>The third byte is pretty obvious - it just contains the scan code of the key that we&rsquo;ve pressed. But what about the first byte - labelled &ldquo;modifier&rdquo;. It&rsquo;s defined (again by the report descriptor) to be an 8-bit deep bitfield where each bit corresponds to one of the four modifiers; <code>Ctrl</code>, <code>Shift</code>, <code>Alt</code>, <code>Super</code>.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">0/1</th>
+<th style="text-align:center">0/1</th>
+<th style="text-align:center">0/1</th>
+<th style="text-align:center">0/1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center"><code>Ctrl</code></td>
+<td style="text-align:center"><code>Shift</code></td>
+<td style="text-align:center"><code>Alt</code></td>
+<td style="text-align:center"><code>Super</code></td>
+</tr>
+</tbody>
+</table>
+<p>For example, holding <code>Ctrl</code> and <code>Alt</code> would give <code>0b1010=0x10</code>, so the modifier byte would simply be <code>0x10</code>. It&rsquo;s as simple as that! So, if we wanted to send the complete instruction <code>Ctrl+Alt+Del</code>, our final HID packet would look like</p>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">10</th>
+<th style="text-align:center">00</th>
+<th style="text-align:center">2A</th>
+<th style="text-align:center">00</th>
+<th style="text-align:center">00</th>
+<th style="text-align:center">00</th>
+<th style="text-align:center">00</th>
+<th style="text-align:center">00</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center"><code>Ctrl+Alt</code></td>
+<td style="text-align:center"></td>
+<td style="text-align:center"><code>Del</code></td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td style="text-align:center"></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>If we were the microcontroller, we just have to &ldquo;say&rdquo; <code>\x10\x00\x2A\x00\x00\x00\x00\x00</code> to the host, and it would react as if someone had pressed <code>Ctrl+Alt+Del</code>!</p>
+<p>What does all this have to do with the Yubikey? Remember the <code>keyMap</code> dictionary from earlier? It only maps things up to <code>0x7F</code> - but our table from the HID specification goes up to <code>0xE8</code>? It turns out that Yubico have only implemented support for the first 127 (<code>0x00-0x7F</code>) scan codes and mapped the second 127 (<code>0x80-0xFF</code>) to the exact same scan codes as the first.</p>
+<p>Whenever a scan code greater than <code>0x80</code> is sent, the modifier bit gets set to <code>0x02</code>. This simply corresponds to holding down the shift key. It appears to be a bit of a cheeky hack on Yubico&rsquo;s part to get what should be 4 bytes compressed down to 2 when a character is stored as a static password on the Yubikey. It also means less logic is required by the Yubikey to handle constructing and sending HID packets. It&rsquo;s probably just a simple switch case in the onboard firmware.</p>
+<p>This theory is supported by going back to the source code.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#75715e">#define SHIFT = 0x80;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>UsScanEdit<span style="color:#f92672">::</span>UsScanEdit() {
+</span></span><span style="display:flex;"><span>	keyMap <span style="color:#f92672">=</span> QMap<span style="color:#f92672">&lt;</span><span style="color:#66d9ef">int</span>, <span style="color:#66d9ef">int</span><span style="color:#f92672">&gt;</span>();
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x00</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x41</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x04</span> <span style="color:#f92672">|</span> SHIFT; <span style="color:#75715e">/* A */</span>
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x61</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x04</span>; <span style="color:#75715e">/* a*/</span>
+</span></span><span style="display:flex;"><span>	...
+</span></span><span style="display:flex;"><span>	keyMap[<span style="color:#ae81ff">0x7f</span>] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Notice how for <code>keyMap[0x41]</code> (corresponding to <code>A</code>), we have the scan code <code>0x04 | SHIFT</code>. Well, at the top, <code>SHIFT</code> is pre-defined to be <code>0x80</code>, so this is just <code>0x84</code>. i.e. the <code>Shift</code>ed characters are just mapped to the <code>0x80-0xFF</code> region. The true scan code for <code>0x84</code> is <code>Scroll Lock</code>, so we know that the Yubikey must be ORing any scan code higher than <code>0x80</code> with <code>0x80</code> before setting the modifer key and sending it down the wire. It might look <em>something like this&hellip;</em></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">craftHIDPacket</span>(<span style="color:#66d9ef">int</span> scanCode)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> packet[<span style="color:#ae81ff">8</span>] <span style="color:#f92672">=</span> {<span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>, <span style="color:#ae81ff">0x00</span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> ( scanCode <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0x80</span> )
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		modifierBit <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x20</span>;
+</span></span><span style="display:flex;"><span>		keyCode <span style="color:#f92672">=</span> scanCode <span style="color:#f92672">^</span> <span style="color:#ae81ff">0x80</span>;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>	{
+</span></span><span style="display:flex;"><span>		modifierBit <span style="color:#f92672">=</span> <span style="color:#ae81ff">0x00</span>;
+</span></span><span style="display:flex;"><span>		keyCode <span style="color:#f92672">=</span> scanCode;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	packet[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">=</span> modifierBit;
+</span></span><span style="display:flex;"><span>	packet[<span style="color:#ae81ff">2</span>] <span style="color:#f92672">=</span> keyCode;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> packet;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Excusing my probably dodgy-looking C code, hopefully you get the idea as to what&rsquo;s going on. Unfortunately, all this means that it looks like there isn&rsquo;t a way to turn a Yubikey into a fully-fledged HID injection tool without rewriting the on-board firmware (which I&rsquo;m not aware of a way to do). All in all, I hit a bit of a brick wall, but perhaps this read will be useful for someone who is looking to the USB HID implementation. My (perhaps choppy) implementation in Go can be found on Github <a href="https://github.com/xcellerator/usbninja">here</a>.</p>
+<p>Until next time&hellip;</p>
+
+      </div></div>
+
+  
+  
+<div class="pagination">
+    <div class="pagination__title">
+        <span class="pagination__title-h">Read other posts</span>
+        <hr />
+    </div>
+    <div class="pagination__buttons">
+        
+        <span class="button previous">
+            <a href="../bggp/index.html">
+                <span class="button__icon">←</span>
+                <span class="button__text">BootNoodle: A Palindromic Bootloader for BGGP</span>
+            </a>
+        </span>
+        
+        
+    </div>
+</div>
+
+  
+
+  
+
+</div>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright copyright--user">
+        <span>Harvey Phillips 2020 - London, England</span>
+    
+        <span>:: Theme made by <a href="https://twitter.com/panr">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+<script src="../../assets/main.js"></script>
+<script src="../../assets/prism.js"></script>
+
+<div class="footer__webring">
+    <span>
+        <div>
+            this site is part of the <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi'>HauNTed wEbriNg</a>
+        </div>
+        <div>
+            <p>
+                <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi?before=https://xcellerator.github.io/'>&lt;&lt;&lt;</a>
+                <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi?random=https://xcellerator.github.io/'>RaNDom</a>
+                <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi?after=https://xcellerator.github.io/'>&gt;&gt;&gt;</a>
+            </p>
+        </div>
+    </span>
+</div>
+
+
+
+
+
+  
+</div>
+
+</body>
+
+<!-- Mirrored from xcellerator.github.io/posts/yubikey/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:22:53 GMT -->
+</html>

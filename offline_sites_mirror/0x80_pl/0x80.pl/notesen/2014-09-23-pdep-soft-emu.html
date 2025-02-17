@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-09-23-pdep-soft-emu.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Software emulation of PDEP</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="software-emulation-of-pdep">
+<h1 class="title">Software emulation of PDEP</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-09-23</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#naive-implementation" id="toc-entry-2">Naive implementation</a></li>
+<li><a class="reference internal" href="#branchless-implementation" id="toc-entry-3">Branchless implementation</a></li>
+<li><a class="reference internal" href="#comparison-results-on-pentium-m" id="toc-entry-4">Comparison results on Pentium M</a><ul>
+<li><a class="reference internal" href="#sample-program" id="toc-entry-5">Sample program</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p><strong>PDEP</strong> is a new instruction from BMI2 (<em>Bit Manipulation Instruction</em>),
+pseudocode for 32-bit <tt class="docutils literal">PDEP</tt> variant:</p>
+<pre class="literal-block">
+src    - a source word
+mask   - a mask
+
+result := 0
+k := 0
+for i := 0 .. 31 loop
+    if mask.bit[i] then
+        result.bit[i] := src.bit[k]
+        k := k + 1
+    end if
+end loop
+</pre>
+<p>Quite complicated, but it is really fast &mdash; latency is just 3 cycles and
+throughput is only one cycle. I've showed how to use this instruction
+in conversion <a class="reference external" href="2014-09-11-convert-to-bin.html">integers to binary</a> and <a class="reference external" href="2014-09-21-convert-to-hex.html">haxadecimal</a> representation.</p>
+<p>I was wondering how this algorithm would execute on an old hardware.</p>
+</div>
+<div class="section" id="naive-implementation">
+<h1>Naive implementation</h1>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">naive</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">mask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">result</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">mask_bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">src_bit</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+    </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">32</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">,</span><span class="w"> </span><span class="n">mask_bit</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">mask_bit</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">src</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">src_bit</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">result</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="n">mask_bit</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+
+            </span><span class="n">src_bit</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Shift right by 1 could be expressed as a simple add, on x86 this could
+also be encoded using <tt class="docutils literal">LEA</tt> (no register flags dependency).</p>
+</div>
+<div class="section" id="branchless-implementation">
+<h1>Branchless implementation</h1>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">branchless</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">mask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="c1">// 1. isolate the lowest set bit of mask
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">lowest</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">-</span><span class="n">mask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lowest</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="c1">// 2. populate LSB from src
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">LSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">)((</span><span class="kt">int32_t</span><span class="p">)(</span><span class="n">src</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">31</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">31</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// 3. copy bit from mask
+</span><span class="w">        </span><span class="n">result</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="n">LSB</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">lowest</span><span class="p">;</span><span class="w">
+
+        </span><span class="c1">// 4. clear lowest bit
+</span><span class="w">        </span><span class="n">mask</span><span class="w"> </span><span class="o">&amp;=</span><span class="w"> </span><span class="o">~</span><span class="n">lowest</span><span class="p">;</span><span class="w">
+
+        </span><span class="c1">// 5. prepare for next iteration
+</span><span class="w">        </span><span class="n">src</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="comparison-results-on-pentium-m">
+<h1>Comparison results on Pentium M</h1>
+<p>The branchless version is much more complicated, but there is one clear
+advantage over naive version &mdash; number of iterations is equal to number
+of bits set in a mask.</p>
+<p>This is clear when we look at sample results.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="26%" />
+<col width="27%" />
+<col width="27%" />
+<col width="19%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">mask</th>
+<th class="head">naive [s]</th>
+<th class="head">branchless [s]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">00000000</tt></td>
+<td>0.1368</td>
+<td>0.0035</td>
+<td>38.76</td>
+</tr>
+<tr><td><tt class="docutils literal">00000001</tt></td>
+<td>0.1388</td>
+<td>0.0081</td>
+<td>17.19</td>
+</tr>
+<tr><td><tt class="docutils literal">00000003</tt></td>
+<td>0.1597</td>
+<td>0.0127</td>
+<td>12.56</td>
+</tr>
+<tr><td><tt class="docutils literal">00000007</tt></td>
+<td>0.1661</td>
+<td>0.0230</td>
+<td>7.24</td>
+</tr>
+<tr><td><tt class="docutils literal">0000000f</tt></td>
+<td>0.1691</td>
+<td>0.0256</td>
+<td>6.60</td>
+</tr>
+<tr><td><tt class="docutils literal">0000001f</tt></td>
+<td>0.1842</td>
+<td>0.0328</td>
+<td>5.61</td>
+</tr>
+<tr><td><tt class="docutils literal">0000003f</tt></td>
+<td>0.2430</td>
+<td>0.0910</td>
+<td>2.67</td>
+</tr>
+<tr><td><tt class="docutils literal">0000007f</tt></td>
+<td>0.2904</td>
+<td>0.0499</td>
+<td>5.82</td>
+</tr>
+<tr><td><tt class="docutils literal">000000ff</tt></td>
+<td>0.2743</td>
+<td>0.0481</td>
+<td>5.71</td>
+</tr>
+<tr><td><tt class="docutils literal">000001ff</tt></td>
+<td>0.2165</td>
+<td>0.0530</td>
+<td>4.08</td>
+</tr>
+<tr><td><tt class="docutils literal">000003ff</tt></td>
+<td>0.2139</td>
+<td>0.0666</td>
+<td>3.21</td>
+</tr>
+<tr><td><tt class="docutils literal">000007ff</tt></td>
+<td>0.2181</td>
+<td>0.0764</td>
+<td>2.85</td>
+</tr>
+<tr><td><tt class="docutils literal">00000fff</tt></td>
+<td>0.2183</td>
+<td>0.0898</td>
+<td>2.43</td>
+</tr>
+<tr><td><tt class="docutils literal">00001fff</tt></td>
+<td>0.2159</td>
+<td>0.0920</td>
+<td>2.35</td>
+</tr>
+<tr><td><tt class="docutils literal">00003fff</tt></td>
+<td>0.2288</td>
+<td>0.0950</td>
+<td>2.41</td>
+</tr>
+<tr><td><tt class="docutils literal">00007fff</tt></td>
+<td>0.2294</td>
+<td>0.1085</td>
+<td>2.11</td>
+</tr>
+<tr><td><tt class="docutils literal">0000ffff</tt></td>
+<td>0.2322</td>
+<td>0.1086</td>
+<td>2.14</td>
+</tr>
+<tr><td><tt class="docutils literal">0001ffff</tt></td>
+<td>0.2330</td>
+<td>0.1074</td>
+<td>2.17</td>
+</tr>
+<tr><td><tt class="docutils literal">0003ffff</tt></td>
+<td>0.3133</td>
+<td>0.1158</td>
+<td>2.71</td>
+</tr>
+<tr><td><tt class="docutils literal">0007ffff</tt></td>
+<td>0.2273</td>
+<td>0.1216</td>
+<td>1.87</td>
+</tr>
+<tr><td><tt class="docutils literal">000fffff</tt></td>
+<td>0.2396</td>
+<td>0.1328</td>
+<td>1.80</td>
+</tr>
+<tr><td><tt class="docutils literal">001fffff</tt></td>
+<td>0.2381</td>
+<td>0.1308</td>
+<td>1.82</td>
+</tr>
+<tr><td><tt class="docutils literal">003fffff</tt></td>
+<td>0.2667</td>
+<td>0.1376</td>
+<td>1.94</td>
+</tr>
+<tr><td><tt class="docutils literal">007fffff</tt></td>
+<td>0.2559</td>
+<td>0.1701</td>
+<td>1.50</td>
+</tr>
+<tr><td><tt class="docutils literal">00ffffff</tt></td>
+<td>0.2637</td>
+<td>0.1511</td>
+<td>1.75</td>
+</tr>
+<tr><td><tt class="docutils literal">01ffffff</tt></td>
+<td>0.2721</td>
+<td>0.1645</td>
+<td>1.65</td>
+</tr>
+<tr><td><tt class="docutils literal">03ffffff</tt></td>
+<td>0.2868</td>
+<td>0.1617</td>
+<td>1.77</td>
+</tr>
+<tr><td><tt class="docutils literal">07ffffff</tt></td>
+<td>0.2895</td>
+<td>0.1878</td>
+<td>1.54</td>
+</tr>
+<tr><td><tt class="docutils literal">0fffffff</tt></td>
+<td>0.2816</td>
+<td>0.1737</td>
+<td>1.62</td>
+</tr>
+<tr><td><tt class="docutils literal">1fffffff</tt></td>
+<td>0.2652</td>
+<td>0.1765</td>
+<td>1.50</td>
+</tr>
+<tr><td><tt class="docutils literal">3fffffff</tt></td>
+<td>0.2742</td>
+<td>0.1949</td>
+<td>1.41</td>
+</tr>
+<tr><td><tt class="docutils literal">7fffffff</tt></td>
+<td>0.2369</td>
+<td>0.1876</td>
+<td>1.26</td>
+</tr>
+<tr><td><tt class="docutils literal">ffffffff</tt></td>
+<td>0.2388</td>
+<td>0.1988</td>
+<td>1.20</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="sample-program">
+<h2>Sample program</h2>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/pdep_soft_emu">Sample programs</a> are available at github.</p>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-09-23-pdep-soft-emu.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

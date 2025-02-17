@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/mmx_mpeg.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Zastosowanie rozkazów SIMD w kompensacji ruchu</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="zastosowanie-rozkazow-simd-w-kompensacji-ruchu">
+<h1 class="title">Zastosowanie rozkazów SIMD w kompensacji ruchu</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">23.03.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">6.09.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#kod-sse" id="toc-entry-2">Kod SSE</a></li>
+<li><a class="reference internal" href="#kod-sse2" id="toc-entry-3">Kod SSE2</a></li>
+<li><a class="reference internal" href="#kod-mmx" id="toc-entry-4">kod MMX</a></li>
+<li><a class="reference internal" href="#sse4-rozkazy-mpsadbw-i-phminposuw" id="toc-entry-5">SSE4 &mdash; rozkazy <tt class="docutils literal">MPSADBW</tt> i <tt class="docutils literal">PHMINPOSUW</tt></a><ul>
+<li><a class="reference internal" href="#mpsadbw" id="toc-entry-6"><tt class="docutils literal">MPSADBW</tt></a></li>
+<li><a class="reference internal" href="#phminposuw" id="toc-entry-7"><tt class="docutils literal">PHMINPOSUW</tt></a></li>
+<li><a class="reference internal" href="#kompensacja-ruchu" id="toc-entry-8">Kompensacja ruchu</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#literatura" id="toc-entry-9">Literatura</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>W systemie MPEG istotnym czynnikiem kompresji jest <em>kompensacja
+ruchu</em> &mdash; zakłada się że w klatce część obrazu jest translacją części
+obrazu z poprzedniej klatki. W MPEG obraz dzielony jest na
+<strong>makrobloki</strong> &mdash; kwadraty o rozmiarze 16x16 pixeli. Tak więc
+zadaniem kompresora jest znalezienie dla przetwarzanego makrobloku
+najlepiej odpowiadającego makrobloku z poprzedniej klatki &mdash; gdy zostanie
+znaleziony zapisuje się jedynie wektor przesunięcia.</p>
+<p>Aby kompresja była jak najlepsza należałoby porównywać każdy makroblok
+bieżącej klatki z każdym <strong>możliwym</strong> makroblokiem klatki
+poprzedniej, co zajęłoby mnóstwo czasu. Dlatego ogranicza się obszar
+wyszukiwania do kwadratu o boku 128 pikseli &mdash; co i tak daje bardzo dużą
+liczbę porównań, bo aż 16384.</p>
+<p>W jaki sposób określa się podobieństwo dwóch bloków? Można przez błąd
+średniokwadratowy, albo błąd średniozupełny (ang. <em>mean absolute
+distortion</em>, w skrócie <strong>mad</strong>), wzór poniżej:</p>
+<img alt="mad(x,y) = \sum_{i=0}^{15} \sum_{j=0}^{15} |m_1[x+i][y+j] - m_2[x+i+dx][y+j+dy] |" class="align-center" src="img/mmx_mpeg_mad.png" />
+<pre class="literal-block">
+int mad(int x, int y);
+
+void get_vector(int x, int y, int* dx, int* dy)
+{
+ int min = 16*16*255+1;
+
+ for (int i=-64; i &lt; 64; i++)
+    for (int j=-64; j &lt; 64; j++)
+       {
+        int curr = mad(x+i, y+j);
+        if (curr &lt; min)
+          {
+           min = curr;
+           *dx = i;
+           *dy = j;
+          }
+       }
+}
+</pre>
+<p>Poniżej zostaną przedstawione przykładowe procedury implementujące
+<cite>mad</cite> przy użyciu rozkazów SIMD.</p>
+</div>
+<div class="section" id="kod-sse">
+<h1>Kod SSE</h1>
+<p>Rozkaz SSE <tt class="docutils literal">psadbw</tt> wykonuje dokładnie tę operację
+jakiej wymaga <tt class="docutils literal">mad</tt> &mdash; sumuje moduły różnic, oto implementacja:</p>
+<pre class="literal-block">
+; wejście: esi - makroblok m1
+;          edi - makroblok m2
+; wyjście: eax
+; niszczy: mm0.. mm3
+sse_mad:
+        pxor mm2, mm2 ; sumowanie będzie przebiegać
+        pxor mm3, mm3 ; w dwóch kolumnach o rozmiarze 8x16 pixeli
+
+        mov al, 16    ; ilość wierszy
+   .sum:
+
+        movq   mm0, [esi]
+        movq   mm1, [esi+8]
+
+        psadbw mm0, [edi]
+        psadbw mm1, [edi+8]
+
+        paddw  mm2, mm0
+        paddw  mm3, mm1
+
+        add    esi, byte 16
+        add    edi, byte 16
+
+        dec al
+        jnz .sum
+
+        paddw  mm2, mm3
+        movd   eax, mm2
+        ret
+</pre>
+</div>
+<div class="section" id="kod-sse2">
+<h1>Kod SSE2</h1>
+<p>Wersja SSE2 rozkazu <tt class="docutils literal">psadbw</tt> działa na dwóch qwordach
+oddzielnie &mdash; obliczenia są wykonywane <strong>niezależnie</strong> na
+dwóch częściach rejestrów XMM.</p>
+<pre class="literal-block">
+; wejście: esi - makroblok m1
+;          edi - makroblok m2
+; wyjście: eax
+; niszczy: xmm0, xmm1
+sse2_mad:
+        xorps  xmm0, xmm0  ; xmm1 = 0
+
+        mov    al, 16      ; ilość wierszy
+   .sum:
+        movups xmm1, [esi] ; załaduj cały wiersz
+        psadbw xmm1, [edi] ; xmm1 = | mad(0..7)  | mad(8..15) |
+        paddw  xmm0, xmm1  ; w xmm0 są akumulowane wszystkie wyniki mad z xmm1
+
+        add    esi,  byte 16
+        add    edi,  byte 16
+
+        dec    al
+        jnz    .sum
+                           ; xmm0 = | mad dla kolumny 2 |  mad dla kolumny 1 |
+        movhlps xmm1, xmm0 ; xmm1 = |          ?        |  mad dla kolumny 2 |
+        paddd   xmm0, xmm1 ; xmm0 = |          ?        | mad dla makrobloku |
+
+        movd    eax,  xmm0
+        ret
+</pre>
+</div>
+<div class="section" id="kod-mmx">
+<h1>kod MMX</h1>
+<p>Implementacja przy użyciu podstawowych rozkazów MMX nie jest tak efektywna
+jak przedstawione powyżej program, lecz i tak jest o wiele szybsza niż
+zwykły kod na x86.</p>
+<pre class="literal-block">
+; wejście: esi - makroblok m1
+;          edi - makroblok m2
+; wyjście: eax
+; niszczy: mm0.. mm7
+
+mma_sad:
+        mov al, 16
+
+        pxor mm6, mm6 ; sumy modułów
+        poxr mm7, mm7 ; w postaci formacie word
+
+   .sum:
+        movq mm0, [edi]
+        movq mm1, [edi+8]
+
+        movq mm2, [edi]
+        movq mm3, [edi+8]
+
+        movq mm4, mm0
+        movq mm5, mm1
+
+        psubusb mm0, mm2
+        psubusb mm2, mm4 ; mm4 wolny
+
+        psubusb mm1, mm3
+        psubusb mm3, mm5 ; mm5 wolny
+
+        por  mm0, mm2    ; mm0 = abs(mm0-mm2) -- mm2 wolny
+        por  mm1, mm3    ; mm1 = abs(mm1-mm3) -- mm3 wolny
+
+        pxor mm4, mm4
+        pxor mm5, mm5
+
+        movq mm2, mm0    ; kopiuj
+        movq mm3, mm1    ; moduły
+
+        punpcklbw mm0, mm4
+        punpcklbw mm1, mm4
+        punpckhbw mm2, mm4
+        punpckhbw mm3, mm4
+
+        paddw mm6, mm0
+        paddw mm7, mm1
+        paddw mm6, mm2
+        paddw mm7, mm3
+
+        add    esi, byte 16
+        add    edi, byte 16
+
+        dec al
+        jnz .sum
+
+        paddw mm6, mm7
+        movq  mm7, mm6
+        psrlq mm6, 32
+        paddw mm7, mm6
+
+        movd  eax, mm7
+
+        push  ebx
+        mov    bx, ax
+        shl   eax, 16
+        add    ax, bx
+        pop   ebx
+
+        ret
+</pre>
+</div>
+<div class="section" id="sse4-rozkazy-mpsadbw-i-phminposuw">
+<h1>SSE4 &mdash; rozkazy <tt class="docutils literal">MPSADBW</tt> i <tt class="docutils literal">PHMINPOSUW</tt></h1>
+<p>Te dwa rozkazy idealnie nadają się do <em>kompensacji ruchu</em>; najpierw
+przedstawię ich działanie (proponuję zeknąć również do artykułu na
+<a class="reference external" href="http://pl.wikipedia.org/wiki/SSE4">Wikipedii</a> lub moim <a class="reference external" href="sse4-new-instr.html">artykule</a>).</p>
+<div class="section" id="mpsadbw">
+<h2><tt class="docutils literal">MPSADBW</tt></h2>
+<p>Oblicza 8 x <tt class="docutils literal">SAD</tt> dla kolejnych 4-elementowych wektorów bajów bez
+znaku, pseudokod odpowiadający temu rozkazowi:</p>
+<pre class="literal-block">
+# mpsadbw xmm1, xmm2, imm8
+
+srcidx := 4 * (imm8 AND 0011b)          # indeksy pierwszych bajtów
+dstidx := 4 * (imm8 AND 0100b SHR 2)
+
+# obliczenia; temp - 16-elementowy wektor słów
+for i:=0 to 11 do
+    temp[i] := 0
+    for j:=0 to 3 do
+        temp[i] = temp[i] + ABS(xmm1[dstidx + i + j] - xmm2[srcidx + j])
+
+xmm1 := temp
+</pre>
+<ul class="simple">
+<li><tt class="docutils literal">srcidx</tt> wskazuje wektor w <tt class="docutils literal">xmm1</tt> (bajty 0..3 lub 4..7 lub
+8..11 albo 12..15)</li>
+<li><tt class="docutils literal">dstidx</tt> wskazuje, w jakim 12-bajtowym zakresie wykonywane są
+porównania, czy będą to bajty 0..11, czy 4..15.</li>
+</ul>
+</div>
+<div class="section" id="phminposuw">
+<h2><tt class="docutils literal">PHMINPOSUW</tt></h2>
+<p>Rozkaz wyszukuje w wektorze 16 słów bez znaku element najmniejszy,
+zwraca jego wartość oraz indeks:</p>
+<pre class="literal-block">
+; phminposuw xmm1, xmm2
+
+index := 0
+min   := xmm2[0]
+
+{ wyszukiwanie }
+for i:=1 to 15 do
+   if (xmm2[i] &lt; min)
+      min   := xmm2[i]
+      index := i
+
+{ wynik }
+xmm1 := 0
+xmm1[0:1] := min        { wyniki: słowo }
+xmm2[2]   := index      { indeks: bajt  }
+</pre>
+</div>
+<div class="section" id="kompensacja-ruchu">
+<h2>Kompensacja ruchu</h2>
+<p>Elementarna operacja jaka może zostać w łatwy sposób przeprowadzona to
+obliczenie ośmiu <tt class="docutils literal">SAD</tt> dla jednego wiersza makrobloku.  Dane są:</p>
+<ul class="simple">
+<li><tt class="docutils literal">xmm0</tt> &mdash; bieżące wartości <tt class="docutils literal">SAD</tt> (8 x słowo bez znaku)</li>
+<li><tt class="docutils literal">xmm1</tt> &mdash; wiersz makrobloku (16 bajtów)</li>
+<li><tt class="docutils literal">xmm2</tt> i <tt class="docutils literal">xmm3</tt> &mdash; fragment wiersza obrazu (32 bajty)</li>
+</ul>
+<p>Makro, które uaktualnia <tt class="docutils literal">SAD</tt> dla danych <tt class="docutils literal">xmm{1|2|3}</tt>:</p>
+<pre class="literal-block">
+.macro SAD
+        movaps  %xmm2, %xmm4    # zapisz xmm2
+        movaps  %xmm2, %xmm5
+
+        #    xmm2         xmm3
+        # [ a b c d ] [ e f g h ]
+        # [ W X Y Z ]
+        #    xmm1
+        #   0 1 2 3
+
+        shufps $0b01001110, %xmm3, %xmm2 # xmm2 := [ c d e f ]
+        movaps %xmm2, %xmm6
+
+        # xmm4 := SAD4(W, a:b:c)
+        mpsadbw $0b000, %xmm1, %xmm4
+
+        # xmm5 := SAD4(X, b:c:d)
+        mpsadbw $0b101, %xmm1, %xmm5
+
+        # xmm6 := SAD4(Y, c:d:e)
+        mpsadbw $0b010, %xmm1, %xmm6
+
+        # xmm2 := SAD4(Z, d:e:f)
+        mpsadbw $0b111, %xmm1, %xmm2
+
+        # xmm0 := xmm0 + (xmm2 + xmm6) + (xmm4 + xmm5)
+        paddw   %xmm5,  %xmm4
+        paddw   %xmm6,  %xmm2
+        paddw   %xmm4,  %xmm2
+        paddw   %xmm2,  %xmm0
+.endm
+</pre>
+<p>Pseudokod obliczający osiem kolejnych <tt class="docutils literal">SAD</tt> dla zadanego makrobloku.
+Wyszukiwanie przeprowadzane są w prostokącie <span class="math">(<i>y</i><sub>0</sub>&hellip;<i>y</i><sub>0</sub> + 15)<i>x</i>(<i>x</i><sub>0</sub>..<i>x</i><sub>0</sub> + 7)</span>, gdzie <span class="math"><i>x</i><sub>0</sub></span>, <span class="math"><i>y</i><sub>0</sub></span> &mdash; współrzędne lewego,
+górnego wierzchołka:</p>
+<pre class="literal-block">
+# x0, y0 - parametry
+minsad:
+        pxor    %xmm0, %xmm0    # suma := 0
+        for y:=0 to 15 do
+                # załaduj po 16 bajtów
+                %xmm1 := makroblok[0][y]
+                %xmm2 := obraz[x+0x00][y+y0]
+                %xmm3 := obraz[x+0x0f][y+y0]
+
+                # wykonaj SAD
+                SAD
+
+        # xmm0 - osiem kolejnych SAD
+        phminposuw %xmm0, %xmm0
+        movd    %xmm0,   %eax
+        mov     %eax,    %edx
+        and     $0xffff, %eax   # eax := min(SAD)
+        shr     $16,     %edx   # edx := indeks (x0 + 0..7)
+
+        ret
+</pre>
+</div>
+</div>
+<div class="section" id="literatura">
+<h1>Literatura</h1>
+<ul class="simple">
+<li>Adam Drozdek &bdquo;Wprowadzenie do kompresji danych&rdquo;, WNT 1999.</li>
+<li><em>Intel SSE4 Programming Reference</em> (D91561), kwiecień 2007</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/mmx_mpeg.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

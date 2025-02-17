@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2015-11-15-code-dive.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Short report from code::dive 2015</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="short-report-from-code-dive-2015">
+<h1 class="title">Short report from code::dive 2015</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2015-11-15</td>
+</tr>
+</tbody>
+</table>
+<p>Few days ago I attended <strong>code::dive 2015</strong>, an IT conference in Wrocław, Poland.
+It was a one-day conference with a great number of presentations. There were four
+stages and five sessions, in total 20 talks. Impressive number! But an attender
+had to choose his own path of just five lectures. I think the decision was
+pretty difficult. Sometimes less is better.</p>
+<p>The conference was organized by <strong>Nokia Poland</strong> for the second time, and these
+guys did the job very well. The location was perfect. The event was in a big
+cinema near the city center. There were free food and water. You had only to
+register online.</p>
+<p>I decided to watch following presentations:</p>
+<ul class="simple">
+<li>Andrei Alexandrescu &quot;Writing Fast Code&quot; part 1.</li>
+<li>Andrzej Krzemiński &quot;Constraint yourself&quot;.</li>
+<li>Urlich Drepper &quot;Intelligent application configuration data management&quot;.</li>
+<li>Bartosz Szurgot &quot;C++ vs. C: the embedded perspective&quot;.</li>
+<li>Dan Saks &quot;Representing Memory-Mapped Devices as Object&quot;.</li>
+</ul>
+<p>I'm not going to describe here the presentations in details, because videos
+should eventually appear on the official channel at <a class="reference external" href="https://www.youtube.com/channel/UC_l25lelCgcHtn3TeSyAQQA">Youtube</a>. I just point out
+things which interested me.</p>
+<div class="section" id="writing-fast-code">
+<h1>Writing Fast Code</h1>
+<p>Andrei performed a nice show, however some part were... hm, confusing. For
+example he claimed that code <tt class="docutils literal">x = x/10</tt> emits a division instruction. This is not
+true, all compilers run in so called &quot;release mode&quot; will emit multiplication by
+a reciprocal of a constant. Check this for your own. Another big
+misunderstanding of the speaker was the cause of slow writing operations on the
+modern hardware. He claimed that after a write request a CPU loads a line of
+cache, then modifies it contents according to the request, and finally CPU
+writes the cache line back to the memory. No. It doesn't work like this,
+simply. Slow down is caused mostly by multicore architecture and required
+synchronization among cache subsystems. But this is not very important, I think
+people should remember simple fact: fewer writes means faster programs.</p>
+<p><strong>Update 2015-11-22</strong>: my friend Piotr reminded me another funny fact,
+a speculation why division of floats is faster than division of integers.
+Andrei claimed that the reason is... exponential format of floats. It's just
+a subtraction of exponents, a division of mantissa and viola. I'm pretty
+sure that it's not the real reason.</p>
+<p>Andrei showed how he has optimized procedure converting a number to an ASCII
+representation. He used few tricks, and one of them is worth to mention. He minimize
+the number of &quot;real&quot; conversions by introducing a specialized path for smaller
+values. Do the same in your program, analyze your data and use an <tt class="docutils literal">if</tt> instruction
+to select a fast path. It usually works. Andrei gained 3-5 speedup without big effort.</p>
+<p>From perspective of a programmer who has never worked on code optimization
+Andrei's advice were very valuable. For example: never measure time of debug compilation.
+Compare your program with good, standard &amp; proved existing solutions. Your optimization
+of one module could have a negative impact on the whole application. When you measure
+a time, run tests many times and get the minimum measurement. Pretty obvious, but
+precious for newbies (the conference was full of students from local universities).</p>
+</div>
+<div class="section" id="constrain-yourself">
+<h1>Constrain yourself</h1>
+<p>Andrzej's presentation was about building restricted data types, making no room
+for misuse. The starting point of his talk was conclusion that standard C++
+data types, like int or char, are a kind of void pointer, i.e. they are
+transient, untyped entities. It's very true. Then he showed three examples from
+the real life.</p>
+<p>The first example was a type representing number of minutes since midnight.
+Basically it was wrapped integer number having a tight API. Surprisingly amount
+of code required to do this isn't very large. Constraints are checked in the
+run-time during instance construction. And this is the only disadvantage,
+because everything else is checked in compile-time.</p>
+<p>The second example was a short string implementation, where length of a string
+is given as a template parameter. First of all the class conserves memory and
+avoid dynamic allocation, and also expose a very basic set of methods when
+compared to std::string. However, thanks to the C++ type system, to distinguish
+strings of the same length but different purposes, a programmer have to use
+fake traits class. I really dislike this approach. It's ugly, but the only
+solution.</p>
+<p>The last example in Andrzej's talk was another class hiding from an user a
+magic values designed to mean &quot;no value&quot; or &quot;no valid&quot;. The speaker compared
+this solution with boost::optional. The boost template class can wrap virtually
+all types, but at cost of additional memory. The magic-value approach has no
+memory footprint, however it is limited mostly to numeric types.</p>
+<p>The presentation has reminded me two sad facts:</p>
+<ul class="simple">
+<li>The C++ type system is weak, and making it stronger require some effort,
+especially use templates (which make compilation time longer).</li>
+<li>The class <tt class="docutils literal"><span class="pre">std::string</span></tt> is the worst class ever, having giant API,
+lacking useful methods, having no extension points (except allocator).</li>
+</ul>
+</div>
+<div class="section" id="intelligent-application-configuration-data-management">
+<h1>Intelligent application configuration data management</h1>
+<p>Urlich showed a little bit history of configuration files and all related
+problems. There are three major issues: number of different configuration files
+(like global in <tt class="docutils literal">/etc</tt>, user dot-files and so on), problem with versioning
+(and changing values of a running application), and the last one: how to obtain
+a current settings used by a program. Urlich mentioned also that some aspect of
+program could be controlled through environment variables, however it is not
+recommended by the speaker.</p>
+<p>The first cure was to embed a Lua interpreter in our C++ program, as the
+interpreter is very small and the language is pretty powerful. Lua scripts
+gives more flexibility and are easy to extend on the fly. Indeed a nice
+approach, but in my opinion this just move the problems outside a C++ program.</p>
+<p>The problem with obtaining a current configuration was resolved really clever.
+Urlich proposed to expose all parameters as a virtual file system, like <tt class="docutils literal">procfs</tt>.
+He used well know FUSE &mdash; it works and it doesn't require too much code.
+Thanks to file system an application can react instantly on parameter write,
+and also versioning is possible. Moreover, an administrator can capture all
+parameters using standard tools.</p>
+<p>The talk was interesting. However the presented solution was strictly
+Linux-related and IMHO was too complex for simple/average applications. Maybe
+for large, complex applications dealing with significant number of parameters
+this could be a good method.</p>
+<p>I didn't like Urlich's slides, a wall of C++ code doesn't look good.</p>
+</div>
+<div class="section" id="c-vs-c-the-embedded-perspective">
+<h1>C++ vs. C: the embedded perspective</h1>
+<p>A little bit provoking title. But first of all I have to say that Bartosz was
+speaking fast. Really fast. Really, really fast. He can be a host at auctions.</p>
+<p>The speaker compared size of executables for different architectures (ARM,
+Atmega and something else) produced by C and C++ compilers. For me it was a bit
+surprising that C++ code was smaller in most cases. A C++ code used templates
+in place of C macros, thanks to that a compiler was able to perform better
+optimization. Simple CPUs have simple architecture and number of instructions
+strictly determines an execution time. Thus smaller executable size means less
+instructions and in fact faster program.</p>
+<p>Of course a C++ program on an embedded system probably would never use RTTI nor
+exceptions facilities, but at least a programmer could use classes and
+templates, which helps a lot.</p>
+</div>
+<div class="section" id="representing-memory-mapped-devices-as-object">
+<h1>Representing Memory-Mapped Devices as Object</h1>
+<p>Another embedded-related presentation. Dan showed how to use classes to hide
+hardware obscure details, in the case serial port settings. Dan started from a
+C-like solution (really ugly and error-prone), and finished with a nice
+encapsulation in a class. However, overloading <tt class="docutils literal">new</tt> operator to
+initialize hardware is the most bizarre thing I've ever seen (I've seen many
+weird things, believe me).</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2015-11-15-code-dive.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

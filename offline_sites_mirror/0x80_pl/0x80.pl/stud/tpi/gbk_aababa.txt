@@ -1,0 +1,5 @@
+S->CA|CB
+C->a
+A->DB
+D->b
+B->CA|a

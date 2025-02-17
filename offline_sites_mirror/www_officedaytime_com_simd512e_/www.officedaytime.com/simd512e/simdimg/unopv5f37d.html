@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?f=vgetmantpd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unopv5.php?f=vgetmantpd" />
+<link rel="alternate" hreflang="en" href="unopv5f37d.html?f=vgetmantpd" />
+<title>vgetmantpd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VGETMANTPD - GET MANTissa Packed Double<br /></h2>
+VGETMANTPD<span class="operand"> xmm1{k1}{z}, xmm2/m128/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128d _mm_getmant_pd(__m128d a, int intv, int sgn)</span><br />
+<span class="intr">__m128d _mm_mask_getmant_pd(__m128d s, __mmask8 k, __m128d a, int intv, int sgn)</span><br />
+<span class="intr">__m128d _mm_maskz_getmant_pd(__mmask8 k, __m128d a, int intv, int sgn)</span><br />
+<div style="height: 2px;"></div><img src="unop_qword_1.png" /><br />
+<div style="padding-left: 110px">For each double, get the mantissa from (1), perform specified normalization and store the result in (2).</div>
+<div style="height: 30px"></div>
+VGETMANTPD<span class="operand"> ymm1{k1}{z}, ymm2/m256/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256d _mm256_getmant_pd(__m256d a, int intv, int sgn)</span><br />
+<span class="intr">__m256d _mm256_mask_getmant_pd(__m256d s, __mmask8 k, __m256d a, int intv, int sgn)</span><br />
+<span class="intr">__m256d _mm256_maskz_getmant_pd(__mmask8 k, __m256d a, int intv, int sgn)</span><br />
+<div style="height: 2px;"></div><img src="unop_qword_2.png" /><br />
+<div style="padding-left: 110px">For each double, get the mantissa from (1), perform specified normalization and store the result in (2).</div>
+<div style="height: 30px"></div>
+VGETMANTPD<span class="operand"> zmm1{k1}{z}, zmm2/m512/m64bcst{sae}, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512d _mm512_getmant_pd(__m512d a, int intv, int sgn)</span><br />
+<span class="intr">__m512d _mm512_mask_getmant_pd(__m512d s, __mmask8 k, __m512d a, int intv, int sgn)</span><br />
+<span class="intr">__m512d _mm512_maskz_getmant_pd(__mmask8 k, __m512d a, int intv, int sgn)</span><br />
+<span class="intr">__m512d _mm512_getmant_round_pd(__m512d a, int intv, int sgn, int sae)</span><br />
+<span class="intr">__m512d _mm512_mask_getmant_round_pd(__m512d s, __mmask8 k, __m512d a, int intv, int sgn, int sae)</span><br />
+<span class="intr">__m512d _mm512_maskz_getmant_round_pd(__mmask8 k, __m512d a, int intv, int sgn, int sae)</span><br />
+<div style="height: 2px;"></div><img src="unop_qword_3.png" /><br />
+<div style="padding-left: 110px">For each double, get the mantissa from (1), perform specified normalization and store the result in (2).</div>
+<div style="height: 30px"></div>
+<table>
+	<tr>
+		<th>imm8 bit 1:0<br><span class="intr">intv</span></th>
+		<td>Normalization Interval</td>
+		<td>00b <span class="intr">_MM_MANT_NORM_1_2</span>: 1 &lt;= x &lt; 2<br>
+		    01b <span class="intr">_MM_MANT_NORM_p5_2</span>: 0.5 &lt;= x &lt; 2<br>
+			10b <span class="intr">_MM_MANT_NORM_p5_1</span>: 0.5 &lt;= x &lt; 1<br>
+			11b <span class="intr">_MM_MANT_NORM_p75_1p5</span>: 0.75 &lt;= x &lt; 1.5<br>
+			the mantissa is normalized to fit within the range specified.</td>
+	</tr>
+	<tr>
+		<th>imm8 bit 3:2<br><span class="intr">sgn</span></th>
+		<td>Sign Control</td>
+		<td>00b <span class="intr">_MM_MANT_SIGN_src</span>: sign is unchanged<br>
+		    01b <span class="intr">_MM_MANT_SIGN_zero</span>: sign is set to positive<br>
+			10b, 11b <span class="intr">_MM_MANT_SIGN_nan</span>: if sign of the source is negative, QNaN_Indefinite is stored as the result.</td>
+	</tr>
+
+</table>
+<p>&nbsp;</p>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vgetmantpd" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?f=vgetmantpd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+</html>

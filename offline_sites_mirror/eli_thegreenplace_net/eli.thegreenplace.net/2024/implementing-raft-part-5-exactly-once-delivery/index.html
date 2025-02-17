@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/implementing-raft-part-5-exactly-once-delivery/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:38:59 GMT -->
+<head>
+    <title>Implementing Raft: Part 5 - Exactly-once delivery - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Implementing Raft: Part 5 - Exactly-once delivery">
+                        Implementing Raft: Part 5 - Exactly-once delivery
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> December 18, 2024 at 06:01</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/concurrency.html">Concurrency</a>
+        ,
+    <a href="../../tag/go.html">Go</a>
+        ,
+    <a href="../../tag/network-programming.html">Network Programming</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>This is Part 5 in a series of posts describing the Raft distributed consensus
+algorithm and its complete implementation in Go. Here is a list of posts in the
+series:</p>
+<ul class="simple">
+<li><a class="reference external" href="../../2020/implementing-raft-part-0-introduction/index.html">Part 0: Introduction</a></li>
+<li><a class="reference external" href="../../2020/implementing-raft-part-1-elections/index.html">Part 1: Elections</a></li>
+<li><a class="reference external" href="../../2020/implementing-raft-part-2-commands-and-log-replication/index.html">Part 2: Commands and log replication</a></li>
+<li><a class="reference external" href="../../2020/implementing-raft-part-3-persistence-and-optimizations/index.html">Part 3: Persistence and optimizations</a></li>
+<li><a class="reference external" href="../implementing-raft-part-4-keyvalue-database/index.html">Part 4: Key/Value database</a></li>
+<li>Part 5: Exactly-once delivery (this post)</li>
+</ul>
+<p>In this part, we're completing the implementation of a replicated key / value
+database based on Raft consensus. At the end of Part 4 we discussed a
+consistency issue that may arise due to client retry logic; now is the time
+to address it.</p>
+<p>All the code for this part is located
+in <a class="reference external" href="https://github.com/eliben/raft/tree/main/part5kv">this directory</a>.</p>
+<div class="section" id="adding-an-append-operation-to-our-database">
+<h2>Adding an <tt class="docutils literal">APPEND</tt> operation to our database</h2>
+<p>As a quick reminder, these are the basic operations our KV DB from part 4
+supports:</p>
+<ul class="simple">
+<li><tt class="docutils literal">PUT(k,v)</tt>: assign value <tt class="docutils literal">v</tt> to key <tt class="docutils literal">k</tt></li>
+<li><tt class="docutils literal">GET(k)</tt>: retrieve the value associated with key <tt class="docutils literal">k</tt></li>
+<li><tt class="docutils literal">CAS(k, cmp, v)</tt>: atomic compare-and-swap. First, it reads <tt class="docutils literal">curV</tt> - the
+current value associated with key <tt class="docutils literal">k</tt>. If <tt class="docutils literal"><span class="pre">curV==cmp</span></tt>, assigns value
+<tt class="docutils literal">v</tt> to <tt class="docutils literal">k</tt> instead; otherwise, it's a no-op. In any case, <tt class="docutils literal">curV</tt> is
+returned.</li>
+</ul>
+<p>Let's add another operation to this set; this is <tt class="docutils literal">APPEND(k,v)</tt>, which appends
+<tt class="docutils literal">v</tt> to the value of key <tt class="docutils literal">k</tt> (in our implementation, keys and values are
+both arbitrary Go strings); if there was no <tt class="docutils literal">k</tt> in the DB before this
+operation, it behaves like <tt class="docutils literal">PUT(k,v)</tt>.</p>
+<p>For example, consider this sequence of commands (in order from left to right):</p>
+<div class="highlight"><pre><span></span>PUT(&quot;x&quot;,&quot;foo&quot;)  APPEND(&quot;x&quot;, &quot;bar&quot;)  APPEND(&quot;y&quot;,&quot;hello&quot;)
+</pre></div>
+<p>Applied to an empty DB, these commands will result in these keys / values:</p>
+<div class="highlight"><pre><span></span>x=foobar
+y=hello
+</pre></div>
+</div>
+<div class="section" id="the-problem-with-client-retries-demonstrated-with-append">
+<h2>The problem with client retries - demonstrated with <tt class="docutils literal">APPEND</tt></h2>
+<p>The way our KV client works is described in detail in
+<a class="reference external" href="../implementing-raft-part-4-keyvalue-database/index.html">Part 4</a>. As a reminder,
+the client tries the KV services one by one, submitting a command to them until
+it gets a success response from a leader. The client also remembers which
+service was the leader the last time it tried, to avoid wasting time on the
+search next time.</p>
+<p>Suppose we've already submitted <tt class="docutils literal"><span class="pre">PUT(&quot;x&quot;,&quot;foo&quot;)</span></tt> successfully to the database,
+and now we want to send the <tt class="docutils literal"><span class="pre">APPEND(&quot;x&quot;,&quot;bar&quot;)</span></tt> command. Suppose also that
+our client remembers that service B was the leader (in a cluster of three
+services: A, B and C). It sends the <tt class="docutils literal"><span class="pre">APPEND(&quot;x&quot;,&quot;bar&quot;)</span></tt> request to service
+B. What happens if the client doesn't get a response from B? It assumes
+something happened to B (maybe it has crashed or was partitioned from the
+network), and retries the same request - sending it to C.</p>
+<p>But now suppose that B actually received the APPEND command and committed it
+to the Raft cluster, but crashed before sending the HTTP response back to the
+client (or maybe the HTTP response got delayed beyond the client's timeout,
+due to a network glitch). Due to the same error, B then loses cluster leadership.
+The client will keep retrying this request, until
+it finds a leader that answers with success; therefore, the APPEND may
+be applied twice (or even more times, if the failure mode recurs) and the value
+of <tt class="docutils literal">x</tt> in the DB will end up being <tt class="docutils literal">&quot;foobarbar&quot;</tt>. This is bad!</p>
+<p>You may be tempted to blame the client's retry behavior here; but let's think
+this through. Suppose we didn't have the client layer doing retries; we send
+an APPEND command to a service, and don't hear anything back. What do we do
+next? Is there any way to know that the request was actually committed? Well,
+we can send a GET request to check, but this quickly gets complicated in a real
+distributed system, because our operation is no longer atomic (some other client
+may have changed the key's value since then, so what is our GET supposed to
+check?).</p>
+<p>The problem isn't the retry itself; it's retrying with insufficient safety
+guarantees in the core algorithm.</p>
+</div>
+<div class="section" id="solving-the-retry-problem-with-command-de-duplication">
+<h2>Solving the retry problem with command de-duplication</h2>
+<p>The problem described above isn't just an issue in our implementation. It's
+explicitly called out in the original Raft paper, in section 8:</p>
+<blockquote>
+However, as described so far Raft can execute a command multiple times: for
+example, if the leader crashes after committing the log entry but before
+responding to the client, the client will retry the command with a new
+leader, causing it to be executed a second time. The solution is for clients
+to assign unique serial numbers to every command. Then, the state machine
+tracks the latest serial number processed for each client, along with the
+associated response. If it receives a command whose serial number has already
+been executed, it responds immediately without re-executing the request.</blockquote>
+<p>The paper also suggests a solution to the problem, and this is what we're
+going to implement. If we can uniquely identify commands committed to the
+Raft log, the KV service can avoid applying the same commands twice.</p>
+<p>The idea is to identify commands uniquely as follows:</p>
+<ul class="simple">
+<li>Each client has a globally unique ID</li>
+<li>Each command sent by a client has a unique ID, distinct from all other IDs
+sent by the client. Moreover, to make our algorithm efficient this ID is
+monotonically increasing; assuming each client has its own monotonic clock,
+a command sent at time <object class="valign-m4" data="../../images/math/2885fa41d340ab94bb0451308cf01996f1916011.svg" style="height: 16px;" type="image/svg+xml">T_1</object> will have an ID larger than a command
+sent at <object class="valign-m3" data="../../images/math/9aa7b71de925cf0af7c914ee94140a522d6b84ac.svg" style="height: 15px;" type="image/svg+xml">T_0</object> iff <object class="valign-m3" data="../../images/math/8967f572b209645f22cd7dbd1eef806527ee6c90.svg" style="height: 15px;" type="image/svg+xml">T_1&gt;T_0</object>.</li>
+</ul>
+<p>In our APPEND example, let's say the client's ID is 42, and let's say the ID
+of the <tt class="docutils literal"><span class="pre">APPEND(&quot;x&quot;,&quot;bar&quot;)</span></tt> command it sends is 1. The command is sent to B,
+which commits it successfully - with the ID tuple <tt class="docutils literal">(42,1)</tt> - to the Raft log;
+B crashes before responding to the client, so the client retries the command
+with C. Since it's the same command, it has the same ID tuple <tt class="docutils literal">(42,1)</tt>. The KV
+service in C will notice that such an ID was already applied, and will not apply
+it again <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>!</p>
+</div>
+<div class="section" id="implementing-de-duplication">
+<h2>Implementing de-duplication</h2>
+<p>We'll start with the client. Two fields are added to the <tt class="docutils literal">KVClient</tt> struct:</p>
+<div class="highlight"><pre><span></span><span class="c1">// clientID is a unique identifier for a client; it&#39;s managed internally</span><span class="w"></span>
+<span class="c1">// in this file by incrementing the clientCount global.</span><span class="w"></span>
+<span class="nx">clientID</span><span class="w"> </span><span class="kt">int64</span><span class="w"></span>
+
+<span class="c1">// requestID is a unique identifier for a request a specific client makes;</span><span class="w"></span>
+<span class="c1">// each client manages its own requestID, and increments it monotonically and</span><span class="w"></span>
+<span class="c1">// atomically each time the user asks to send a new request.</span><span class="w"></span>
+<span class="nx">requestID</span><span class="w"> </span><span class="nx">atomic</span><span class="p">.</span><span class="nx">Int64</span><span class="w"></span>
+</pre></div>
+<p>The <tt class="docutils literal">clientID</tt> field is assigned when a client is created, using a global
+atomic that auto-increments:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">New</span><span class="p">(</span><span class="nx">serviceAddrs</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">KVClient</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">KVClient</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// ... other fields</span><span class="w"></span>
+<span class="w">    </span><span class="nx">clientID</span><span class="p">:</span><span class="w">      </span><span class="nx">clientCount</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+
+<span class="c1">// clientCount is used to assign unique identifiers to distinct clients.</span><span class="w"></span>
+<span class="kd">var</span><span class="w"> </span><span class="nx">clientCount</span><span class="w"> </span><span class="nx">atomic</span><span class="p">.</span><span class="nx">Int64</span><span class="w"></span>
+</pre></div>
+<p>This provides uniqueness for our tests, but in realistic applications you'll
+probably want something stronger. A simple and pragmatic
+approach could be using an <a class="reference external" href="https://en.wikipedia.org/wiki/Universally_unique_identifier">UUID</a> here - I'll
+leave this as an exercise for motivated readers.</p>
+<p>The <tt class="docutils literal">requestID</tt> field tracks the ID of the last request this client has
+sent. Each time the client sends a new request, this is incremented <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>.
+For example, here's the new <tt class="docutils literal">Append</tt> method:</p>
+<div class="highlight"><pre><span></span><span class="c1">// Append the value to the key in the store. Returns an error, or</span><span class="w"></span>
+<span class="c1">// (prevValue, keyFound, false), where keyFound specifies whether the key was</span><span class="w"></span>
+<span class="c1">// found in the store prior to this command, and prevValue is its previous</span><span class="w"></span>
+<span class="c1">// value if it was found.</span><span class="w"></span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">KVClient</span><span class="p">)</span><span class="w"> </span><span class="nx">Append</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">appendReq</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">AppendRequest</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Key</span><span class="p">:</span><span class="w">       </span><span class="nx">key</span><span class="p">,</span><span class="w"></span>
+<span class="w">    </span><span class="nx">Value</span><span class="p">:</span><span class="w">     </span><span class="nx">value</span><span class="p">,</span><span class="w"></span>
+<span class="hll"><span class="w">    </span><span class="nx">ClientID</span><span class="p">:</span><span class="w">  </span><span class="nx">c</span><span class="p">.</span><span class="nx">clientID</span><span class="p">,</span><span class="w"></span>
+</span><span class="hll"><span class="w">    </span><span class="nx">RequestID</span><span class="p">:</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">requestID</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span><span class="w"></span>
+</span><span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="kd">var</span><span class="w"> </span><span class="nx">appendResp</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">AppendResponse</span><span class="w"></span>
+<span class="w">  </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">c</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;append&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">appendReq</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">appendResp</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">appendResp</span><span class="p">.</span><span class="nx">PrevValue</span><span class="p">,</span><span class="w"> </span><span class="nx">appendResp</span><span class="p">.</span><span class="nx">KeyFound</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>Both IDs are part of the HTTP request sent to service. Here's the request
+struct for appends:</p>
+<div class="highlight"><pre><span></span><span class="kd">type</span><span class="w"> </span><span class="nx">AppendRequest</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">Key</span><span class="w">   </span><span class="kt">string</span><span class="w"></span>
+<span class="w">  </span><span class="nx">Value</span><span class="w"> </span><span class="kt">string</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">ClientID</span><span class="w">  </span><span class="kt">int64</span><span class="w"></span>
+<span class="w">  </span><span class="nx">RequestID</span><span class="w"> </span><span class="kt">int64</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>The other commands are modified similarly; all the retry logic (in the <tt class="docutils literal">send</tt>
+method) remains the same - it just keeps retrying with the same client+request
+IDs.</p>
+<p>The changes in the service are slightly deeper, but not too difficult overall.
+First, we add a field to the <tt class="docutils literal">KVService</tt> struct:</p>
+<div class="highlight"><pre><span></span><span class="c1">// lastRequestIDPerClient helps de-duplicate client requests. It stores the</span><span class="w"></span>
+<span class="c1">// last request ID that was applied by the updater per client; the assumption</span><span class="w"></span>
+<span class="c1">// is that client IDs are unique (keys in this map), and for each client the</span><span class="w"></span>
+<span class="c1">// requests IDs (values in this map) are unique and monotonically increasing.</span><span class="w"></span>
+<span class="nx">lastRequestIDPerClient</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">int64</span><span class="p">]</span><span class="kt">int64</span><span class="w"></span>
+</pre></div>
+<p>We also add some fields to the <tt class="docutils literal">Command</tt> struct:</p>
+<div class="highlight"><pre><span></span><span class="c1">// ClientID and RequestID uniquely identify the request+client.</span><span class="w"></span>
+<span class="nx">ClientID</span><span class="p">,</span><span class="w"> </span><span class="nx">RequestID</span><span class="w"> </span><span class="kt">int64</span><span class="w"></span>
+
+<span class="c1">// IsDuplicate is used to mark the command as a duplicate by the updater. When</span><span class="w"></span>
+<span class="c1">// the updater notices a command that has a client+request ID that has already</span><span class="w"></span>
+<span class="c1">// been executed, the command is not applied to the datastore; instead,</span><span class="w"></span>
+<span class="c1">// IsDuplicate is set to true.</span><span class="w"></span>
+<span class="nx">IsDuplicate</span><span class="w"> </span><span class="kt">bool</span><span class="w"></span>
+</pre></div>
+<p>As a reminder, <tt class="docutils literal">Command</tt> is the &quot;payload&quot; we submit to the Raft log <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>.</p>
+<p>The bulk of the logic is in the goroutine running <tt class="docutils literal">runUpdater</tt>:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">kvs</span><span class="w"> </span><span class="o">*</span><span class="nx">KVService</span><span class="p">)</span><span class="w"> </span><span class="nx">runUpdater</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="k">go</span><span class="w"> </span><span class="kd">func</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">entry</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">commitChan</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">cmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">entry</span><span class="p">.</span><span class="nx">Command</span><span class="p">.(</span><span class="nx">Command</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">      </span><span class="c1">// Duplicate command detection.</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// Only accept this request if its ID is higher than the last request from</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// this client.</span><span class="w"></span>
+<span class="w">      </span><span class="nx">lastReqID</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">lastRequestIDPerClient</span><span class="p">[</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ClientID</span><span class="p">]</span><span class="w"></span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">lastReqID</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">RequestID</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">kvlog</span><span class="p">(</span><span class="s">&quot;duplicate request id=%v, from client id=%v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">RequestID</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ClientID</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="c1">// Duplicate: this request ID was already applied in the past!</span><span class="w"></span>
+<span class="w">        </span><span class="nx">cmd</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">Command</span><span class="p">{</span><span class="w"></span>
+<span class="w">          </span><span class="nx">Kind</span><span class="p">:</span><span class="w">        </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Kind</span><span class="p">,</span><span class="w"></span>
+<span class="w">          </span><span class="nx">IsDuplicate</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"></span>
+<span class="w">        </span><span class="p">}</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">lastRequestIDPerClient</span><span class="p">[</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ClientID</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">RequestID</span><span class="w"></span>
+
+<span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Kind</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandGet</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">Get</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandPut</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">Put</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandAppend</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">Append</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="nx">CommandCAS</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">ds</span><span class="p">.</span><span class="nx">CAS</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Key</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">CompareValue</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">.</span><span class="nx">Value</span><span class="p">)</span><span class="w"></span>
+<span class="w">        </span><span class="k">default</span><span class="p">:</span><span class="w"></span>
+<span class="w">          </span><span class="nb">panic</span><span class="p">(</span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;unexpected command %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">cmd</span><span class="p">))</span><span class="w"></span>
+<span class="w">        </span><span class="p">}</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">      </span><span class="c1">// Forward this command to the subscriber interested in its index, and</span><span class="w"></span>
+<span class="w">      </span><span class="c1">// close the subscription - it&#39;s single-use.</span><span class="w"></span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="nx">sub</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">popCommitSubscription</span><span class="p">(</span><span class="nx">entry</span><span class="p">.</span><span class="nx">Index</span><span class="p">);</span><span class="w"> </span><span class="nx">sub</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">sub</span><span class="w"> </span><span class="o">&lt;-</span><span class="w"> </span><span class="nx">cmd</span><span class="w"></span>
+<span class="w">        </span><span class="nb">close</span><span class="p">(</span><span class="nx">sub</span><span class="p">)</span><span class="w"></span>
+<span class="w">      </span><span class="p">}</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="p">}()</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>This relies on the IDs from each client being monotonically increasing, and thus
+we only have to maintain O(1) of state per client <a class="footnote-reference" href="#footnote-4" id="footnote-reference-4">[4]</a>. When we apply a client
+request to the state machine, we remember the ID of this request. If the code
+is ever asked to apply the same ID (or a lower ID), it refuses, marking the
+command as <tt class="docutils literal">IsDuplicate=true</tt> instead. Then, the HTTP handler that tried to
+submit the command has to deal with this situation; for example,
+in <tt class="docutils literal">handleAppend</tt>:</p>
+<div class="highlight"><pre><span></span><span class="nx">sub</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">createCommitSubscription</span><span class="p">(</span><span class="nx">logIndex</span><span class="p">)</span><span class="w"></span>
+
+<span class="k">select</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="k">case</span><span class="w"> </span><span class="nx">commitCmd</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&lt;-</span><span class="nx">sub</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">ServiceID</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">id</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">IsDuplicate</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">sendHTTPResponse</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">AppendResponse</span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">RespStatus</span><span class="p">:</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusDuplicateRequest</span><span class="p">,</span><span class="w"></span>
+<span class="w">      </span><span class="p">})</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">      </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">sendHTTPResponse</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">AppendResponse</span><span class="p">{</span><span class="w"></span>
+<span class="w">        </span><span class="nx">RespStatus</span><span class="p">:</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusOK</span><span class="p">,</span><span class="w"></span>
+<span class="w">        </span><span class="nx">KeyFound</span><span class="p">:</span><span class="w">   </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">ResultFound</span><span class="p">,</span><span class="w"></span>
+<span class="w">        </span><span class="nx">PrevValue</span><span class="p">:</span><span class="w">  </span><span class="nx">commitCmd</span><span class="p">.</span><span class="nx">ResultValue</span><span class="p">,</span><span class="w"></span>
+<span class="w">      </span><span class="p">})</span><span class="w"></span>
+<span class="w">    </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">kvs</span><span class="p">.</span><span class="nx">sendHTTPResponse</span><span class="p">(</span><span class="nx">w</span><span class="p">,</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">AppendResponse</span><span class="p">{</span><span class="nx">RespStatus</span><span class="p">:</span><span class="w"> </span><span class="nx">api</span><span class="p">.</span><span class="nx">StatusFailedCommit</span><span class="p">})</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="k">case</span><span class="w"> </span><span class="o">&lt;-</span><span class="nx">req</span><span class="p">.</span><span class="nx">Context</span><span class="p">().</span><span class="nx">Done</span><span class="p">():</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>For duplicates the service returns a special API status:
+<tt class="docutils literal">api.StatusDuplicateRequest</tt>. Our client treats this as an error and surfaces
+it to the user. As an exercise, try changing it so the return value from
+duplicates is normal (success). The challenge here is to record - for each
+request - what the result is for returning to the client (e.g. the previous
+value of a key in case of PUT or APPEND).</p>
+</div>
+<div class="section" id="revisiting-our-consistency-guarantees">
+<h2>Revisiting our consistency guarantees</h2>
+<p>In <a class="reference external" href="../implementing-raft-part-4-keyvalue-database/index.html">Part 4</a>,
+we've discussed the consistency guarantees of our KV service in detail, and
+concluded that it's strict serializable, which is the strongest consistency
+guarantee for distributed systems.</p>
+<p>However, when adding the client module we've also noted that - due to the client
+retry problem - the whole system is no longer <a class="reference external" href="../linearizability-in-distributed-systems/index.html">linearizable</a>
+(and hence no longer strict serializable). Linearizability extended to the
+client is known to be tricky; this isn't surprising - after all, the client
+is yet another network-connected component in the system, with inherently
+unreliable communication to the service.</p>
+<p>With de-duplication, our entire system is strict-serializable again. Even if
+a client re-sends a command that was already committed to the Raft log, this
+retried command won't be committed a second time due to the de-duplication
+logic. Users will not observe non-linearizable behavior.</p>
+</div>
+<div class="section" id="exactly-once-delivery">
+<h2>Exactly-once delivery</h2>
+<p>The discussion around delivery semantics can get quite heated - people have
+strong feelings about a topic in which academic rigor is often insufficiently
+applied. Still, I'll take the chance of discussing these semantics in the
+context of the Raft-based KV DB we've built through this series of posts.</p>
+<p>Consider a case in which we have no client retries. A client submits a user's
+request just once to the underlying Raft service. Raft guarantees that if the
+system is sufficiently connected (e.g. there are enough live and connected
+peer to achieve consensus), the command will be applied to the Raft log once.
+The Raft protocol is both theoretically and practically proven at this point,
+so let's take this as an axiom. So we can say that without client retries,
+a command is delivered <em>at most once</em>. It can fail to be delivered (if there's
+a persistent network partition preventing the Raft cluster from having enough
+live peers for consensus), but it will not be delivered more than once.</p>
+<p>For some applications, at most once delivery is a sufficient guarantee. Think
+about some sort of distributed logging or telemetry, for example. This isn't
+the case for the kind of KV DB we're trying to build, though, because it's
+intended to serve as a rock-solid basis for other distributed applications.</p>
+<p>Next we've added client retries; this is essential in light of the imperfect
+physical world in which our code operates. With client retries, assuming the
+HW and network is working &quot;in the long term&quot; (e.g. network partitions get
+fixed within some reasonable time, and crashing servers get restarted or
+replaced), we get <em>at least once</em> semantics. The client will just keep retrying
+until it gets notified that the command was applied. However, as we've seen at
+the beginning of this post, this also means duplicate delivery when some failure
+scenarios occur.</p>
+<p>The goal of adding de-duplication is to move our system to <em>exactly-once</em>
+delivery. Exactly-once delivery is a highly debated topic, but with some
+reasonable real-world assumptions, it can be achieved. Consider our implementation,
+for example (with de-duplication of retries). As long as the network and HW are
+not permanently broken, a command will either be applied <em>exactly once</em> to the
+DB, or the client will be notified of an error.</p>
+<p><a class="reference external" href="http://blog.rongarret.info/2024/09/yes-you-can-have-exactly-once-delivery.html">Here's a post by Ron Garret</a> where
+he provides a useful framework to think about this. The post is long but worth
+reading; here's a quote I liked:</p>
+<blockquote>
+If you can get at-least-once delivery, you can build exactly-once on top of that</blockquote>
+<p>I believe this Raft series has demonstrated how this is done.
+Another interesting read is <a class="reference external" href="https://www.confluent.io/blog/exactly-once-semantics-are-possible-heres-how-apache-kafka-does-it/">this post by the Kafka developers</a>
+where they discuss how exactly-once semantics were added to Kafka a few years
+ago. If you read it you'll see it's pretty much the same technique - client
+retries with de-duplication of commands in the distributed log.</p>
+<p>Finally, in <em>Designing Data-Intensive Applications</em>, Martin Kleppman touches
+upon this topic in several places; for example, in chapter 12 he discusses
+exactly-once execution of operations and the engineering required to make it
+possible.</p>
+</div>
+<div class="section" id="conclusion">
+<h2>Conclusion</h2>
+<p>This concludes our series of posts on implementing a full Raft consensus module
+in Go, and building a strictly serializable KV DB on top of it.</p>
+<p>For any questions or comments about these posts or the code, please send me an
+email or open an <a class="reference external" href="https://github.com/eliben/raft/issues">issue on GitHub</a>.</p>
+</div>
+<div class="section" id="appendix-1-retries-with-put-and-linearizability">
+<h2>Appendix 1: Retries with PUT and linearizability</h2>
+<p>In this post we've added an APPEND operation to demonstrate the issues that
+arise with retries and duplication. But APPEND differs significantly
+from the original operations we've discussed in part 4: it's not idempotent.
+Applying APPEND more than once creates an invalid value, which isn't true
+for PUT - if we had retried PUT multiple times, the only outcome would be
+writing the result twice.</p>
+<p>While this seems logical on the surface, it turns out that even without operations
+like APPEND, the system isn't linearizable if retries without de-duplication are
+allowed. Here's a diagram (following the style of
+<a class="reference external" href="../linearizability-in-distributed-systems/index.html">my post on linarizability</a>)
+that demonstrates the issue:</p>
+<img alt="Linearazibility diagram of PUTs with retries" class="align-center" src="../../images/2024/retry-put-not-linearizable.png" />
+<p>This diagram describes a single &quot;register&quot;, let's assume the key &quot;foo&quot;. Let's
+also assume that before any writes, the default value of all keys is 0. Here's
+what happens:</p>
+<ol class="arabic simple">
+<li>Client A issues a <tt class="docutils literal"><span class="pre">PUT('foo',1)</span></tt> request. The request gets committed by
+the leader, which crashes before a reply is made to the client. The client
+will continue periodically retrying.</li>
+<li>In the meantime, a new leader is elected. Client C reads the value of the
+register and gets a successful response (since the PUT of 1 was committed).</li>
+<li>Client B uses the new leader to commit a new PUT, with value 2.</li>
+<li>Client C reads the value of 2 from the register.</li>
+<li>Client A's retry reaches the new leader, which commits another instance
+of <tt class="docutils literal"><span class="pre">PUT('foo',1)</span></tt>, overwriting
+the value 2. Now when client C reads the register again, it gets 1 again.</li>
+</ol>
+<p>This sequence isn't linearizable; as far as the clients are concerned, since
+operation (2) retrieved the value 1, it means (1) finished before (2); the
+result of (4) also means that (3) happened after (1). This
+makes (5) impossible in a linearizable system.</p>
+<p>This is a known failure scenario in distributed systems; it's called <em>lost
+update</em>. In our example, the <tt class="docutils literal">PUT(2)</tt> operation is essentially lost outside a
+brief window just following it. The retry of <tt class="docutils literal">PUT(1)</tt> overwrites it.</p>
+</div>
+<div class="section" id="appendix-2-lost-updates-in-etcd-with-client-retries">
+<h2>Appendix 2: lost updates in etcd with client retries</h2>
+<p>To demonstrate that the issue discussed in this post isn't purely academic,
+here's a real world example.</p>
+<p><a class="reference external" href="https://etcd.io/">etcd</a> is an industrial-strength key value DB based on
+Raft. It's used extensively inside k8s and other projects. While the etcd
+service itself is strict serializable, some of its client libraries turned
+out to have the exact retry problem described in this post.</p>
+<p>Here's a <a class="reference external" href="https://jepsen.io/analyses/jetcd-0.8.2">Jepsen analysis of jetcd</a>,
+a Java-based client that automatically retries on failures. The analysis
+concludes that this mechanism results in loss of linearizability, and recommends
+to disable it. There's also <a class="reference external" href="https://github.com/etcd-io/etcd/issues/14890">a lengthy discussion in a GitHub issue</a> with the
+etcd developers about this. And <a class="reference external" href="https://github.com/etcd-io/etcd/issues/18424">another issue</a> has interesting
+information as well.</p>
+<p>The Jepsen analysis has a great quote which I want to repost here, because it's
+so relevant to our discussion (and Appendix 1 in particular):</p>
+<blockquote>
+It is easy to assume that set(x, 5) is idempotent because applying it twice in
+a row still produces the state x = 5. However, this operation is not longer
+idempotent if its executions are interleaved with other writes—then, it leads to
+lost update.</blockquote>
+<p>Interestingly, etcd doesn't support operations like APPEND at all. It can be
+emulated with transactions, however, since etcd's <a class="reference external" href="https://etcd.io/docs/v3.5/learning/api/#revisions">data store is versioned</a>.
+These features also allow one to be more careful around failures when
+non-linearizable behavior isn't acceptable. For example, we can perform writes
+like this:</p>
+<div class="highlight"><pre><span></span>1. Read revision --&gt; $rev
+2. TXN
+      if mod_revision(k) == $rev
+      PUT(k, v)
+</pre></div>
+<p>This will only assign <tt class="docutils literal"><span class="pre">store(k)=v</span></tt> if there were no changes to the DB in the
+meantime. The failure scenario shown in Appendix 1 cannot happen, because each
+successful write increments the revision of the store.
+If unsuccessful, this sequence of operations can be retried safely
+(its only problem is with liveness, not safety).</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>For this reason it's important to store the ID of the command
+<em>in the Raft log</em> along with the command itself - we need this
+de-duplication to work across peers.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>If you're concerned that a client may send more than 9.2 quintillion
+requests in its lifetime, this is easy to change to an arbitrarily
+large number using <tt class="docutils literal">math/big.Int</tt>.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>And we also reuse it to communicate results back from the updater
+goroutine to request handlers - this is why <tt class="docutils literal">IsDuplicate</tt> is there.
+A simple refactoring exercise could be to use a separate data structure
+for this purpose.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-4" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-4">[4]</a></td><td>This assumes the total number
+of distinct clients this service is dealing with is not overly large; in
+realistic systems, this is a reasonable assumption. In extreme cases,
+if we foresee having to deal with an unbounded number of clients,
+some sort of &quot;garbage collection&quot; scheme should be maintained (we can
+&quot;forget&quot; a client after some timeout of not hearing from it).</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/implementing-raft-part-5-exactly-once-delivery/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:38:59 GMT -->
+</html>

@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-07-js-search.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:20 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Building full-text search in Javascript</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="building-full-text-search-in-javascript">
+<h1 class="title">Building full-text search in Javascript</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2025-01-07</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#full-text-search" id="toc-entry-2">Full-text search</a></li>
+<li><a class="reference internal" href="#indexing" id="toc-entry-3">Indexing</a></li>
+<li><a class="reference internal" href="#searching" id="toc-entry-4">Searching</a></li>
+<li><a class="reference internal" href="#closing-words" id="toc-entry-5">Closing words</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-6">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>I dedicated the last few days of 2024 on refreshing my website. The project
+started around 2002, when the Internet was not widespread, there was no GitHub,
+Wikipedia or anything we know right now. Thus the website served also as
+a hosting platform for my open-source software.</p>
+<p>I created custom python software to maintain both the articles and software.
+In the meantime things evolved. I started to write my texts in English, and
+publish them more in a blog style (although, I'm not a fan of the term &quot;blog&quot;),
+also GitHub allowed to easily distribute software. At some point of time my
+fancy system for static website become more cumbersome than helpful.</p>
+<p>The decision was simple: drop the old build system, create a new one,
+uncomplicated and tailored to my current needs &mdash; focus only on publishing
+articles. A wise decision I made 20 years ago was picking <a class="reference external" href="https://docutils.sourceforge.io/rst.html">reStructuedText</a>
+to write texts. I prefer it over markdown. Not to mention that ReST allows
+to easily extend itself, which I found extremely <a class="reference external" href="../roles.html">handy</a>.</p>
+<p>Long story short, the new system allowed me to introduce tags, to maintain
+texts in draft mode and, last but not least, to let <a class="reference external" href="http://en.wikipedia.org/wiki/Make_(software)">make</a>
+perform all boring tasks.</p>
+<p>But with the new build system, a new idea appeared: &quot;how about searching?&quot;.</p>
+</div>
+<div class="section" id="full-text-search">
+<h1>Full-text search</h1>
+<p>Text algorithms is something I enjoy, and had some experience with <a class="reference external" href="https://github.com/WojciechMula/trigraph-search">them</a>. The
+first objective was obvious: no server-side programs! The website lives on my
+friend's servers, and I don't want to cause any troubles. (From time to time I
+grep the logs and keep seeing people trying to open <tt class="docutils literal"><span class="pre">wp-admin</span></tt> panel, or
+similar URLs.)</p>
+<p>Thus I needed a client-side solution. Quick googling for existing projects yield
+nothing that caught my attention. I decided to write from scratch everything,
+not use WASM (it was tempting, TBH) and not even use jQuery.</p>
+<p>The workflow I designed is quite simple (and fully automated, of course):</p>
+<ol class="arabic simple">
+<li>The reStructuedText comes with tool converting <tt class="docutils literal">.rst</tt> files into XML.</li>
+<li>Plain text is extracted from XML files using a python script.</li>
+<li>Then texts are indexed, and the index along the plain text is exported
+into JavaScript structures &mdash; something what I called &quot;a database&quot;.</li>
+<li>The website loads that prepared dataset plus some vanilla JavaScript
+code doing processing of user queries and displaying results.</li>
+</ol>
+</div>
+<div class="section" id="indexing">
+<h1>Indexing</h1>
+<p>Indexing is solely based on trigrams. A trigram is a sequence of three letters;
+for instance the word &quot;letter&quot; contains the following trigrams: &quot;let&quot;, &quot;ett&quot;,
+&quot;tte&quot; and &quot;ter&quot;.</p>
+<p>The trigrams approach is language agnostic, and also allow to catch partial
+matching. For example query &quot;conve&quot; would yield &quot;convex&quot; and &quot;convert&quot; matches.</p>
+<p>The process of indexing builds a map: trigram =&gt; set of document IDs having this
+trigram. Trigrams are always in lowercase and never contain spaces.</p>
+<img alt="2025-01-07-js-search/results.png" src="2025-01-07-js-search/results.png" />
+</div>
+<div class="section" id="searching">
+<h1>Searching</h1>
+<p>When we're searching, a query string is first split into words. Then each word
+is expanded into trigrams and the set trigrams is used to query the index.</p>
+<p>For each trigram we get the set of document IDs and calculate intersection with
+the current set of IDs. If some trigram does not exist at all, we have instantly
+zero hits.</p>
+<p>If the final set of IDs is not null, we search <strong>words</strong> in (lowercase) text
+of articles and also in their titles.</p>
+<p>Searching results are weighed using three factors:</p>
+<ul class="simple">
+<li>whether all words were found in given document or not;</li>
+<li>whether there's hit in the title;</li>
+<li>how many hits are there in text.</li>
+</ul>
+<p>It seems to quite a good solution, although for sure is not perfect.</p>
+</div>
+<div class="section" id="closing-words">
+<h1>Closing words</h1>
+<ul>
+<li><p class="first">First of all, I'm really surprised how pleasant was writing in JavaScript. Maybe
+it is a matter of maturity, but I didn't find anything blocking my progress.
+There's plenty of documentation, and the latests JavaScript versions offer
+a lot of nice features (like sets and maps).</p>
+<p>Probably I bumped into some JS odds, but... I used to be a professional C++
+developer, JS <strong>is normal</strong> to me.</p>
+</li>
+<li><p class="first">Trigram searching is simple to implement and yields good results.</p>
+</li>
+<li><p class="first">I was trying to compress the text, but it appeared that the server already
+sends gzipped JS files. This removed more complexity from the flow.</p>
+<img alt="2025-01-07-js-search/network.png" class="align-center" src="2025-01-07-js-search/network.png" />
+</li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Not on GitHub yet, but you can <a class="reference external" href="../search.js">view it</a>.</p>
+<p>And try it <a class="reference external" href="../search.html">live</a></p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-07-js-search.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:24 GMT -->
+</html>

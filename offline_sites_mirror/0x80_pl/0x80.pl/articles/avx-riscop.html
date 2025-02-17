@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/avx-riscop.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>AVX: rozkazy trójargumentowe</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="avx-rozkazy-trojargumentowe">
+<h1 class="title">AVX: rozkazy trójargumentowe</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">29.04.2008</td>
+</tr>
+</tbody>
+</table>
+<p>W tej chwili zdecydowana większość rozkazów nadpisuje jeden z
+argumentów: <tt class="docutils literal">Ra := Ra op Rb</tt>. AMD w swoim <a class="reference external" href="http://pl.wikipedia.org/wiki/SSE5">SSE5</a>, zaś Intel w
+<a class="reference external" href="http://pl.wikipedia.org/wiki/AVX">AVX</a> zapowiadają wprowadzenie rozkazów trójargumentowych, tj.
+takich, które pozwalają podać dowolny rejestr docelowy, czyli <tt class="docutils literal">Rc := Ra
+op Rb</tt>.  To rozwiązanie, zapożyczone z <a class="reference external" href="http://pl.wikipedia.org/wiki/RISC">RISC</a>, ukrywa jedno
+przypisanie, które (jak można przypuszczać) na poziomie sprzętowym jest
+za darmo.  Przy okazji zmniejsza się rozmiar kodu.</p>
+<div class="section" id="przyklad-konwersja-obrazow-ze-skali-szarosci-do-argb-8-8-8-8">
+<h1>Przykład &mdash; konwersja obrazów ze skali szarości do ARGB 8:8:8:8</h1>
+<p>Obecnie:</p>
+<pre class="literal-block">
+movdqa  (%eax), %xmm0   ; wczytanie pikseli 0..15
+movdqa   %xmm0, %xmm1
+movdqa   %xmm0, %xmm2
+movdqa   %xmm0, %xmm3
+
+pshufb   P03,   %xmm0   ; konwersja pikseli 0..3 na ARGB (A=0)
+                        ; P03 = {0, 0, 0, 0x80, 1, 1, 1, 0x80, 2, 2, 2, 0x80, 3, 3, 3 0x80}
+pshufb   P47,   %xmm1   ; konwersja pikseli 4..7
+pshufb   P8b,   %xmm2   ; konwersja pikseli 8..11
+pshufb   Pcf,   %xmm3   ; konwersja pikseli 12..15
+
+movdqa  %xmm0,  0(%ebx)
+movdqa  %xmm1, 16(%ebx)
+movdqa  %xmm2, 32(%ebx)
+movdqa  %xmm3, 48(%ebx)
+</pre>
+<p>Z rozkazami trójargumentowymi (AVX):</p>
+<pre class="literal-block">
+movdqa  (%eax), %xmm0           ; wczytanie pikseli 0..15
+
+vpshufb  P47,   %xmm0, %xmm1    ; konwersja pikseli 4..7
+vpshufb  P8b,   %xmm0, %xmm2    ; konwersja pikseli 8..11
+vpshufb  Pcf,   %xmm0, %xmm3    ; konwersja pikseli 12..15
+pshufb   P03,   %xmm0           ; konwersja pikseli 0..3 na ARGB (A=0)
+                                ; P03 = {0, 0, 0, 0x80, 1, 1, 1, 0x80, 2, 2, 2, 0x80, 3, 3, 3 0x80}
+
+movdqa  %xmm0,  0(%ebx)
+movdqa  %xmm1, 16(%ebx)
+movdqa  %xmm2, 32(%ebx)
+movdqa  %xmm3, 48(%ebx)
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/avx-riscop.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

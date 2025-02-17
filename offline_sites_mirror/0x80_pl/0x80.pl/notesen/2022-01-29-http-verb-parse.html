@@ -1,0 +1,1312 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2022-01-29-http-verb-parse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Fast parsing HTTP verbs</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="fast-parsing-http-verbs">
+<h1 class="title">Fast parsing HTTP verbs</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2022-01-29</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#experiment-results" id="toc-entry-2">Experiment results</a><ul>
+<li><a class="reference internal" href="#skylake" id="toc-entry-3">Skylake</a></li>
+<li><a class="reference internal" href="#skylake-x" id="toc-entry-4">Skylake-X</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-5">Source code</a></li>
+<li><a class="reference internal" href="#implementations" id="toc-entry-6">Implementations</a><ul>
+<li><a class="reference internal" href="#boost-beast-approach" id="toc-entry-7">Boost::beast approach</a></li>
+<li><a class="reference internal" href="#matching-more-characters-at-once" id="toc-entry-8">Matching more characters at once</a><ul>
+<li><a class="reference internal" href="#bit-procedure" id="toc-entry-9">64-bit procedure</a></li>
+<li><a class="reference internal" href="#bit-procedure-1" id="toc-entry-10">32-bit procedure</a></li>
+<li><a class="reference internal" href="#bit-procedure-variant-2" id="toc-entry-11">32-bit procedure (variant #2)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#minimal-perfect-hashing-function" id="toc-entry-12">Minimal perfect hashing function</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>When we started to use <a class="reference external" href="https://www.boost.org/doc/libs/1_75_0/libs/beast/doc/html/index.html">boost::beast</a> library at work, obviously I downloaded
+its source code. Can't say I am good at navigation across boost libraries, I
+was just opening random files waiting for <a class="reference external" href="https://xkcd.com/303/">compilation completion</a>. My
+attention was caught by procedure <tt class="docutils literal">string_to_verb</tt>, that translates a
+<a class="reference external" href="http://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol">HTTP verb</a> into a number, in fact an enum.
+The most common verbs are <tt class="docutils literal">GET</tt> <tt class="docutils literal">POST</tt>, <tt class="docutils literal">PUT</tt> and <tt class="docutils literal">DELETE</tt>, however in
+total there are 33 verbs, the longest ones have 12 characters.</p>
+<p>Why the boost implementation seemed to me to be odd? It's basically a hardcoded
+<a class="reference external" href="http://en.wikipedia.org/wiki/Trie">Trie</a>. There is the main <tt class="docutils literal">switch</tt> statement that selects a subtree based
+on the <strong>first character</strong>. Then:</p>
+<ul class="simple">
+<li>When there is exactly one verb starting with given letter, just equality
+of the suffix is checked. For example &quot;BIND&quot; or &quot;TRACE&quot; are handled like
+this.</li>
+<li>When more words start with the same letter but they don't share
+any prefix &mdash; there's a plain ladder of <tt class="docutils literal">if</tt> checking equality of
+the suffix. For example pairs of verbs &quot;LINK&quot; and &quot;LOCK&quot; or &quot;SEARCH&quot;
+and &quot;SUBSCRIBE&quot; are matched in this way.</li>
+<li>Otherwise, there are more switches resolving the subsequent letters.
+This is how a group of verbs &quot;PATCH&quot;, &quot;POST&quot;, &quot;PROPFIND&quot;, &quot;PROPPATCH&quot;,
+&quot;PURGE&quot; and &quot;PUT&quot; is matched.</li>
+</ul>
+<p>This looks like a lot of branches and we do know that branches might be a
+source of performance problems. A mispredicted branch penalty is several CPU
+cycles. I thought it would be good to check if other solutions would be better.</p>
+<ol class="arabic simple">
+<li>The first solution is to match not a single letter prefix, but take
+into account four or eight characters at time. It costs exactly one
+load and comparison. The only drawback is padding with zeros strings
+shorter than 4 chars.</li>
+<li>Since the set of verbs is small and given statically, we may build
+a minimal perfect hash function (MPH). <a class="reference external" href="https://www.gnu.org/software/gperf/">GNU gperf</a> can be used to
+generate a C++ program implementing a MPH. The major drawback of
+gperf is that it generates function &quot;exists&quot;, while we need a &quot;lookup&quot;.
+I had to manually edit the generated program.</li>
+</ol>
+</div>
+<div class="section" id="experiment-results">
+<h1>Experiment results</h1>
+<p>Experiment setup. We generate predefined number of random HTTP verbs. Verbs are
+either selected from the whole set of 33 verbs, or from subset
+<tt class="docutils literal">GET</tt>/<tt class="docutils literal">POST</tt>/<tt class="docutils literal">PUT</tt>. Then a procedure is called given number of times and
+the total time is noted.</p>
+<p>We tested five procedures:</p>
+<ol class="arabic simple">
+<li>original <a class="reference internal" href="#boost-beast">boost::beast</a>;</li>
+<li><a class="reference internal" href="#swar64">SWAR64</a> &mdash; match string in 8-byte chunks;</li>
+<li><a class="reference internal" href="#swar32-v1">SWAR32</a> &mdash; match string in 4-byte chunks;</li>
+<li><a class="reference internal" href="#swar32-v2">SWAR32v2</a> &mdash; match string in 4-byte chunks, with a fast
+path for strings not longer than 4 bytes;</li>
+<li>MPH &mdash; <a class="reference internal" href="#mph">minimal perfect hash function</a>.</li>
+</ol>
+<p>Summary:</p>
+<ul class="simple">
+<li>When we match random HTTP verbs, then &mdash; as it was supposed &mdash; the
+branchy <tt class="docutils literal"><span class="pre">boost::beast</span></tt> algorithm is slower due to penalties.</li>
+<li>However, when the limited set of verbs is matched, the <tt class="docutils literal"><span class="pre">boost::beast</span></tt>
+procedure is the fastest one.</li>
+<li>Minimal perfect hash function shines! It's pity that <tt class="docutils literal">gperf</tt>
+cannot generate &quot;lookup&quot; style functions out of the box.</li>
+</ul>
+<div class="section" id="skylake">
+<h2>Skylake</h2>
+<ul class="simple">
+<li><strong>CPU</strong>: Intel(R) Core(TM) i7-6700 CPU &#64; 3.40GHz</li>
+<li><strong>compiler</strong>: gcc version 8.4.0 (Ubuntu 8.4.0-1ubuntu1~16.04.1)</li>
+</ul>
+<table border="1" class="docutils">
+<caption>All HTTP verbs</caption>
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">input size</th>
+<th class="head">iterations</th>
+<th class="head">time [us]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><strong>boost::beast</strong></td>
+<td>100</td>
+<td>10000</td>
+<td><strong>2956</strong></td>
+</tr>
+<tr><td>SWAR64</td>
+<td>100</td>
+<td>10000</td>
+<td>6922</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>100</td>
+<td>10000</td>
+<td>7200</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>100</td>
+<td>10000</td>
+<td>7024</td>
+</tr>
+<tr><td>MPH</td>
+<td>100</td>
+<td>10000</td>
+<td>5464</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>1000</td>
+<td>1000</td>
+<td>9315</td>
+</tr>
+<tr><td><strong>SWAR64</strong></td>
+<td>1000</td>
+<td>1000</td>
+<td><strong>7932</strong></td>
+</tr>
+<tr><td>SWAR32</td>
+<td>1000</td>
+<td>1000</td>
+<td>8834</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>1000</td>
+<td>1000</td>
+<td>9485</td>
+</tr>
+<tr><td>MPH</td>
+<td>1000</td>
+<td>1000</td>
+<td>10352</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>10000</td>
+<td>100</td>
+<td>16457</td>
+</tr>
+<tr><td>SWAR64</td>
+<td>10000</td>
+<td>100</td>
+<td>21809</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>10000</td>
+<td>100</td>
+<td>23204</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>10000</td>
+<td>100</td>
+<td>21766</td>
+</tr>
+<tr><td><strong>MPH</strong></td>
+<td>10000</td>
+<td>100</td>
+<td><strong>11089</strong></td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<caption>GET/POST/PUT verbs</caption>
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">input size</th>
+<th class="head">iterations</th>
+<th class="head">time [us]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><strong>boost::beast</strong></td>
+<td>100</td>
+<td>10000</td>
+<td><strong>3334</strong></td>
+</tr>
+<tr><td>SWAR64</td>
+<td>100</td>
+<td>10000</td>
+<td>7321</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>100</td>
+<td>10000</td>
+<td>6502</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>100</td>
+<td>10000</td>
+<td>6421</td>
+</tr>
+<tr><td>MPH</td>
+<td>100</td>
+<td>10000</td>
+<td>7891</td>
+</tr>
+<tr><td><strong>boost::beast</strong></td>
+<td>1000</td>
+<td>1000</td>
+<td><strong>5839</strong></td>
+</tr>
+<tr><td>SWAR64</td>
+<td>1000</td>
+<td>1000</td>
+<td>8820</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>1000</td>
+<td>1000</td>
+<td>8899</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>1000</td>
+<td>1000</td>
+<td>10027</td>
+</tr>
+<tr><td>MPH</td>
+<td>1000</td>
+<td>1000</td>
+<td>7531</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>10000</td>
+<td>100</td>
+<td>8339</td>
+</tr>
+<tr><td>SWAR64</td>
+<td>10000</td>
+<td>100</td>
+<td>14289</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>10000</td>
+<td>100</td>
+<td>13722</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>10000</td>
+<td>100</td>
+<td>12117</td>
+</tr>
+<tr><td><strong>MPH</strong></td>
+<td>10000</td>
+<td>100</td>
+<td><strong>7498</strong></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-x">
+<h2>Skylake-X</h2>
+<ul class="simple">
+<li><strong>CPU</strong>: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</li>
+<li><strong>compiler</strong>: gcc version 8.4.0 (Ubuntu 8.4.0-1ubuntu1~16.04.1)</li>
+</ul>
+<table border="1" class="docutils">
+<caption>All HTTP verbs</caption>
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">input size</th>
+<th class="head">iterations</th>
+<th class="head">time [us]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>100</td>
+<td>10000</td>
+<td>9466</td>
+</tr>
+<tr><td>SWAR64</td>
+<td>100</td>
+<td>10000</td>
+<td>16286</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>100</td>
+<td>10000</td>
+<td>9970</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>100</td>
+<td>10000</td>
+<td>8432</td>
+</tr>
+<tr><td><strong>MPH</strong></td>
+<td>100</td>
+<td>10000</td>
+<td><strong>6956</strong></td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>1000</td>
+<td>1000</td>
+<td>24203</td>
+</tr>
+<tr><td>SWAR64</td>
+<td>1000</td>
+<td>1000</td>
+<td>13758</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>1000</td>
+<td>1000</td>
+<td>17132</td>
+</tr>
+<tr><td><strong>SWAR32v2</strong></td>
+<td>1000</td>
+<td>1000</td>
+<td><strong>11872</strong></td>
+</tr>
+<tr><td>MPH</td>
+<td>1000</td>
+<td>1000</td>
+<td>12606</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>10000</td>
+<td>100</td>
+<td>31449</td>
+</tr>
+<tr><td>SWAR64</td>
+<td>10000</td>
+<td>100</td>
+<td>25088</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>10000</td>
+<td>100</td>
+<td>26211</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>10000</td>
+<td>100</td>
+<td>25921</td>
+</tr>
+<tr><td><strong>MPH</strong></td>
+<td>10000</td>
+<td>100</td>
+<td><strong>13683</strong></td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<caption>GET/POST/PUT verbs</caption>
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">input size</th>
+<th class="head">iterations</th>
+<th class="head">time [us]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><strong>boost::beast</strong></td>
+<td>100</td>
+<td>10000</td>
+<td><strong>3579</strong></td>
+</tr>
+<tr><td>SWAR64</td>
+<td>100</td>
+<td>10000</td>
+<td>8458</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>100</td>
+<td>10000</td>
+<td>7687</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>100</td>
+<td>10000</td>
+<td>7713</td>
+</tr>
+<tr><td>MPH</td>
+<td>100</td>
+<td>10000</td>
+<td>9542</td>
+</tr>
+<tr><td><strong>boost::beast</strong></td>
+<td>1000</td>
+<td>1000</td>
+<td><strong>6940</strong></td>
+</tr>
+<tr><td>SWAR64</td>
+<td>1000</td>
+<td>1000</td>
+<td>12876</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>1000</td>
+<td>1000</td>
+<td>11868</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>1000</td>
+<td>1000</td>
+<td>11431</td>
+</tr>
+<tr><td>MPH</td>
+<td>1000</td>
+<td>1000</td>
+<td>9194</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">boost::beast</span></tt></td>
+<td>10000</td>
+<td>100</td>
+<td>10500</td>
+</tr>
+<tr><td>SWAR64</td>
+<td>10000</td>
+<td>100</td>
+<td>16237</td>
+</tr>
+<tr><td>SWAR32</td>
+<td>10000</td>
+<td>100</td>
+<td>15809</td>
+</tr>
+<tr><td>SWAR32v2</td>
+<td>10000</td>
+<td>100</td>
+<td>14582</td>
+</tr>
+<tr><td><strong>MPH</strong></td>
+<td>10000</td>
+<td>100</td>
+<td><strong>9134</strong></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All implementations are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/verb-parse">github</a>.</p>
+</div>
+<div class="section" id="implementations">
+<h1>Implementations</h1>
+<div class="section" id="boost-beast-approach">
+<span id="boost-beast"></span><h2>Boost::beast approach</h2>
+<p>This is a verbose copy of boost::beast code.</p>
+<pre class="code cpp literal-block">
+<span class="n">verb</span><span class="w">
+</span><span class="nf">string_to_verb</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">v</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+    </span><span class="k">auto</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+    </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">switch</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'A'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;CL&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">acl</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'B'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;IND&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">bind</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'C'</span><span class="p">:</span><span class="w">
+        </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+        </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+        </span><span class="k">switch</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'H'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ECKOUT&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">checkout</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'O'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;NNECT&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">connect</span><span class="p">;</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;PY&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">copy</span><span class="p">;</span><span class="w">
+            </span><span class="p">;</span><span class="w">
+
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'D'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ELETE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">delete_</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'G'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ET&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">get</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'H'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;EAD&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">head</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'L'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;INK&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">link</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;OCK&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">lock</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'M'</span><span class="p">:</span><span class="w">
+        </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+        </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+        </span><span class="k">switch</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'-'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;SEARCH&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">msearch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'E'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;RGE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">merge</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'K'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ACTIVITY&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkactivity</span><span class="p">;</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'C'</span><span class="p">)</span><span class="w">
+            </span><span class="p">{</span><span class="w">
+                </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+                </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ALENDAR&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                    </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcalendar</span><span class="p">;</span><span class="w">
+                </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;OL&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                    </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcol</span><span class="p">;</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'O'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;VE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">move</span><span class="p">;</span><span class="w">
+            </span><span class="p">;</span><span class="w">
+
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'N'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;OTIFY&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">notify</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'O'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;PTIONS&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">options</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'P'</span><span class="p">:</span><span class="w">
+        </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+        </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+        </span><span class="k">switch</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'A'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;TCH&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">patch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'O'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ST&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">post</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'R'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;OPFIND&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">propfind</span><span class="p">;</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;OPPATCH&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">proppatch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="sc">'U'</span><span class="p">:</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;RGE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">purge</span><span class="p">;</span><span class="w">
+            </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;T&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">put</span><span class="p">;</span><span class="w">
+            </span><span class="p">;</span><span class="w">
+
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'R'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="sc">'E'</span><span class="p">)</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;BIND&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">rebind</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;PORT&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">report</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'S'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;EARCH&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">search</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;UBSCRIBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">subscribe</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'T'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;RACE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">trace</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">case</span><span class="w"> </span><span class="sc">'U'</span><span class="p">:</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="sc">'N'</span><span class="p">)</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="n">v</span><span class="p">.</span><span class="n">remove_prefix</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;BIND&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unbind</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;LINK&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlink</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;LOCK&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlock</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;SUBSCRIBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unsubscribe</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">default</span><span class="o">:</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="matching-more-characters-at-once">
+<h2>Matching more characters at once</h2>
+<div class="section" id="bit-procedure">
+<span id="swar64"></span><h3>64-bit procedure</h3>
+<p>Below is a procedure that matches 8-byte prefixes.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define STRING_CONST(s0, s1, s2, s3, s4, s5, s6, s7) \
+   ((uint64_t(uint8_t((s0))) &lt;&lt; 0*8) | \
+    (uint64_t(uint8_t((s1))) &lt;&lt; 1*8) | \
+    (uint64_t(uint8_t((s2))) &lt;&lt; 2*8) | \
+    (uint64_t(uint8_t((s3))) &lt;&lt; 3*8) | \
+    (uint64_t(uint8_t((s4))) &lt;&lt; 4*8) | \
+    (uint64_t(uint8_t((s5))) &lt;&lt; 5*8) | \
+    (uint64_t(uint8_t((s6))) &lt;&lt; 6*8) | \
+    (uint64_t(uint8_t((s7))) &lt;&lt; 7*8))
+</span><span class="w">
+</span><span class="n">verb</span><span class="w">
+</span><span class="nf">string_to_verb</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">v</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">13</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">union</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">char</span><span class="w"> </span><span class="n">buf</span><span class="p">[</span><span class="mi">13</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="n">memcpy</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">());</span><span class="w">
+
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">acl</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">bind</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">checkout</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">connect</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">copy</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">delete_</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'G'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">get</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">head</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">link</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">lock</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'-'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">msearch</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">merge</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'V'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;TY&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkactivity</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;AR&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcalendar</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcol</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'V'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">move</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'F'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">notify</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">options</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">patch</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">post</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'F'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">propfind</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'H'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">proppatch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">purge</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">put</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">rebind</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">report</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">search</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'E'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">subscribe</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">trace</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unbind</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlink</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlock</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">11</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;IBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unsubscribe</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="bit-procedure-1">
+<span id="swar32-v1"></span><h3>32-bit procedure</h3>
+<p>Below is a procedure that matches 4-byte prefixes.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define STRING_CONST(s0, s1, s2, s3) \
+   ((uint64_t(uint8_t((s0))) &lt;&lt; 0*8) | \
+    (uint64_t(uint8_t((s1))) &lt;&lt; 1*8) | \
+    (uint64_t(uint8_t((s2))) &lt;&lt; 2*8) | \
+    (uint64_t(uint8_t((s3))) &lt;&lt; 3*8))
+</span><span class="w">
+</span><span class="n">verb</span><span class="w">
+</span><span class="nf">string_to_verb</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">v</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">13</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">union</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">char</span><span class="w"> </span><span class="n">buf</span><span class="p">[</span><span class="mi">13</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">word</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="n">memcpy</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">());</span><span class="w">
+
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">acl</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">bind</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">checkout</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">connect</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">copy</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">delete_</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'G'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">get</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">head</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">link</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">lock</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'-'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">msearch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">merge</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*MKAC*/</span><span class="s">&quot;TIVITY&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkactivity</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*MKCA*/</span><span class="s">&quot;LENDAR&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcalendar</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcol</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'V'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">move</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'F'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">notify</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">options</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'H'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">patch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">post</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*PROP*/</span><span class="s">&quot;FIND&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">propfind</span><span class="p">;</span><span class="w">
+            </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*PROP*/</span><span class="s">&quot;PATCH&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">proppatch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'E'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">purge</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">put</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">rebind</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">report</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">search</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*SUBS*/</span><span class="s">&quot;CRIBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">subscribe</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'E'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">trace</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unbind</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlink</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlock</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*UNSU*/</span><span class="s">&quot;BSCRIBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unsubscribe</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Another 32-bit variant</p>
+</div>
+<div class="section" id="bit-procedure-variant-2">
+<span id="swar32-v2"></span><h3>32-bit procedure (variant #2)</h3>
+<p>This is a slightly modified 32-bit procedure. It separately
+matches strings shorts string (0..4 bytes) and longer ones.</p>
+<pre class="code cpp literal-block">
+<span class="n">verb</span><span class="w">
+</span><span class="nf">string_to_verb_v2</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">v</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">13</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">union</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">char</span><span class="w"> </span><span class="n">buf</span><span class="p">[</span><span class="mi">13</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">word</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">value</span><span class="p">;</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="n">memcpy</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">());</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'G'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">get</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">head</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">post</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">put</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">acl</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">bind</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">copy</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">link</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">lock</span><span class="p">;</span><span class="w">
+            </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'V'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">):</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">move</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">checkout</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">connect</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">delete_</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'-'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">msearch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">merge</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*MKAC*/</span><span class="s">&quot;TIVITY&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkactivity</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*MKCA*/</span><span class="s">&quot;LENDAR&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcalendar</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'M'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcol</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'F'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Y'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">notify</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">options</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'H'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">patch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*PROP*/</span><span class="s">&quot;FIND&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">propfind</span><span class="p">;</span><span class="w">
+            </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*PROP*/</span><span class="s">&quot;PATCH&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">proppatch</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'G'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'E'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">purge</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">rebind</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'P'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">report</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'E'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'H'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">search</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*SUBS*/</span><span class="s">&quot;CRIBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">subscribe</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'T'</span><span class="p">,</span><span class="w"> </span><span class="sc">'R'</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'C'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'E'</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">trace</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'B'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'D'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unbind</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'I'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlink</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'L'</span><span class="p">,</span><span class="w"> </span><span class="sc">'O'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">word</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">STRING_CONST</span><span class="p">(</span><span class="sc">'C'</span><span class="p">,</span><span class="w"> </span><span class="sc">'K'</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unlock</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">STRING_CONST</span><span class="p">(</span><span class="sc">'U'</span><span class="p">,</span><span class="w"> </span><span class="sc">'N'</span><span class="p">,</span><span class="w"> </span><span class="sc">'S'</span><span class="p">,</span><span class="w"> </span><span class="sc">'U'</span><span class="p">):</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="p">.</span><span class="n">substr</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="cm">/*UNSU*/</span><span class="s">&quot;BSCRIBE&quot;</span><span class="n">_sv</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unsubscribe</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="minimal-perfect-hashing-function">
+<span id="mph"></span><h2>Minimal perfect hashing function</h2>
+<p>Below is MPH implementation manually adjusted to return the value assigned
+to given key, not only the information whether key is valid or not.</p>
+<pre class="code cpp literal-block">
+<span class="kr">inline</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w">
+</span><span class="nf">perfect_hash::hash</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">str</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+  </span><span class="k">static</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">asso_values</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">
+      </span><span class="mi">25</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">
+       </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w">
+      </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="p">,</span><span class="w"> </span><span class="mi">70</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+  </span><span class="k">auto</span><span class="w"> </span><span class="n">hval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">str</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w">
+
+  </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">hval</span><span class="p">)</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="k">default</span><span class="o">:</span><span class="w">
+        </span><span class="n">hval</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">asso_values</span><span class="p">[</span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="o">&gt;</span><span class="p">(</span><span class="n">str</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">+</span><span class="mi">1</span><span class="p">)];</span><span class="w">
+      </span><span class="cm">/*FALLTHROUGH*/</span><span class="w">
+      </span><span class="k">case</span><span class="w"> </span><span class="mi">3</span><span class="p">:</span><span class="w">
+        </span><span class="n">hval</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">asso_values</span><span class="p">[</span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="o">&gt;</span><span class="p">(</span><span class="n">str</span><span class="p">[</span><span class="mi">2</span><span class="p">])];</span><span class="w">
+      </span><span class="cm">/*FALLTHROUGH*/</span><span class="w">
+      </span><span class="k">case</span><span class="w"> </span><span class="mi">2</span><span class="p">:</span><span class="w">
+      </span><span class="k">case</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span><span class="w">
+        </span><span class="n">hval</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">asso_values</span><span class="p">[</span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="o">&gt;</span><span class="p">(</span><span class="n">str</span><span class="p">[</span><span class="mi">0</span><span class="p">])];</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="k">return</span><span class="w"> </span><span class="n">hval</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+
+</span><span class="n">perfect_hash</span><span class="o">::</span><span class="n">verb</span><span class="w">
+</span><span class="nf">perfect_hash::string_to_verb</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">str</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+  </span><span class="k">enum</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="n">TOTAL_KEYWORDS</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">33</span><span class="p">,</span><span class="w">
+      </span><span class="n">MIN_WORD_LENGTH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w">
+      </span><span class="n">MAX_WORD_LENGTH</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">
+      </span><span class="n">MIN_HASH_VALUE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w">
+      </span><span class="n">MAX_HASH_VALUE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">69</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+  </span><span class="k">static</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">wordlist</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;GET&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;PUT&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;POST&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;PATCH&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;UNLOCK&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;ACL&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;SUBSCRIBE&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;TRACE&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;SEARCH&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;LOCK&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;MKACTIVITY&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;UNLINK&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;OPTIONS&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;LINK&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;MKCOL&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;UNBIND&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;CHECKOUT&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;HEAD&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;MKCALENDAR&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;DELETE&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;M-SEARCH&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;BIND&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;MERGE&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;REPORT&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;PROPFIND&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;PROPPATCH&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;PURGE&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;NOTIFY&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;CONNECT&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;COPY&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;REBIND&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;UNSUBSCRIBE&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+      </span><span class="s">&quot;MOVE&quot;</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+  </span><span class="k">static</span><span class="w"> </span><span class="n">verb</span><span class="w"> </span><span class="n">values</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">get</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">put</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">post</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">patch</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unlock</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">acl</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">subscribe</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">trace</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">search</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">lock</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">mkactivity</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unlink</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">options</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">link</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcol</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unbind</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">checkout</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">head</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">mkcalendar</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">delete_</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">msearch</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">bind</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">merge</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">report</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">propfind</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">proppatch</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">purge</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">notify</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">connect</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">copy</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">rebind</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unsubscribe</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">,</span><span class="w">
+      </span><span class="n">verb</span><span class="o">::</span><span class="n">move</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">str</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">MAX_WORD_LENGTH</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">str</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">MIN_WORD_LENGTH</span><span class="p">)</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="k">const</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">hash</span><span class="p">(</span><span class="n">str</span><span class="p">);</span><span class="w">
+
+      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">key</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">MAX_HASH_VALUE</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">wordlist</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">str</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">values</span><span class="p">[</span><span class="n">key</span><span class="p">];</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="k">return</span><span class="w"> </span><span class="n">verb</span><span class="o">::</span><span class="n">unknown</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2022-01-29-http-verb-parse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

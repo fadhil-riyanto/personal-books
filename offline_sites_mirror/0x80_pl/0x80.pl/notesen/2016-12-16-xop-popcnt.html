@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-12-16-xop-popcnt.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Population count using XOP instructions</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="population-count-using-xop-instructions">
+<h1 class="title">Population count using XOP instructions</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-12-16</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/XOP_instruction_set">AMD XOP</a> defines instruction <tt class="docutils literal">VPTERNB</tt> which does lookup in a pair of SSE
+registers. The instruction is similar to <tt class="docutils literal">PSHUFB</tt>, but apart of wider,
+5-bit index, it allows to perform several extra operations based on the
+higher 3-bits.</p>
+<p>I showed that <tt class="docutils literal">PSHUFB</tt> can be used to <a class="reference external" href="2008-05-24-sse-popcount.html">implement population count
+procedure</a>. With 4-bit indices such procedure is straightforward. We split
+a byte vector into two halves, and invoke the instruction twice, getting
+popcount for both nibbles. Next these popcounts are added together, forming
+8-bit counters, which are added in the end.</p>
+<p>Similar procedure can be build around <tt class="docutils literal">VPTERNB</tt>. However, to fully utilize
+5-bit indices a slightly different strategy is needed. We process two vectors
+in one step treating byte pairs as 16-bit words. We call <tt class="docutils literal">VPTERNB</tt> to
+calculate popcount of three 5-bit fields, one remaining bit of the 16-bit word
+is counted separately.</p>
+</div>
+<div class="section" id="algorithm">
+<h1>Algorithm</h1>
+<p>We process two SSE registers (<tt class="docutils literal">vec0</tt> and <tt class="docutils literal">vec1</tt>) in one step.</p>
+<pre class="code cpp literal-block">
+<span class="n">vec0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="n">abcd_efgh</span><span class="p">)</span><span class="w"> </span><span class="c1">// a .. p are bits */
+</span><span class="n">vec1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="n">ijkl_mnop</span><span class="p">)</span>
+</pre>
+<ol class="arabic simple">
+<li>First we calculate population count of lower five bits of both registers.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t0 = packed_byte(000d_efgh)
+// t1 = packed_byte(000l_mnop)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">vec0</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x1f</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">vec1</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x1f</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// popcnt for bits d..h
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">popcnt1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_perm_epi8</span><span class="p">(</span><span class="n">lookup_lo</span><span class="p">,</span><span class="w"> </span><span class="n">lookup_hi</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// popcnt for bits l..p
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">popcnt2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_perm_epi8</span><span class="p">(</span><span class="n">lookup_lo</span><span class="p">,</span><span class="w"> </span><span class="n">lookup_hi</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="2">
+<li>Then we build a 5-bit word using three remaining bits from <tt class="docutils literal">vec0</tt> (abc)
+and <tt class="docutils literal">vec1</tt> (jk). We merge these bit-fields using XOP-instruction <tt class="docutils literal">VCMOV</tt>,
+a condition move based on the bit-mask.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// t2 = packed_byte(??ij_klmn)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">vec1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">
+</span><span class="c1">// t3 = packed_byte(...._.abc)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">vec0</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x07</span><span class="p">));</span><span class="w">
+</span><span class="c1">// t4 = packed_byte(...j_kabc)
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmov_si128</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x18</span><span class="p">));</span><span class="w">
+</span><span class="c1">// popcnt3 = popcount of bits jkabc
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">popcnt3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_perm_epi8</span><span class="p">(</span><span class="n">lookup_lo</span><span class="p">,</span><span class="w"> </span><span class="n">lookup_hi</span><span class="p">,</span><span class="w"> </span><span class="n">t4</span><span class="p">);</span>
+</pre>
+<ol class="arabic simple" start="3">
+<li>At this point vectors <tt class="docutils literal">popcnt1</tt>, <tt class="docutils literal">popcnt2</tt> and <tt class="docutils literal">popcnt3</tt> have got
+population count for all bits except the bit i. This bit is present in
+vector <tt class="docutils literal">t4</tt> at position 4th. We separately accumulate popcounts from
+vectors <tt class="docutils literal">popcnt{1,2,3}</tt> and the bit i. The bit i is not shifted, we
+simply mask it and keep the counter shifted right, that limits its
+capacity to 7.</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// update counter
+</span><span class="n">local_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">local_a</span><span class="p">,</span><span class="w"> </span><span class="n">popcnt1</span><span class="p">);</span><span class="w">
+</span><span class="n">local_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">local_a</span><span class="p">,</span><span class="w"> </span><span class="n">popcnt2</span><span class="p">);</span><span class="w">
+</span><span class="n">local_a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">local_a</span><span class="p">,</span><span class="w"> </span><span class="n">popcnt3</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// update counter for bits i
+</span><span class="n">local_b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">local_b</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x20</span><span class="p">)));</span>
+</pre>
+<p>We repeat the procedure six times, and then add counters <tt class="docutils literal">local_a</tt> and
+<tt class="docutils literal">local_b</tt>. The resulting vector <tt class="docutils literal">local</tt> contains in each byte population
+count of two bytes from the input vectors.</p>
+<pre class="code cpp literal-block">
+<span class="n">local_b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">local_b</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">local</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">local_a</span><span class="p">,</span><span class="w"> </span><span class="n">local_b</span><span class="p">);</span>
+</pre>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample implementation is available in file <tt class="docutils literal">src/xop_hamming_weight.cpp</tt> on
+<a class="reference external" href="https://github.com/CountOnes/hamming_weight">github repository</a> accompanying our paper <a class="reference external" href="https://arxiv.org/abs/1611.07612">Faster Population Counts using
+AVX2 Instructions</a>.</p>
+</div>
+<div class="section" id="performance-results">
+<h1>Performance results</h1>
+<p>Following timings were obtained on AMD FX(tm)-8150 Eight-Core Processor with
+program <tt class="docutils literal">basic_benchmark</tt> from the repository. Comparison includes just
+three procedures:</p>
+<ul class="simple">
+<li><tt class="docutils literal">PSHUFB</tt>-based (<tt class="docutils literal">sse_bitset64_weight</tt>),</li>
+<li>SSE Harley-Seal (<tt class="docutils literal">sse_harley_seal_bitset64_weight</tt>),</li>
+<li>and <tt class="docutils literal">VPTERNB</tt>-based (<tt class="docutils literal">xop_bitset64_weight</tt>).</li>
+</ul>
+<p>The Harley-Seal method is the fastest. However, when compare parallel-lookup
+methods, we see that one presented in this article can be 1.3 times faster
+than <tt class="docutils literal">PSHUFB</tt>-based.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="20%" />
+<col width="27%" />
+<col width="27%" />
+<col width="27%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">64-bit words</th>
+<th class="head" colspan="3">cycles per 64-bit word</th>
+</tr>
+<tr><th class="head"><tt class="docutils literal">PSHUFB</tt>-based</th>
+<th class="head"><tt class="docutils literal">VPTERNB</tt>-based</th>
+<th class="head">Harley-Seal</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>128</td>
+<td>0.35</td>
+<td>0.26</td>
+<td>0.40</td>
+</tr>
+<tr><td>192</td>
+<td>0.71</td>
+<td>0.59</td>
+<td>0.68</td>
+</tr>
+<tr><td>256</td>
+<td>0.96</td>
+<td>0.83</td>
+<td>0.81</td>
+</tr>
+<tr><td>384</td>
+<td>1.11</td>
+<td>0.99</td>
+<td>0.95</td>
+</tr>
+<tr><td>512</td>
+<td>1.19</td>
+<td>1.12</td>
+<td>1.07</td>
+</tr>
+<tr><td>768</td>
+<td>1.26</td>
+<td>1.16</td>
+<td>1.13</td>
+</tr>
+<tr><td>1024</td>
+<td>1.30</td>
+<td>1.24</td>
+<td>1.15</td>
+</tr>
+<tr><td>2048</td>
+<td>1.52</td>
+<td>1.34</td>
+<td>1.26</td>
+</tr>
+<tr><td>4096</td>
+<td>1.54</td>
+<td>1.34</td>
+<td>1.26</td>
+</tr>
+<tr><td>8192</td>
+<td>1.56</td>
+<td>1.34</td>
+<td>1.26</td>
+</tr>
+<tr><td>12288</td>
+<td>1.56</td>
+<td>1.35</td>
+<td>1.26</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-12-16-xop-popcnt.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+</html>

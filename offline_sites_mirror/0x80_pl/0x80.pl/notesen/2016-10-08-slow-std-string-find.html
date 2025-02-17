@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-10-08-slow-std-string-find.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>GNU std::string::find is very slow</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="gnu-std-string-find-is-very-slow">
+<h1 class="title">GNU std::string::find is very slow</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-10-08</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2016-11-27 (tidy), 2016-10-17 (link to GCC's bugtrack)</td>
+</tr>
+</tbody>
+</table>
+<p>Today's weather was a really good excuse for staying at home and
+hacking. I come back to my old idea of speeding up substring searching
+<a class="reference external" href="2008-05-27-sse4-substring-locate.html">exploiting SSE4.1 instruction MPSADBW</a>. Finally I translated my old
+SSE code into AVX2. Then I transplanted my recent AVX512F code which
+employs similar techniques. In the end I coded AVX512F and SSE2 versions
+of <a class="reference external" href="2014-03-11-simd-friendly-karp-rabin.html">SWAR-friendly technique</a> which I developed some time ago.
+(<a class="reference external" href="https://github.com/WojciechMula/sse4-strstr">Github repository</a> contains all the stuff, if you wish to take a
+look.)</p>
+<p>But let's put aside vector algorithms performance. Experiments have revealed
+that method <tt class="docutils literal">find</tt> from C++ <tt class="docutils literal"><span class="pre">std::string</span></tt> is <strong>incredibly slow</strong>. The
+method can be slower an order of magnitude than <tt class="docutils literal">strstr</tt>, and it doesn't
+get better with a newer stdlib &mdash; GCC versions varies from 4.9.2 (Debian)
+to 5.4.0 (Ubuntu).</p>
+<p>Here is the table I took from the repository's README.  The slowdown
+factors, when compared with <tt class="docutils literal">strstr</tt>, are: <strong>12.9</strong>, <strong>12.6</strong>, <strong>9.9</strong>,
+<strong>7.4</strong>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="33%" />
+<col width="33%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">architecture</th>
+<th class="head" colspan="2">procedure time in seconds</th>
+</tr>
+<tr><th class="head">strstr</th>
+<th class="head">string::find</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>Westemere</td>
+<td>0.83</td>
+<td>10.71</td>
+</tr>
+<tr><td>Haswell</td>
+<td>0.48</td>
+<td>6.06</td>
+</tr>
+<tr><td>Skylake</td>
+<td>0.66</td>
+<td>6.54</td>
+</tr>
+<tr><td>KNL</td>
+<td>4.96</td>
+<td>36.94</td>
+</tr>
+</tbody>
+</table>
+<p>I looked into headers, and I suppose located the culprit in
+<tt class="docutils literal">bits/basic_string.tcc</tt>. Maybe I'm wrong, but for me it's
+a <strong>linear search</strong>, isn't it?</p>
+<pre class="code cpp literal-block">
+<span class="n">find</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">_CharT</span><span class="o">*</span><span class="w"> </span><span class="n">__s</span><span class="p">,</span><span class="w"> </span><span class="n">size_type</span><span class="w"> </span><span class="n">__pos</span><span class="p">,</span><span class="w"> </span><span class="n">size_type</span><span class="w"> </span><span class="n">__n</span><span class="p">)</span><span class="w"> </span><span class="k">const</span><span class="w">
+</span><span class="p">{</span><span class="w">
+  </span><span class="n">__glibcxx_requires_string_len</span><span class="p">(</span><span class="n">__s</span><span class="p">,</span><span class="w"> </span><span class="n">__n</span><span class="p">);</span><span class="w">
+  </span><span class="k">const</span><span class="w"> </span><span class="n">size_type</span><span class="w"> </span><span class="n">__size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">();</span><span class="w">
+  </span><span class="k">const</span><span class="w"> </span><span class="n">_CharT</span><span class="o">*</span><span class="w"> </span><span class="n">__data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_M_data</span><span class="p">();</span><span class="w">
+
+  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">__n</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">__pos</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">__size</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">__pos</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">npos</span><span class="p">;</span><span class="w">
+
+  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">__n</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">__size</span><span class="p">)</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="k">for</span><span class="w"> </span><span class="p">(;</span><span class="w"> </span><span class="n">__pos</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">__size</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">__n</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">__pos</span><span class="p">)</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">traits_type</span><span class="o">::</span><span class="n">eq</span><span class="p">(</span><span class="n">__data</span><span class="p">[</span><span class="n">__pos</span><span class="p">],</span><span class="w"> </span><span class="n">__s</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="w">
+            </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">traits_type</span><span class="o">::</span><span class="n">compare</span><span class="p">(</span><span class="n">__data</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">__pos</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+                                    </span><span class="n">__s</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">__n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+          </span><span class="k">return</span><span class="w"> </span><span class="n">__pos</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="k">return</span><span class="w"> </span><span class="n">npos</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The assembly dump taken from <tt class="docutils literal">perf annotate</tt>:</p>
+<pre class="literal-block">
+std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::find
+
+78:┌─→add    $0x1,%rbx
+   │  add    $0x1,%rbp
+   │  cmp    %r15,%rax
+   │↓ ja     b8
+85:│  cmp    -0x1(%rbp),%r14b
+   │  lea    -0x1(%rbx),%r13
+   │  mov    %rbx,%rax
+   │↑ jne    78
+   │  test   %r12,%r12
+   │↑ je     25
+   │  mov    0x8(%rsp),%rsi
+   │  mov    %r12,%rdx
+   │  mov    %rbp,%rdi
+   │→ callq  memcmp&#64;plt
+   │  test   %eax,%eax
+   │↑ je     25
+   │  mov    %rbx,%rax
+   └──jmp    78
+</pre>
+<p>It <strong>must be</strong> slow. And I think C++ users should be worried a little bit.</p>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<p>The problem has been <a class="reference external" href="https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66414">already reported</a> (bug 66414).</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-10-08-slow-std-string-find.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+</html>

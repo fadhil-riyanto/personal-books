@@ -1,0 +1,72 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/convert.php?f=cvtps2pd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:49 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/convert.php?f=cvtps2pd" />
+<link rel="alternate" hreflang="en" href="convert3069.html?f=cvtps2pd" />
+    <title>cvtps2pd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>CVTPS2PD - ConVerT Packed Single to Packed Double</h2>
+float -&gt; double<br>
+<br>
+CVTPS2PD <span class="operand">xmm1, xmm2/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2<br />
+<span class="intr">__m128d _mm_cvtps_pd(__m128 a)</span><br>
+VCVTPS2PD <span class="operand">xmm1, xmm2/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128d _mm_cvtps_pd(__m128 a)</span><br>
+VCVTPS2PD <span class="operand">xmm1{k1}{z}, xmm2/m64/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128d _mm_mask_cvtps_pd(__m128d s, __mmask8 k, __m128 a)</span><br>
+<span class="intr">__m128d _mm_maskz_cvtps_pd(__mmask8 k, __m128 a)</span><br>
+<div style="height: 2px;"></div><img src="cvt_dword_qword_128.png" /><br />
+<div style="height: 30px"></div>
+VCVTPS2PD <span class="operand">ymm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m256d _mm256_cvtps_pd(__m128 a)</span><br>
+VCVTPS2PD <span class="operand">ymm1{k1}{z}, xmm2/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256d _mm256_mask_cvtps_pd(__m256d s, __mmask8 k, __m128 a)</span><br>
+<span class="intr">__m256d _mm256_maskz_cvtps_pd(__mmask8 k, __m128 a)</span><br>
+<div style="height: 2px;"></div><img src="cvt_dword_qword_256.png" /><br />
+<div style="height: 30px"></div>
+VCVTPS2PD <span class="operand">zmm1{k1}{z}, ymm2/m256/m32bcst{sae}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512d _mm512_cvtps_pd(__m256 a)</span><br>
+<span class="intr">__m512d _mm512_mask_cvtps_pd(__m512d s, __mmask8 k, __m256 a)</span><br>
+<span class="intr">__m512d _mm512_maskz_cvtps_pd(__mmask8 k, __m256 a)</span><br>
+<span class="intr">__m512d _mm512_cvt_roundps_pd(__m256 a, int sae)</span><br>
+<span class="intr">__m512d _mm512_mask_cvt_roundps_pd(__m512d s, __mmask8 k, __m256 a, int sae)</span><br>
+<span class="intr">__m512d _mm512_maskz_cvt_roundps_pd(__mmask8 k, __m256 a, int sae)</span><br>
+<div style="height: 2px;"></div><img src="cvt_dword_qword_512.png" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=cvtps2pd" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/convert.php?f=cvtps2pd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:49 GMT -->
+</html>
+

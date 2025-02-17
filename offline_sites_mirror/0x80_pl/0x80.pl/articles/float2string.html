@@ -1,0 +1,376 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/float2string.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Wyświetlanie liczb zmiennoprzecinkowych</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="wyswietlanie-liczb-zmiennoprzecinkowych">
+<h1 class="title">Wyświetlanie liczb zmiennoprzecinkowych</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">24.11.2001</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">23.11.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wstep" id="toc-entry-1">1. Wstęp</a></li>
+<li><a class="reference internal" href="#wyswietlanie-czesci-calkowitej" id="toc-entry-2">2. Wyświetlanie części całkowitej</a></li>
+<li><a class="reference internal" href="#konwersja-czesci-ulamkowej" id="toc-entry-3">3. Konwersja części ułamkowej</a></li>
+<li><a class="reference internal" href="#wartosci-specjalne" id="toc-entry-4">4. Wartości specjalne</a></li>
+<li><a class="reference internal" href="#funkcja" id="toc-entry-5">5. Funkcja</a></li>
+</ul>
+</div>
+<div class="section" id="wstep">
+<h1>1. Wstęp</h1>
+<p>W artykule zostanie zaprezentowane wyświetlanie liczb typu single
+(32-bitowych). Jednak algorytm jest o tyle uniwersalny, iż nie powinno być
+problemów z jego adaptacją dla innych formatów zmiennoprzecinkowych.</p>
+<p>Jak powszechnie wiadomo, najmniej znaczącą cyfrę liczby całkowitej, można
+otrzymać jako resztę z dzielenia przez podstawę systemu &mdash; w naszym przypadku
+podstawą jest 10. Najbardziej znaczącą cyfrę liczby ułamkowej (mniejszej
+od 1), uzyskujemy poprzez przemnożenie jej przez podstawę systemu.</p>
+<p>Ponieważ wszelkie operacje na liczbach zmiennoprzecinkowych są <em>zawsze</em>
+obarczone błędem, przeto wspomniane dzielenie i mnożenie przez 10 należy
+wykonać na postaci <em>stałoprzecinkowej</em>.</p>
+<p>Konwersja z postaci zmiennoprzecinkowej na stałoprzecinkową polega na
+przesunięciu bitowemu mantysy o wartość zapisaną w wykładniku. Ponieważ
+wykładnik jest rzędu +-128, więc liczba stałoprzecinkowa musi posiadać
+2*128+24 bity, co daje 35 bajtów. W przykładowym kodzie, dla równego
+rachunku, przeznaczono po 20 bajtów na część całkowitą i ułamkową.</p>
+</div>
+<div class="section" id="wyswietlanie-czesci-calkowitej">
+<h1>2. Wyświetlanie części całkowitej</h1>
+<p>Jak zostało powiedziane, najmłodszą cyfrę można uzyskać poprzez podzielenie
+10 &mdash; dokładniej cyfrą jest resztą z tego dzielenia. Proces ten powtarzany
+jest, aż do chwili, gdy dzielona liczba będzie równa zero; pseudokod
+przedstawia się następująco:</p>
+<pre class="literal-block">
+while x &gt; 0:
+        cyfra[i] = x mod 10
+               x = x div 10
+               i = i + 1
+</pre>
+<p>Jak jednak podzielić duże liczby stałoprzecinkowe? Można potraktować je,
+jako liczby o podstawie 256, wtedy każdy bajt reprezentuje cyfrę. Jeśli dana
+jest reszta z dzielenia ze starszej pozycji (ozn. <span class="math"><i>r</i></span>) oraz i-ta cyfra (ozn.
+<span class="math"><i>a</i></span>) to dzielenie przeprowadzamy na liczbie:</p>
+<p><span class="cmath"><i>r</i> &sdot; 256 + <i>a</i></span></p>
+<p>Dodatkowo, ponieważ dzielnik jest stały, wyniki dzielenia można
+prekalkulować &mdash; rozmiar dwóch tablic: wynik i reszta z dzielenia ---
+wyniesie 2560 bajtów (<span class="math"><i>r</i> = 0..9</span>, <span class="math"><i>a</i> = 0..255</span>, zatem liczba
+możliwych kombinacji jest równa 2559).</p>
+<p>W przypadku tak dużych liczb stałoprzecinkowych, ilość iteracji może być
+dość duża. Ale ponieważ <em>początkowo</em> ilość bitów znaczących jest względnie
+niewielka więc można wyznaczyć przynajmniej najstarszy znaczący bajt. Gdy
+wynik dzielenia dla tego bajtu będzie równy 0, to zostanie zawężony przedział
+obliczeń.</p>
+</div>
+<div class="section" id="konwersja-czesci-ulamkowej">
+<h1>3. Konwersja części ułamkowej</h1>
+<p>Uzyskanie najstarszej cyfry wymaga przemnożenia przez 10, oczywiście możliwe
+jest prekalkulowanie wyników, ale obecnie mnożenie nie jest kosztowne.
+Uwagi podobne jak w punkcie 2.</p>
+</div>
+<div class="section" id="wartosci-specjalne">
+<h1>4. Wartości specjalne</h1>
+<p>Format IEEE-754 definiuje następujące wartości specjalne:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="23%" />
+<col width="25%" />
+<col width="52%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">wykładnik</th>
+<th class="head">mantysa</th>
+<th class="head">wartość</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>00000000</td>
+<td>równa 0</td>
+<td>zero</td>
+</tr>
+<tr><td>00000000</td>
+<td>różna od 0</td>
+<td>liczba zdenormalizowana</td>
+</tr>
+<tr><td>11111111</td>
+<td>równa 0</td>
+<td>nieskończoność</td>
+</tr>
+<tr><td>11111111</td>
+<td>różna od 0</td>
+<td>NaN: nie-liczba</td>
+</tr>
+</tbody>
+</table>
+<p>Jeśli liczba jest NaN, to najstarszy &mdash; 23 bit mantysy &mdash; służy rozróżnieniu
+pomiędzy QNaN i SNaN. Jeśli jest ustawiony to liczba jest QNaN (Quiet NaN)
+jej wystąpienie nie powoduje generacji wyjątku; w przeciwnym razie mamy do
+czynienia z SNaN (Significant NaN) &mdash; generuje wyjątek.</p>
+<p>Wyjaśnienia wymaga jeszcze liczba zdenormalizowana. Mantysa liczby
+zdenormalizowanej jest mniejsza niż jeden, wobec czego nie uzupełnia się
+bitu jedności.</p>
+</div>
+<div class="section" id="funkcja">
+<h1>5. Funkcja</h1>
+<pre class="literal-block">
+// -- float2string.cc --
+#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;assert.h&gt;
+
+typedef unsigned long long int  qword; // 64 bity
+typedef unsigned int            dword; // 32 bity
+typedef unsigned short int       word; // 16 bity
+typedef unsigned char            byte; //  8 bitów
+
+/*
+ * byte quotient [10*256] = {for (i=0; i&lt;2560; i++) element[i]=i/10};
+ * byte remainder[10*256] = {for (i=0; i&lt;2560; i++) element[i]=i%10};
+ */
+#include &quot;precalc.c&quot;
+
+/*
+ * funkcja dzieli liczbę o podstawie 256 przez 10.
+ *
+ * 'start' i 'end' (zmienna 'end' może zostać zmieniona)
+ * określają zakres tablicy 'number' na jakim przeprowadzane
+ * są obliczenia
+ *
+ * zwracana jest reszta z dzielenia
+ */
+byte div_by_10(byte number[], int&amp; start, int&amp; end)
+{
+        assert(end &gt;= start);
+
+        int  i   = end;
+        word rem = 0;   // reszta
+
+        // dzielenie
+        while (i &gt;= start)
+                {
+                 word digit = number[i];
+                 word tmp   = 256*rem + digit;
+
+                 number[i]  = quotient[tmp];  // tmp/10;
+                 rem        = remainder[tmp]; // tmp%10;
+                 i--;
+                }
+        // zawężenie przedziału obliczeń
+        while (number[end]==0 &amp;&amp; start &lt;= end)
+                end--;
+
+        return rem;
+}
+
+/*
+ * funkcja mnoży liczbę o podstawie 256 przez 10.
+ *
+ * 'start' i 'end' (zmienna 'start' może zostać zmieniona)
+ * określają zakres tablicy 'number' na jakim przeprowadzane
+ * są obliczenia
+ *
+ * zwracane jest przeniesienie
+ */
+byte mul_by_10(byte number[], int&amp; start, int&amp; end)
+{
+        assert(end &gt;= start);
+
+        int i = start;
+        dword carry = 0;        // przeniesienie
+
+        // mnożenie
+        while (i &lt;= end)
+                {
+                 word digit = number[i];
+                 word tmp   = 10*digit + carry;
+
+                 number[i]  = tmp &amp;  0xff;
+                 carry      = tmp &gt;&gt; 8;
+                 i++;
+                }
+        // zawężenie przedziału obliczeń
+        while (number[start]==0 &amp;&amp; start &lt;= end)
+                start++;
+
+        return carry;
+}
+
+char* float2string(char* S, float x)
+{
+ static byte fixedpoint[40]; //  0..19 - część ułamkowa
+                             // 20..39 - część całkowita
+#define bias 127
+#define dot_position (20*8)  /* pozycja kropki dziesiętnej (w bitach)  */
+
+ // 1. wydzielenie pól bitowych
+ dword bin  =  *(dword*)&amp;x;
+ dword sign = (bin &gt;&gt; 31);              // znak
+ dword exp  = (bin &gt;&gt; 23) &amp; 0xff;       // wykładnik+bias
+ dword mantissa = (bin &amp; 0x007fffff);   // mantysa
+
+ // 2. wartości specjalne
+ // 2a. zero
+ if (exp==0x00 &amp;&amp; mantissa==0)
+        {
+         if (sign) strcpy(S, &quot;-0.0&quot;);
+              else strcpy(S, &quot;+0.0&quot;);
+         return S;
+        }
+ // 2b. nieskończoność
+ if (exp==0xff &amp;&amp; mantissa==0)
+        {
+         if (sign) strcpy(S, &quot;-inf&quot;);
+              else strcpy(S, &quot;+inf&quot;);
+         return S;
+        }
+ // 2c. NaN -- rozróżnienie między QNaN i SNaN
+ if (exp==0xff &amp;&amp; mantissa!=0)
+        {
+         if (mantissa &amp; 0x800000)
+                strcpy(S, &quot;QNaN&quot;);
+         else
+                strcpy(S, &quot;SNaN&quot;);
+         return S;
+        }
+
+ // 3. uzupełnienie części całkowitej
+ //    (jeśli liczba nie jest zdenormalizowana)
+ if (exp==0x00 &amp;&amp; mantissa!=0)
+        ;
+ else
+        mantissa |= 0x800000;
+
+ // 4. wstawienie znaku liczby
+ if (sign)
+        {
+         S[0] = '-';
+         S[1] = '\0';
+        }
+ else
+        {
+         //S[0] = '+'; S[1]='\0'
+         S[0] = '\0';
+        }
+
+ // 5. zamiana liczby zmiennoprzecinkowej na fixed-point
+
+ memset(fixedpoint, sizeof(fixedpoint), 0); // zerowanie
+
+ // exp-23, ponieważ mantysa jest przesunięta o 23 bity w prawo
+ int position = (exp-23) + dot_position - bias;
+
+ int shift    = position &amp; 0x7; // przesunięcie w obrębie bajtu
+ int index    = position &gt;&gt; 3;  // pierwszy bajt
+
+ // &quot;wstawienie&quot; mantysy do liczby stałoprzecinkowej
+ // ponieważ shift=0..7, wobec czego liczba bitów znaczących
+ // wynosi zaledwie 32
+ mantissa &lt;&lt;= shift;
+ fixedpoint[index+0] = (mantissa &gt;&gt; 0x00) &amp; 0xff;
+ fixedpoint[index+1] = (mantissa &gt;&gt; 0x08) &amp; 0xff;
+ fixedpoint[index+2] = (mantissa &gt;&gt; 0x10) &amp; 0xff;
+ fixedpoint[index+3] = (mantissa &gt;&gt; 0x18) &amp; 0xff;
+
+ // 6. konwersja
+ static char tmp[128];
+
+ if (exp &gt;= 0+bias) // liczba posiada część całkowitą
+        {
+         memset(tmp, sizeof(tmp), 0);
+         // zakres w którym zostaną przeprowadzone obliczenia
+         int start = 20;
+         int end   = index+3;
+         //
+         int idx = sizeof(tmp)-1;
+         while (1)
+                {
+                 tmp[--idx] = div_by_10(fixedpoint, start, end) + '0';
+                 if (start &gt; end)
+                        break;
+                }
+         strcat(S, &amp;tmp[idx]);
+        }
+ else
+         strcat(S, &quot;0&quot;);
+
+ strcat(S, &quot;.&quot;);
+
+ if (exp &lt; 23+bias) // liczba posiada część ułamkową
+        {
+         memset(tmp, sizeof(tmp), 0);
+         // zakres w którym zostaną przeprowadzone obliczenia
+         int start = index;
+         int end   = 19;
+         //
+         int idx   = 0;
+         while (1)
+                {
+                 tmp[idx++] = mul_by_10(fixedpoint, start, end) + '0';
+                 if (start &gt; end)
+                        break;
+                }
+         strcat(S, tmp);
+        }
+ else
+         strcat(S, &quot;0&quot;);
+
+ return S;
+}
+</pre>
+<p>Włączany jest plik <tt class="docutils literal">precalc.c</tt>, który zawiera tablice <tt class="docutils literal">quotient</tt> i
+<tt class="docutils literal">remainder</tt> (wynik dzielenia i reszta). Oczywiście ich zawartość może być
+liczona na początku programu, co z oczywistych względów nie zostało
+pokazane. Są one wyznaczane wg algorytmu podanego w komentarzu; poniżej
+skrypt w bashu który generuje ten plik.</p>
+<pre class="literal-block">
+#!/bin/bash
+file=&quot;precalc.c&quot;
+
+echo &quot;byte quotient[2560] = {&quot; &gt; $file
+for ((i=0 ; i&lt;256 ; i++))
+do
+    if [ $i -ne 255 ]
+    then
+        echo $i, $i, $i, $i, $i, $i, $i, $i, $i, $i, &gt;&gt; $file
+    else
+        echo $i, $i, $i, $i, $i, $i, $i, $i, $i, $i  &gt;&gt; $file
+    fi
+done
+echo &quot;};&quot; &gt;&gt; $file
+echo &quot;&quot;   &gt;&gt; $file
+
+echo &quot;byte remainder[2560] = {&quot; &gt;&gt; $file
+for ((i=0 ; i&lt;256 ; i++))
+do
+    if [ $i -ne 255 ]
+    then
+        echo &quot;0, 1, 2, 3, 4, 5, 6, 7, 8, 9,&quot; &gt;&gt; $file
+    else
+        echo &quot;0, 1, 2, 3, 4, 5, 6, 7, 8, 9&quot;  &gt;&gt; $file
+    fi
+done
+echo &quot;};&quot; &gt;&gt; $file
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/float2string.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

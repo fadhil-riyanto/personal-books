@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2019-01-23-std-function-problems.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>std::function and overloaded functions</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="std-function-and-overloaded-functions">
+<h1 class="title">std::function and overloaded functions</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2019-01-23</td>
+</tr>
+</tbody>
+</table>
+<hr class="docutils" />
+<p>C++ 11 introduced <a class="reference external" href="https://en.cppreference.com/w/cpp/utility/functional/function">std::function</a> which is useful when one deals with
+lambdas or methods. However, in case of plain functions this class might
+not be that handy.</p>
+<div class="section" id="overloaded-functions">
+<h1>Overloaded functions</h1>
+<p>Let us consider this simple use case, where we want to invoke a function:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">invoke_callback</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="o">&gt;</span><span class="p">);</span>
+</pre>
+<p>Everything works fine when a callback is a lambda.</p>
+<pre class="code cpp literal-block">
+<span class="k">auto</span><span class="w"> </span><span class="n">callback</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[](</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">){};</span><span class="w">
+</span><span class="n">invoke_callback</span><span class="p">(</span><span class="n">callback</span><span class="p">);</span>
+</pre>
+<p>When we have <strong>overloaded functions</strong>, there are problems, as the compiler
+is not able to select a proper overload.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">overloaded_function</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">);</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">overloaded_function</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// ...
+</span><span class="w">
+</span><span class="n">invoke_callback</span><span class="p">(</span><span class="n">overloaded_function</span><span class="p">);</span>
+</pre>
+<p>The above code leads does not compile, error report from GCC is:</p>
+<pre class="literal-block">
+error: cannot resolve overloaded function ‘overloaded_function’
+based on conversion to type ‘std::function&lt;void(int, int)&gt;’
+</pre>
+<p>To make this compilable we need to insert a weird casting to <strong>pointer to
+function</strong>. As far I know it's not possible to obtain from <tt class="docutils literal"><span class="pre">std::fuction</span></tt>
+any member type for this, so retyping the whole function type is required.</p>
+<pre class="code cpp literal-block">
+<span class="n">invoke_callback</span><span class="p">(</span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">(</span><span class="o">*</span><span class="p">)(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="o">&gt;</span><span class="p">(</span><span class="o">&amp;</span><span class="n">overloaded_function</span><span class="p">));</span><span class="w">
+</span><span class="c1">//                           ^^^           ^^^</span>
+</pre>
+<p>This is pretty verbose.</p>
+<p>I ended up with bare pointers to function in the signature of
+<tt class="docutils literal">invoke_callback</tt>.</p>
+</div>
+<div class="section" id="performance-considerations">
+<h1>Performance considerations</h1>
+<p>Since <tt class="docutils literal"><span class="pre">std::function</span></tt> can wrap any callable object one might expect that
+this comes at some cost. Below is the assembly generated by GCC 9 for two
+methods:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;functional&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">invoke_function</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">function</span><span class="o">&lt;</span><span class="kt">void</span><span class="p">(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="o">&gt;</span><span class="w"> </span><span class="n">f</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">f</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">invoke_pointer</span><span class="p">(</span><span class="kt">void</span><span class="p">(</span><span class="o">*</span><span class="n">f</span><span class="p">)(</span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="kt">int</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">f</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly for <tt class="docutils literal">invoke_function</tt>:</p>
+<pre class="literal-block">
+_Z15invoke_functionSt8functionIFviiEE:
+    subq    $24, %rsp
+    cmpq    $0, 16(%rdi)
+    movl    $1, 8(%rsp)
+    movl    $2, 12(%rsp)
+    je  .L5
+    leaq    12(%rsp), %rdx
+    leaq    8(%rsp), %rsi
+    call    *24(%rdi)
+    addq    $24, %rsp
+    ret
+.L5:
+    call    _ZSt25__throw_bad_function_callv
+.LFE2941:
+</pre>
+<p>Assembly for <tt class="docutils literal">invoke_pointer</tt>:</p>
+<pre class="literal-block">
+_Z14invoke_pointerPFviiE:
+    movq    %rdi, %rax
+    movl    $4, %esi
+    movl    $3, %edi
+    jmp     *%rax
+</pre>
+<p>Because <tt class="docutils literal"><span class="pre">std::function</span></tt> has to check validity of object, so there's an extra
+check. In a production code we'd probably add explicit test for null pointers
+in <tt class="docutils literal">invoke_pointer</tt>.</p>
+<p>Arguments to callable from <tt class="docutils literal"><span class="pre">std::function</span></tt> are passed through the stack, so
+it costs extra stores and loads.</p>
+<p>Apart from this, the overhead of use <tt class="docutils literal"><span class="pre">std::functions</span></tt> is negligible.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2019-01-23-std-function-problems.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+</html>

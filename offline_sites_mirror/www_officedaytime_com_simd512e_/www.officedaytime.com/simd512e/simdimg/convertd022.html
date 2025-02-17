@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/convert.php?f=vcvtps2udq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:49 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/convert.php?f=vcvtps2udq" />
+<link rel="alternate" hreflang="en" href="convertd022.html?f=vcvtps2udq" />
+    <title>vcvtps2udq</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>VCVTPS2UDQ - ConVerT Packed Single to Unsigned DoubleQword</h2>
+float -&gt; unsigned DWORD<br>
+rounding controlled by {er} or MXCSR<br>
+<br>
+VCVTPS2UDQ <span class="operand">xmm1{k1}{z}, xmm2/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128i _mm_cvtps_epu32(__m128 a)</span><br>
+<span class="intr">__m128i _mm_mask_cvtps_epu32(__m128i s, __mmask8 k, __m128 a)</span><br>
+<span class="intr">__m128i _mm_maskz_cvtps_epu32(__mmask8 k, __m128 a)</span><br>
+<div style="height: 2px;"></div><img src="cvt_dword_dword_128.png" /><br />
+<div style="height: 30px"></div>
+VCVTPS2UDQ <span class="operand">ymm1{k1}{z}, ymm2/m256/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256i _mm256_cvtps_epu32(__m256 a)</span><br>
+<span class="intr">__m256i _mm256_mask_cvtps_epu32(__m256i s, __mmask8 k, __m256 a)</span><br>
+<span class="intr">__m256i _mm256_maskz_cvtps_epu32(__mmask8 k, __m256 a)</span><br>
+<div style="height: 2px;"></div><img src="cvt_dword_dword_256.png" /><br />
+<div style="height: 30px"></div>
+VCVTPS2UDQ <span class="operand">zmm1{k1}{z}, zmm2/m512/m32bcst{er}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512i _mm512_cvtps_epu32(__m512 a)</span><br>
+<span class="intr">__m512i _mm512_mask_cvtps_epu32(__m512i s, __mmask16 k, __m512 a)</span><br>
+<span class="intr">__m512i _mm512_maskz_cvtps_epu32(__mmask16 k, __m512 a)</span><br>
+<span class="intr">__m512i _mm512_cvt_roundps_epu32(__m512 a, int r)</span><br>
+<span class="intr">__m512i _mm512_mask_cvt_roundps_epu32(__m512i s, __mmask16 k, __m512 a, int r)</span><br>
+<span class="intr">__m512i _mm512_maskz_cvt_roundps_epu32(__mmask16 k, __m512 a, int r)</span><br>
+<div style="height: 2px;"></div><img src="cvt_dword_dword_512.png" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vcvtps2udq" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/convert.php?f=vcvtps2udq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:49 GMT -->
+</html>
+

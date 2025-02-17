@@ -1,0 +1,17 @@
+Tranzystor MOSFET
+
+M	0 1 2 0	mymos
+R	2 3	1k
+Vds	3 0	DC 2V
+Vgd	1 0	DC 1V
+
+.model mymos NMOS(Vto=2)
+
+.DC Vds  0 4 0.1
++   Vgd -4 4 0.5
+
+* charakterystka przej¶ciowa Id = f(Uds)
+* (Id mierzone na rezystorze R)
+.plot DC V(3,2)
+
+.end

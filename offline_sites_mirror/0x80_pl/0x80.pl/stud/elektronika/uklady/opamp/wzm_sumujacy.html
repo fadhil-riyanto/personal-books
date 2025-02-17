@@ -1,0 +1,34 @@
+Wzmacniacz sumuj±cy
+* "Wzmacniacz operacyjny.pdf", str. 13
+* Wojciech Mu³a, 15.07.2005
+
+* Ku = -R(V1/R1 + V2/R2 + V3/R3 + V4/R4 + V5/R5), a poniewa¿ R1=...=R5, to
+* Ku = -R/Ri (V1+V2+V3+V4+V5)
+
+* rezystory wej¶ciowe
+R1	1 10	1k
+R2	2 10	1k
+R3	3 10	1k
+R4	4 10	1k
+R5	5 10	1k
+
+* wzmacniacz
+R	10 11		1k
+X	 0 10 11	opamp
+
+* ¼ród³a
+V1	1 0		sin(1.0 0.9 10)
+V2	2 0		sin(1.0 0.9 50)
+V3	3 0		sin(1.0 0.9 100)
+V4	4 0		sin(1.0 0.9 500)
+V5	5 0		sin(1.0 0.9 1000)
+
+.include opamp.model
+
+* analiza
+.TRAN 0.1m 10m
+
+* napiêcie wyj¶ciowe
+.plot V(1)
+
+.end

@@ -1,0 +1,831 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-18-simd-heap.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:18 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMD binary heap operations</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simd-binary-heap-operations">
+<h1 class="title">SIMD binary heap operations</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2025-01-18</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#is-heap" id="toc-entry-2">is_heap</a><ul>
+<li><a class="reference internal" href="#experiments" id="toc-entry-3">Experiments</a><ul>
+<li><a class="reference internal" href="#ryzen-7" id="toc-entry-4">Ryzen 7</a></li>
+<li><a class="reference internal" href="#skylake-x" id="toc-entry-5">Skylake-X</a></li>
+<li><a class="reference internal" href="#ice-lake" id="toc-entry-6">Ice Lake</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#push-heap" id="toc-entry-7">push_heap</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-8">See also</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-9">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/Binary_heap">Binary heap</a> is a binary tree data structure having some interesting
+properties. One of them is an array-friendly memory layout, achieved by building
+(almost) complete binary tree.</p>
+<p>A binary heap keeps at index 0 the maximum value, or the minimum one depending
+on convention &mdash; let's stick to <em>maximum heaps</em>. There is exactly one invariant:
+a child node, if exist, keep a value less than the parent node. For comparison,
+in the case of binary search trees, we have more strict rules: the left child keeps
+a smaller value than the parent's value, and the right child keeps a bigger value.</p>
+<p>A non-root node stored at index <em>i</em> have the parent node at index
+<span class="math">floor[(<i>i</i> &minus; 1)/2]</span>, and children nodes at indices <span class="math">2 &sdot; <i>i</i> + 1</span>
+and <span class="math">2 &sdot; <i>i</i> + 2</span>.</p>
+<p>In this text we cover two procedures related to heaps:</p>
+<ul class="simple">
+<li><tt class="docutils literal">is_heap</tt> &mdash; checks if an array is proper heap,</li>
+<li><tt class="docutils literal">push_heap</tt> &mdash; adds a new element to the heap,</li>
+</ul>
+<p>The procedure <tt class="docutils literal">is_heap</tt> is vectorizable and using SIMD instructions brings
+profit. We also show that it is possible to define this function using
+<em>forward iterators</em> rather random iterators, as the C++ standard imposes.</p>
+<p>The procedure <tt class="docutils literal">push_heap</tt> can be expressed with <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/VPGATHERDD_VPGATHERQD.html">gather</a> and
+<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/VPSCATTERDD_VPSCATTERDQ_VPSCATTERQD_VPSCATTERQQ.html">scatter</a>, but performance is terrible. For the sake
+of completeness, we show the AVX-512 implementation.</p>
+<p>There is also one more crucial method for heaps: removing the maximum value,
+<tt class="docutils literal">pop_heap</tt>. However, it is difficult to vectorize, and benefits from
+vectorization would likely be worse than in the case of <tt class="docutils literal">push_heap</tt>.</p>
+</div>
+<div class="section" id="is-heap">
+<h1>is_heap</h1>
+<p>The easiest approach to check if the given array is a proper heap is scanning
+the array from beginning, calculate the left and right children indices and
+then compare their values according to the invariant. We stop scanning, when
+both children indices are out of the array bounds.</p>
+<p>However, this algorithm is not suitable for vectorization. What we need is
+sequential scan over array. We need two pointers: one pointing parents and another
+pointing children nodes. The &quot;parent&quot; pointer start at index 0, and is incremented
+by 1. The &quot;children&quot; pointer nodes start at index 1, and is incremented by 2.</p>
+<p>Below is C++ template using the modified algorithm. What the <tt class="docutils literal">typename</tt> argument
+suggests, this is suitable for forward iterators, while the standard C++ functions
+from <tt class="docutils literal">&lt;algorithm&gt;</tt> expect random iterators.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">ForwardIterator</span><span class="p">,</span><span class="w"> </span><span class="k">typename</span><span class="w"> </span><span class="nc">Compare</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">less</span><span class="o">&lt;&gt;&gt;</span><span class="w">
+</span><span class="kt">bool</span><span class="w"> </span><span class="n">is_heap_fwd</span><span class="p">(</span><span class="n">ForwardIterator</span><span class="w"> </span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="n">ForwardIterator</span><span class="w"> </span><span class="n">end</span><span class="p">,</span><span class="w"> </span><span class="n">Compare</span><span class="w"> </span><span class="n">cmp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">start</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">auto</span><span class="w"> </span><span class="n">parent</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">start</span><span class="p">;</span><span class="w">
+    </span><span class="k">auto</span><span class="w"> </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">next</span><span class="p">(</span><span class="n">start</span><span class="p">);</span><span class="w">
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">current</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cmp</span><span class="p">(</span><span class="o">*</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="n">current</span><span class="p">))</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">next</span><span class="p">(</span><span class="n">current</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">current</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">cmp</span><span class="p">(</span><span class="o">*</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="n">current</span><span class="p">))</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">parent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">next</span><span class="p">(</span><span class="n">parent</span><span class="p">);</span><span class="w">
+        </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">next</span><span class="p">(</span><span class="n">current</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Below is a memory layout of a heap. We need to check if parents are greater
+than their children, that is: <span class="math"><i>a</i> &gt <i>b</i></span> and <span class="math"><i>a</i> &gt <i>c</i></span>, then
+<span class="math"><i>b</i> &gt <i>d</i></span> and <span class="math"><i>b</i> &gt <i>e</i></span>, then <span class="math"><i>e</i> &gt <i>h</i></span>, <span class="math"><i>e</i> &gt <i>i</i></span>, etc.</p>
+<div class="asciidiag"><pre class="asciidiag">
+  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬┈┈
+│ a │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: green; font-weight: bold">d</span> │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">i</span> │ <span style="color: blue; font-weight: bold">j</span> │ <span style="color: blue; font-weight: bold">k</span> │ <span style="color: blue; font-weight: bold">l</span> │ <span style="color: blue; font-weight: bold">m</span> │ <span style="color: blue; font-weight: bold">n</span> │ <span style="color: blue; font-weight: bold">o</span> │ <span style="color: gray">p</span> │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴┈┈
+  ▲   ▲   ▲   ▲           ▲   ▲                           ▲   ▲
+  │   │   │   │           │   │                           │   │
+  │   ╰───╯   ╰───────────╯   ╰───────────────────────────╯   ╰─╴┈┈
+  │  level 1     level 2                level 3
+  ╵
+ tree level 0</pre></div><p>We can observe that a single parent node is used twice, thus our vectorized
+approach would work in the following manner:</p>
+<ol class="arabic">
+<li><p class="first">Load vector of parent nodes; let's assume vectors hold 8 elements.</p>
+<div class="asciidiag"><pre class="asciidiag">
+       0   1   2   3   4   5   6   7
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐
+p  = │ a │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: green; font-weight: bold">d</span> │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">h</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></li>
+<li><p class="first">Load two vectors of child nodes.</p>
+<div class="asciidiag"><pre class="asciidiag">
+       0   1   2   3   4   5   6   7
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐
+c0 = │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: green; font-weight: bold">d</span> │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">i</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘
+
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐
+c1 = │ <span style="color: blue; font-weight: bold">j</span> │ <span style="color: blue; font-weight: bold">k</span> │ <span style="color: blue; font-weight: bold">l</span> │ <span style="color: blue; font-weight: bold">m</span> │ <span style="color: blue; font-weight: bold">n</span> │ <span style="color: blue; font-weight: bold">o</span> │ <span style="color: gray">p</span> │ <span style="color: gray">r</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></li>
+<li><p class="first">Double the parent nodes: each item appears them twice.</p>
+<div class="asciidiag"><pre class="asciidiag">
+       0   1   2   3   4   5   6   7
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐
+p0 = │ a │ a │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: green; font-weight: bold">d</span> │ <span style="color: green; font-weight: bold">d</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘
+
+       0   1   2   3   4   5   6   7
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐
+p1 = │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">h</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></li>
+<li><p class="first">Now both pairs <tt class="docutils literal">p0</tt>/<tt class="docutils literal">c0</tt> and <tt class="docutils literal">p1</tt>/<tt class="docutils literal">c1</tt> contain corresponding
+parent-child pairs, thus a plain vector comparison yield whether
+all pairs hold the relation parent-child.</p>
+<div class="asciidiag"><pre class="asciidiag">
+       0   1   2   3   4   5   6   7            0   1   2   3   4   5   6   7
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐        ┌───┬───┬───┬───┬───┬───┬───┬───┐
+p0 = │ a │ a │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: green; font-weight: bold">d</span> │ <span style="color: green; font-weight: bold">d</span> │   p1 = │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">h</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘        └───┴───┴───┴───┴───┴───┴───┴───┘
+
+     ┌───┬───┬───┬───┬───┬───┬───┬───┐        ┌───┬───┬───┬───┬───┬───┬───┬───┐
+c0 = │ <span style="color: red; font-weight: bold">b</span> │ <span style="color: red; font-weight: bold">c</span> │ <span style="color: green; font-weight: bold">d</span> │ <span style="color: green; font-weight: bold">e</span> │ <span style="color: green; font-weight: bold">f</span> │ <span style="color: green; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">i</span> │   c1 = │ <span style="color: blue; font-weight: bold">j</span> │ <span style="color: blue; font-weight: bold">k</span> │ <span style="color: blue; font-weight: bold">l</span> │ <span style="color: blue; font-weight: bold">m</span> │ <span style="color: blue; font-weight: bold">n</span> │ <span style="color: blue; font-weight: bold">o</span> │ <span style="color: gray">p</span> │ <span style="color: gray">r</span> │
+     └───┴───┴───┴───┴───┴───┴───┴───┘        └───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></li>
+</ol>
+<p>The vectorized AVX2 code follows this algorithm.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">is_heap_avx2_epi32</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">begin</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">ssize_t</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">32</span><span class="o">/</span><span class="mi">4</span><span class="p">;</span><span class="w"> </span><span class="c1">// words in a vector
+</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">end</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">begin</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">k</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">is_heap</span><span class="p">(</span><span class="n">begin</span><span class="p">,</span><span class="w"> </span><span class="n">end</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">parent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">begin</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">current</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">begin</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">end</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">current</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">k</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// 1. load parents
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)</span><span class="n">parent</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">p0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_permutevar8x32_epi32</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="n">lo</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">p1</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_permutevar8x32_epi32</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="n">hi</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// 2. load children
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">children0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">current</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">children1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">current</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">k</span><span class="p">));</span><span class="w">
+
+        </span><span class="c1">// 3. compare parents with their children
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lt0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpgt_epi32</span><span class="p">(</span><span class="n">children0</span><span class="p">,</span><span class="w"> </span><span class="n">p0</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lt1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpgt_epi32</span><span class="p">(</span><span class="n">children1</span><span class="p">,</span><span class="w"> </span><span class="n">p1</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">lt0</span><span class="p">,</span><span class="w"> </span><span class="n">lt1</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">_mm256_movemask_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">))</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">current</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="n">k</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">parent</span><span class="w">  </span><span class="o">+=</span><span class="w"> </span><span class="n">k</span><span class="p">;</span><span class="w">
+        </span><span class="n">current</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="n">k</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">ssize_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">current</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">begin</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">begin</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">begin</span><span class="p">[(</span><span class="n">i</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">begin</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The only downside of AVX2 is lack of comparison of unsigned 32-bit integers.
+Although it is possible to express relation less-or-equals with the
+<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PMINUB_PMINUW.html">min</a>  and equality: <span class="math"><i>a</i> &le; <i>b</i> &hArr; min(<i>a</i>, <i>b</i>) = <i>a</i></span>.</p>
+<div class="section" id="experiments">
+<h2>Experiments</h2>
+<p>The benchmark utility was compiled with <tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-march=native</span></tt> and invoked
+with parameters <tt class="docutils literal">./benchmarks 1024 4096 8192</tt>, where the parameters
+are input sizes.</p>
+<table border="1" class="docutils">
+<caption>Benchmarked procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Procedure</th>
+<th class="head">Comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">std</tt></td>
+<td>standatd C++ <tt class="docutils literal"><span class="pre">std::is_heap</span></tt> with random access iterators</td>
+</tr>
+<tr><td><tt class="docutils literal">fwd scalar</tt></td>
+<td>scalar implementation of the approach using forward iterators</td>
+</tr>
+<tr><td><tt class="docutils literal">rnd scalar</tt></td>
+<td>reimplementation of <tt class="docutils literal"><span class="pre">std::is_heap</span></tt> with random access iterators</td>
+</tr>
+<tr><td><tt class="docutils literal">fwd SSE</tt></td>
+<td>SSE implementation of the approach using forward iterators</td>
+</tr>
+<tr><td><tt class="docutils literal">fwd AVX2</tt></td>
+<td>AVX2 implementation of the approach using forward iterators</td>
+</tr>
+<tr><td><tt class="docutils literal">fwd <span class="pre">AVX-512</span></tt></td>
+<td>AVX-512 implementation of the approach using forward iterators</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="ryzen-7">
+<h3>Ryzen 7</h3>
+<ul class="simple">
+<li>Compiler: gcc (Debian 14.1.0-5) 14.1.0</li>
+<li>CPU: AMD Ryzen 7 7730U with Radeon Graphics</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="15%" />
+<col width="13%" />
+<col width="6%" />
+<col width="53%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">Input size 1024</td>
+</tr>
+<tr><td>std</td>
+<td>1.024</td>
+<td>1.016</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████▍</span></tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>0.454</td>
+<td>0.449</td>
+<td>2.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▏</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>0.646</td>
+<td>0.645</td>
+<td>1.6</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.229</td>
+<td>0.215</td>
+<td>4.7</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.142</td>
+<td>0.137</td>
+<td>7.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">Input size 4096</td>
+</tr>
+<tr><td>std</td>
+<td>0.886</td>
+<td>0.879</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████▍</span></tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>0.451</td>
+<td>0.439</td>
+<td>2.0</td>
+<td><tt class="docutils literal"><span class="pre">████████▉</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>0.443</td>
+<td>0.439</td>
+<td>2.0</td>
+<td><tt class="docutils literal"><span class="pre">████████▉</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.169</td>
+<td>0.166</td>
+<td>5.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████▌</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.103</td>
+<td>0.098</td>
+<td>9.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">Input size 8192</td>
+</tr>
+<tr><td>std</td>
+<td>0.892</td>
+<td>0.881</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████▍</span></tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>0.452</td>
+<td>0.439</td>
+<td>2.0</td>
+<td><tt class="docutils literal"><span class="pre">████████▉</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>0.446</td>
+<td>0.444</td>
+<td>2.0</td>
+<td><tt class="docutils literal"><span class="pre">████████▊</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.168</td>
+<td>0.166</td>
+<td>5.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████▌</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.101</td>
+<td>0.098</td>
+<td>9.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-x">
+<h3>Skylake-X</h3>
+<ul class="simple">
+<li>Compiler: gcc (GCC) 11.2.0</li>
+<li>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="15%" />
+<col width="15%" />
+<col width="12%" />
+<col width="7%" />
+<col width="52%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">Input size 1024</td>
+</tr>
+<tr><td>std</td>
+<td>2.529</td>
+<td>2.509</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████▍</span></tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>2.021</td>
+<td>2.013</td>
+<td>1.2</td>
+<td><tt class="docutils literal"><span class="pre">█████▍</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>1.033</td>
+<td>1.026</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████▊</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.584</td>
+<td>0.574</td>
+<td>4.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▏</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.350</td>
+<td>0.328</td>
+<td>7.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>fwd AVX-512</td>
+<td>0.286</td>
+<td>0.276</td>
+<td>9.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">Input size 4096</td>
+</tr>
+<tr><td>std</td>
+<td>2.567</td>
+<td>2.498</td>
+<td>1.0</td>
+<td><tt class="docutils literal">██▉</tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>2.008</td>
+<td>2.000</td>
+<td>1.2</td>
+<td><tt class="docutils literal"><span class="pre">███▋</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>1.021</td>
+<td>1.005</td>
+<td>2.5</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.547</td>
+<td>0.541</td>
+<td>4.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████▌</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.289</td>
+<td>0.280</td>
+<td>8.9</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>fwd AVX-512</td>
+<td>0.190</td>
+<td>0.184</td>
+<td>13.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">Input size 8192</td>
+</tr>
+<tr><td>std</td>
+<td>2.566</td>
+<td>2.497</td>
+<td>1.0</td>
+<td><tt class="docutils literal">██▋</tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>2.006</td>
+<td>1.998</td>
+<td>1.2</td>
+<td><tt class="docutils literal"><span class="pre">███▎</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>1.011</td>
+<td>1.001</td>
+<td>2.5</td>
+<td><tt class="docutils literal"><span class="pre">██████▌</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.539</td>
+<td>0.536</td>
+<td>4.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████▏</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.289</td>
+<td>0.280</td>
+<td>8.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████▍</span></tt></td>
+</tr>
+<tr><td>fwd AVX-512</td>
+<td>0.175</td>
+<td>0.164</td>
+<td>15.2</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="ice-lake">
+<h3>Ice Lake</h3>
+<ul class="simple">
+<li>Compiler: gcc (GCC) 13.3.1 20240611 (Red Hat 13.3.1-2)</li>
+<li>CPU: Intel(R) Xeon(R) Gold 6338 CPU &#64; 2.00GHz</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="15%" />
+<col width="15%" />
+<col width="12%" />
+<col width="7%" />
+<col width="52%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">Input size 1024</td>
+</tr>
+<tr><td>std</td>
+<td>4.499</td>
+<td>2.584</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███▋</span></tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>1.576</td>
+<td>1.096</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">████████▌</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>1.528</td>
+<td>0.875</td>
+<td>3.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████▊</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.976</td>
+<td>0.543</td>
+<td>4.8</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▍</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.551</td>
+<td>0.297</td>
+<td>8.7</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>fwd AVX-512</td>
+<td>0.356</td>
+<td>0.236</td>
+<td>10.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">Input size 4096</td>
+</tr>
+<tr><td>std</td>
+<td>4.497</td>
+<td>2.725</td>
+<td>1.0</td>
+<td><tt class="docutils literal">██</tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>1.630</td>
+<td>1.196</td>
+<td>2.3</td>
+<td><tt class="docutils literal"><span class="pre">████▊</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>1.531</td>
+<td>1.123</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">█████</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.954</td>
+<td>0.563</td>
+<td>4.8</td>
+<td><tt class="docutils literal"><span class="pre">██████████▏</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.496</td>
+<td>0.286</td>
+<td>9.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████</span></tt></td>
+</tr>
+<tr><td>fwd AVX-512</td>
+<td>0.228</td>
+<td>0.143</td>
+<td>19.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">Input size 8192</td>
+</tr>
+<tr><td>std</td>
+<td>4.516</td>
+<td>2.900</td>
+<td>1.0</td>
+<td><tt class="docutils literal">██▌</tt></td>
+</tr>
+<tr><td>fwd scalar</td>
+<td>1.555</td>
+<td>1.211</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">██████▏</span></tt></td>
+</tr>
+<tr><td>rnd scalar</td>
+<td>1.507</td>
+<td>1.083</td>
+<td>2.7</td>
+<td><tt class="docutils literal"><span class="pre">██████▉</span></tt></td>
+</tr>
+<tr><td>fwd SSE</td>
+<td>0.965</td>
+<td>0.620</td>
+<td>4.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████</span></tt></td>
+</tr>
+<tr><td>fwd AVX2</td>
+<td>0.475</td>
+<td>0.355</td>
+<td>8.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████</span></tt></td>
+</tr>
+<tr><td>fwd AVX-512</td>
+<td>0.220</td>
+<td>0.187</td>
+<td>15.5</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████▉</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="section" id="push-heap">
+<h1>push_heap</h1>
+<p>The procedure <tt class="docutils literal">push_heap</tt> adds a new element to heap. We append the new value
+to the and of the array. We start from this index, and check whether the
+parent is greater. If it is, the heap invariant is hold, so no more work is
+needed. Otherwise, we swap the new item with the parent and recheck the
+swapped element with its new parent.</p>
+<p>In each iteration we go up, until we reach the root.</p>
+<p>The vectorized approach is based on the following observation: when we build
+a list of values from the new node one up to the root, then &mdash; for a proper
+heap &mdash; this list is sorted. Otherwise, we need to find position where to
+put this new value.  Taking this form another angle, <tt class="docutils literal">push_heap</tt> performs
+insertion sort on that list.</p>
+<p>For example, when we're adding 11-th element of value X to the heap show
+below, then its parents are at indices: 5, 2, and 0. Thus, we're considering
+a list <span class="math"><i>a</i></span>, <span class="math"><i>b</i></span>, <span class="math"><i>c</i></span>, <span class="math">X</span> and we already know
+that <span class="math"><i>a</i> &gt <i>b</i></span>, <span class="math"><i>b</i> &gt <i>c</i></span>.</p>
+<div class="asciidiag"><pre class="asciidiag">
+          ┌───┐
+          │ <span style="color: red; font-weight: bold">a</span> │  <span style="color: gray">◀─────────╴ level 0</span>
+          └───┘
+            <span style="color: gray; font-style: italic">0</span>
+        ┌───┬───┐
+        │ b │ <span style="color: red; font-weight: bold">c</span> │  <span style="color: gray">◀───────╴ level 1</span>
+        └───┴───┘
+          <span style="color: gray; font-style: italic">1</span>   <span style="color: gray; font-style: italic">2</span>
+    ┌───┬───┬───┬───┐
+    │ d │ e │ <span style="color: red; font-weight: bold">f</span> │ g │  <span style="color: gray">◀───╴ level 2</span>
+    └───┴───┴───┴───┘
+      <span style="color: gray; font-style: italic">3</span>   <span style="color: gray; font-style: italic">4</span>   <span style="color: gray; font-style: italic">5</span>   <span style="color: gray; font-style: italic">6</span>
+┌───┬───┬───┬───┬───┐
+│ h │ i │ j │ k │ <span style="color: red; font-weight: bold">X</span> │  <span style="color: gray">◀───╴ level 3</span>
+└───┴───┴───┴───┴───┘
+  <span style="color: gray; font-style: italic">7</span>   <span style="color: gray; font-style: italic">8</span>   <span style="color: gray; font-style: italic">9</span>  <span style="color: gray; font-style: italic">10</span>  <span style="color: gray; font-style: italic">11</span></pre></div><p>Vectorized approach consists the following steps.</p>
+<ol class="arabic">
+<li><p class="first">Prepare list of indices. We start at index <strong>n</strong>:</p>
+<pre class="literal-block">
+idx0 = n;
+idx1 = (idx0 - 1) &gt;&gt; 1;
+idx2 = (idx1 - 1) &gt;&gt; 1;
+idx3 = (idx2 - 1) &gt;&gt; 1;
+...
+idx7 = (idx6 - 1) &gt;&gt; 1;
+</pre>
+</li>
+<li><p class="first">Perform gather using this list.</p>
+<div class="asciidiag"><pre class="asciidiag">
+          idx0 idx1 idx2 idx3 idx4 idx5 idx6 idx7
+         ┌────┬────┬────┬────┬────┬────┬────┬────┐
+values = │ <span style="color: blue; font-weight: bold">15</span> │  2 │  3 │  7 │ 10 │ 13 │ 20 │ 30 │
+         └────┴────┴────┴────┴────┴────┴────┴────┘
+           ▲
+           │
+           ╰─╴ new value</pre></div></li>
+<li><p class="first">Locate position where to insert the new value.</p>
+<div class="asciidiag"><pre class="asciidiag">
+         ┌────┬────┬────┬────┬────┬────┬────┬────┐
+new    = │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │ <span style="color: blue; font-weight: bold">15</span> │
+         └────┴────┴────┴────┴────┴────┴────┴────┘
+         ┌────┬────┬────┬────┬────┬────┬────┬────┐
+values = │ <span style="color: blue; font-weight: bold">15</span> │  2 │  3 │  7 │ 10 │ 13 │ 20 │ 30 │
+         └────┴────┴────┴────┴────┴────┴────┴────┘
+
+                mask = new &gt; values
+
+         ┌────┬────┬────┬────┬────┬────┬────┬────┐
+mask   = │ 00 │ ff │ ff │ ff │ ff │ ff │ 00 │ 00 │
+         └────┴────┴────┴────┴────┴────┴────┴────┘
+            0                                  7</pre></div></li>
+<li><p class="first">Vector <tt class="docutils literal">mask</tt> is converted into a bitmask (<tt class="docutils literal">0b0011_1110</tt>) and the
+number of <strong>leading zeroes</strong> uniquely identifies the shuffle pattern.</p>
+</li>
+<li><p class="first">We load a precomputed shuffle pattern and perform shuffling.</p>
+<div class="asciidiag"><pre class="asciidiag">
+          ┌────┬────┬────┬────┬────┬────┬────┬────┐
+values&apos; = │  2 │  3 │  7 │ 10 │ 13 │ <span style="color: blue; font-weight: bold">15</span> │ 20 │ 30 │
+          └────┴────┴────┴────┴────┴────┴────┴────┘
+                                      ▲
+                                      │
+                                   new value</pre></div></li>
+<li><p class="first">Finally we scatter the vector to initial positions in the heap.</p>
+</li>
+<li><p class="first">Repeat when the new item was placed on the last position after shuffle.</p>
+</li>
+</ol>
+<p>First of all, this algorithm is not suitable for AVX2, as AVX2 does not support
+scatters. The AVX-512 implementation is shown below.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">push_heap_avx2</span><span class="p">(</span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">size</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">std</span><span class="o">::</span><span class="n">push_heap</span><span class="p">(</span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">size</span><span class="p">);</span><span class="w">
+        </span><span class="k">return</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">size</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">index</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// 1. Construct indices from the current element to parent nodes 7 levels up
+</span><span class="w">        </span><span class="kt">ssize_t</span><span class="w"> </span><span class="n">parent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">tmp</span><span class="p">[</span><span class="mi">8</span><span class="p">];</span><span class="w">
+        </span><span class="n">tmp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">index</span><span class="p">;</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">parent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">index</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="p">;</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parent</span><span class="p">;</span><span class="w">
+            </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parent</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_load_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)</span><span class="n">tmp</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// 2. Load values from the selected path
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">values</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_i32gather_epi32</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="o">*</span><span class="p">)</span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">));</span><span class="w">
+
+        </span><span class="c1">// 3. Broadcast 0th element from the vector
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">last_value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_permutevar8x32_epi32</span><span class="p">(</span><span class="n">values</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">());</span><span class="w">
+
+        </span><span class="c1">// 3. Check if the heap property is violated.
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpgt_epi32</span><span class="p">(</span><span class="n">values</span><span class="p">,</span><span class="w"> </span><span class="n">last_value</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">any_parent_less</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_movemask_ps</span><span class="p">(</span><span class="n">_mm256_castsi256_ps</span><span class="p">(</span><span class="n">mask</span><span class="p">));</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">any_parent_less</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">sorted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_permutevar8x32_epi32</span><span class="p">(</span><span class="n">values</span><span class="p">,</span><span class="w"> </span><span class="n">avx2_sort_values</span><span class="p">[</span><span class="mi">7</span><span class="p">]);</span><span class="w">
+            </span><span class="n">_mm256_i32scatter_epi32</span><span class="p">(</span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">sorted</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">));</span><span class="w">
+            </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="p">[</span><span class="mi">7</span><span class="p">];</span><span class="w">
+            </span><span class="k">continue</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="c1">// 4. Elements on the path be should sorted, we need to locate where to insert a new value.
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">new_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">any_parent_less</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">new_index</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">sorted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_permutevar8x32_epi32</span><span class="p">(</span><span class="n">values</span><span class="p">,</span><span class="w"> </span><span class="n">avx2_sort_values</span><span class="p">[</span><span class="n">new_index</span><span class="p">]);</span><span class="w">
+            </span><span class="n">_mm256_i32scatter_epi32</span><span class="p">(</span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">sorted</span><span class="p">,</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">));</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">std</span><span class="o">::</span><span class="n">push_heap</span><span class="p">(</span><span class="n">start</span><span class="p">,</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>This cannot be faster than a scalar implementation. In the worst case a scalar
+code execute <span class="math">log<sub>2</sub><i>n</i></span> memory loads, comparisons and swaps. In best case
+only two memory loads and one comparison is needed.</p>
+<p>The vectorized code needs to construct vector of indices, than at least
+one gather and scatter which are slow. My experiments on quite decent
+Ice Lake machine showed 10x slowdowns, which makes this approach unpractical
+(although it is nice).</p>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2018-04-11-simd-is-sorted.html">Is sorted using SIMD instructions</a></li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample implementation is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-heap">GitHub</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-18-simd-heap.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:18 GMT -->
+</html>

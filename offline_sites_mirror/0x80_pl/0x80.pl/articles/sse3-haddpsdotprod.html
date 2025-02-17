@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse3-haddpsdotprod.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE3: HADDPS i iloczyn skalarny</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse3-haddps-i-iloczyn-skalarny">
+<h1 class="title">SSE3: <tt class="docutils literal">HADDPS</tt> i iloczyn skalarny</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">14.09.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Rozkaz <tt class="docutils literal">haddps</tt> wprowadzony w <a class="reference external" href="http://pl.wikipedia.org/wiki/SSE3">SSE3</a> działa następująco:</p>
+<pre class="literal-block">
+haddps [e, f, g, h], [a, b, c, d] = [a+b, c+d, e+f, g+h]
+         xmm2/mem        xmm1               xmm1
+</pre>
+<p>Znakomicie ułatwia obliczanie iloczynu skalarnego, a więc także mnożenie
+wektorów i macierzy 4x4.  Przedstawiam przykład równoległego wyznaczania
+czterech iloczynów skalarnych.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse3-dotprod.S">sse3-dotprod.S</a>:</p>
+<pre class="literal-block">
+# void sse3_dotprod4(float vec1x4[4*4], float vec2x4[4*4], float result[4]);
+sse3_dotprod4:
+        mov     4(%esp), %eax   # vec1x4 address
+        mov     8(%esp), %edx   # vec2x4 address
+
+        # load 8 vectors                # index -&gt; 0   1   2   3
+        movups  0x00(%eax), %xmm0       # xmm0 := x00 x01 x02 x03
+        movups  0x00(%edx), %xmm1       # xmm1 := y00 y01 y02 y03
+        movups  0x10(%eax), %xmm2       # xmm2 := x10 x11 x12 x13
+        movups  0x10(%edx), %xmm3       # xmm3 := y10 y11 y12 y13
+        movups  0x20(%eax), %xmm4       # xmm4 := x20 x21 x22 x23
+        movups  0x20(%edx), %xmm5       # xmm5 := y20 y21 y22 y23
+        movups  0x30(%eax), %xmm6       # xmm6 := x30 x31 x32 x33
+        movups  0x30(%edx), %xmm7       # xmm7 := y30 y31 y32 y33
+
+        # parallel multiplication
+        mulps   %xmm1, %xmm0            # xmm0 := x0*y0 = d00 d01 d02 d03
+        mulps   %xmm3, %xmm2            # xmm2 := x1*y1 = d10 d11 d12 d13
+        mulps   %xmm5, %xmm4            # xmm4 := x2*y2 = d20 d21 d22 d13
+        mulps   %xmm1, %xmm6            # xmm6 := x3*y3 = d30 d31 d32 d33
+
+        # horizontal addition
+        haddps  %xmm2, %xmm0            # xmm0 := |d00+d01|d02+d03|d10+d11|d12+d13|
+        haddps  %xmm6, %xmm4            # xmm4 := |d20+d21|d22+d23|d30+d31|d32+d33|
+        mov     12(%esp), %eax
+        haddps  %xmm4, %xmm0            # xmm0 := | dot0  | dot1  | dot2  | dot 3 |
+
+        # save result
+        movups  %xmm0, (%eax)
+        ret
+</pre>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse3-haddpsdotprod.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/convert.php?f=vcvtw2ph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:35 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/convert.php?f=vcvtw2ph" />
+<link rel="alternate" hreflang="en" href="convertbb28.html?f=vcvtw2ph" />
+    <title>vcvtw2ph</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>VCVTW2PH - ConVerT Word to Packed Half</h2>
+signed WORD -&gt; FP16<br>
+<br>
+VCVTW2PH <span class="operand">xmm1{k1}{z}, xmm2/m128/m16bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__m128h _mm_cvtepi16_ph(__m128i a)</span><br>
+<span class="intr">__m128h _mm_mask_cvtepi16_ph(__m128h s, __mmask8 k, __m128i a)</span><br>
+<span class="intr">__m128h _mm_maskz_cvtepi16_ph(__mmask8 k, __m128i a)</span><br>
+<div style="height: 2px;"></div><img src="cvt_word_word_128.png" /><br />
+<div style="height: 30px"></div>
+VCVTW2PH <span class="operand">ymm1{k1}{z}, ymm2/m256/m16bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__m256h _mm256_cvtepi16_ph(__m256i a)</span><br>
+<span class="intr">__m256h _mm256_mask_cvtepi16_ph(__m256h s, __mmask16 k, __m256i a)</span><br>
+<span class="intr">__m256h _mm256_maskz_cvtepi16_ph(__mmask16 k, __m256i a)</span><br>
+<div style="height: 2px;"></div><img src="cvt_word_word_256.png" /><br />
+<div style="height: 30px"></div>
+VCVTW2PH <span class="operand">zmm1{k1}{z}, zmm2/m512/m16bcst{er}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16<br />
+<span class="intr">__m512h _mm512_cvtepi16_ph(__m512i a)</span><br>
+<span class="intr">__m512h _mm512_mask_cvtepi16_ph(__m512h s, __mmask32 k, __m512i a)</span><br>
+<span class="intr">__m512h _mm512_maskz_cvtepi16_ph(__mmask32 k, __m512i a)</span><br>
+<span class="intr">__m512h _mm512_cvt_roundepi16_ph(__m512i a, int r)</span><br>
+<span class="intr">__m512h _mm512_mask_cvt_roundepi16_ph(__m512h s, __mmask32 k, __m512i a, int r)</span><br>
+<span class="intr">__m512h _mm512_maskz_cvt_roundepi16_ph(__mmask32 k, __m512i a, int r)</span><br>
+<div style="height: 2px;"></div><img src="cvt_word_word_512.png" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vcvtw2ph" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/convert.php?f=vcvtw2ph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:38 GMT -->
+</html>
+

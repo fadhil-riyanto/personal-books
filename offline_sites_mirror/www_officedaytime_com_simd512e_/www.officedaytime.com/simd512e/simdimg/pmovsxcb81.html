@@ -1,0 +1,71 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/pmovsx.php?f=pmovsxwq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:20 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/pmovsx.php?f=pmovsxwq" />
+<link rel="alternate" hreflang="en" href="pmovsxcb81.html?f=pmovsxwq" />
+    <title>pmovsxwq</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>PMOVSXWQ - Packed MOVe Sign eXtension Word Qword<br></h2>
+WORD -&gt; QWORD&nbsp; sign extension<br><br>
+PMOVSXWQ <span class="operand">xmm1, xmm2/m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(S4.1&nbsp;&nbsp;&nbsp;&nbsp;<br>
+<span class="intr">__m128i _mm_cvtepi16_epi64(__m128i a)</span><br />
+VPMOVSXWQ <span class="operand">xmm1, xmm2/m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br>
+<span class="intr">__m128i _mm_cvtepi16_epi64(__m128i a)</span><br />
+VPMOVSXWQ <span class="operand">xmm1{k1}{z}, xmm2/m32</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m128i _mm_mask_cvtepi16_epi64(__m128i s, __mmask8 k, __m128i a)</span><br />
+<span class="intr">__m128i _mm_maskz_cvtepi16_epi64(__mmask8 k, __m128i a)</span><br />
+<div style="height: 2px;"></div><img src="pmovsxwq_1.png" /><br />
+<div style="height: 30px"></div>
+VPMOVSXWQ <span class="operand">ymm1, xmm2/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2&nbsp;&nbsp;&nbsp;&nbsp;<br>
+<span class="intr">__m256i _mm256_cvtepi16_epi64(__m128i a)</span><br />
+VPMOVSXWQ <span class="operand">ymm1{k1}{z}, xmm2/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m256i _mm256_mask_cvtepi16_epi64(__m256i s, __mmask8 k, __m128i a)</span><br />
+<span class="intr">__m256i _mm256_maskz_cvtepi16_epi64(__mmask8 k, __m128i a)</span><br />
+<div style="height: 2px;"></div><img src="pmovsxwq_2.png" /><br />
+<div style="height: 30px"></div>
+VPMOVSXWQ <span class="operand">zmm1{k1}{z}, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5&nbsp;&nbsp;&nbsp;&nbsp;<br>
+<span class="intr">__m512i _mm512_cvtepi16_epi64(__m128i a)</span><br />
+<span class="intr">__m512i _mm512_mask_cvtepi16_epi64(__m512i s, __mmask8 k, __m128i a)</span><br />
+<span class="intr">__m512i _mm512_maskz_cvtepi16_epi64(__mmask8 k, __m128i a)</span><br />
+<div style="height: 2px;"></div><img src="pmovsxwq_3.png" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=pmovsxwq" target="_blank">Feedback</a>
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/pmovsx.php?f=pmovsxwq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:23 GMT -->
+</html>
+

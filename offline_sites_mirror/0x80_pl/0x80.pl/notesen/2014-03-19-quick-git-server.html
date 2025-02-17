@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-03-19-quick-git-server.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Quick and dirty ad-hoc git hosting</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="quick-and-dirty-ad-hoc-git-hosting">
+<h1 class="title">Quick and dirty ad-hoc git hosting</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-03-19</td>
+</tr>
+</tbody>
+</table>
+<p>Recently I needed to synchronize my local repository with a remote machine,
+just for full backup. It's really simple if you have standard Linux tools
+(Cygwin works too, of course).</p>
+<ol class="arabic">
+<li><p class="first">in a working directory run:</p>
+<pre class="literal-block">
+$ pwd
+/home/foo/project
+#         ^^^^^^^
+$ git update-server-info
+</pre>
+</li>
+<li><p class="first">in the parent directory start HTTP server:</p>
+<pre class="literal-block">
+$ cd ..
+$ pwd
+/home/foo
+$ python -m SimpleHTTPServer
+Serving HTTP on 0.0.0.0 port 8000 ...
+</pre>
+</li>
+<li><p class="first">on a remote machine clone/pull/whatever:</p>
+<pre class="literal-block">
+$ git clone http://your_ip:8000/project/.git
+                                ^^^^^^^
+</pre>
+</li>
+</ol>
+<p>Step 1 have to be executed manually when the local repository has changed.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-03-19-quick-git-server.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

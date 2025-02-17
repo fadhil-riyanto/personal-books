@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse4-pteststrlen.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE4: PTEST &amp; strlen</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse4-ptest-strlen">
+<h1 class="title">SSE4: <tt class="docutils literal">PTEST</tt> &amp; <tt class="docutils literal">strlen</tt></h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">8.09.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Realizacja funkcji <tt class="docutils literal">strlen</tt> z użyciem nowego rozkazu <tt class="docutils literal">PTEST</tt>.
+Zobacz również projekt <a class="reference external" href="https://github.com/WojciechMula/sse2string">sse2string</a>.</p>
+<pre class="literal-block">
+# size_t strlen(const char *s);
+#
+# args:
+# - %edx - s
+# return:
+# - %eax
+sse4_strlen:
+    pxor  %xmm0, %xmm0          # xmm0 := packed_byte(0x00)
+    xor   %eax,  %eax           # eax  := length
+
+    .L_mainloop:
+        movaps  (%eax, %edx), %xmm1
+        add     $16,   %eax
+        pcmpeqb %xmm0, %xmm1    # 0xff for nulls
+        ptest   %xmm1, %xmm0    # CF := 1 when
+                                #        (NOT xmm0) AND xmm1 = 0
+                                #
+                                # CF = 1 -- no zeros found
+                                #    = 0 -- otherwise
+        jc .L_mainloop
+
+    pmovmskb %xmm1, %edx        #
+    bsf      %edx,  %edx        # get null position
+    lea  -16(%edx, %eax), %eax  # and update length
+    ret
+</pre>
+<p>Opóźnienie <tt class="docutils literal">PTEST</tt> wynosi 1 cykl.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse4-pteststrlen.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

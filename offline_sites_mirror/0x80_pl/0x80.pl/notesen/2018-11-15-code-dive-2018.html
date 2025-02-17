@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-11-15-code-dive-2018.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>A short report from code::dive 2018</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="a-short-report-from-code-dive-2018">
+<h1 class="title">A short report from code::dive 2018</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-11-18</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#the-hitchhiker-s-guide-to-faster-builds" id="toc-entry-2">The Hitchhiker's Guide to Faster Builds</a></li>
+<li><a class="reference internal" href="#clean-code-in-go" id="toc-entry-3">Clean code in Go</a></li>
+<li><a class="reference internal" href="#goland-tips-tricks" id="toc-entry-4">GoLand Tips &amp; Tricks</a></li>
+<li><a class="reference internal" href="#taming-dynamic-memory-an-introduction-to-custom-allocators-in-c" id="toc-entry-5">Taming dynamic memory - An introduction to custom allocators in C++</a></li>
+<li><a class="reference internal" href="#python-as-c-s-limiting-case" id="toc-entry-6">Python as C++’s limiting case</a></li>
+<li><a class="reference internal" href="#how-to-do-practical-data-science-from-real-world-examples-to-recommendations" id="toc-entry-7">How to do practical Data Science? From real-world examples to recommendations</a></li>
+<li><a class="reference internal" href="#c-c-vs-security" id="toc-entry-8">C/C++ vs Security!</a></li>
+<li><a class="reference internal" href="#a-trusted-trip-in-the-cloud-working-with-trusted-hardware-in-practice" id="toc-entry-9">A trusted trip in the cloud &mdash; working with trusted hardware in practice</a></li>
+<li><a class="reference internal" href="#augmented-reality-the-state-of-play" id="toc-entry-10">Augmented Reality - The State of Play</a></li>
+<li><a class="reference internal" href="#why-algebraic-data-types-are-important" id="toc-entry-11">Why algebraic data types are important</a></li>
+<li><a class="reference internal" href="#random-bits" id="toc-entry-12">Random bits</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>In November this year there was new edition of <a class="reference external" href="https://codedive.pl/">code::dive</a>, an IT conference
+in Wrocław, Poland.  Practically nothing has changed from <a class="reference external" href="2017-11-26-code-dive-2017.html">the previous
+edition</a>: it is still great.  The place is perfect, it's in a huge cinema
+located in the city center. There were free snack and water, and amazing coffee
+at decent price (the only downside was huge queues). As always, there were a
+lot of interesting talks; a new thing were &quot;lighting talks&quot;, run during lunch
+break.</p>
+<p>This edition was a bit different, though. Although Nokia still sponsors the
+conference, the organizers asked participants to buy tickets (25 złotych, 5
+euro) and then gave all income to Polish Association of the Blind; I totally
+love this approach.  BTW, approx 38,000 złotych were collected.</p>
+<hr class="docutils" />
+<p><em>Disclaimer</em>: I'm Nokia employee right now, but am writing this text in my spare
+time. The employer was so kind that I went to the conference during working
+hours.</p>
+<hr class="docutils" />
+<p>The talks I attended:</p>
+<ul class="simple">
+<li>&quot;The Hitchhiker's Guide to Faster Builds&quot; (two parts) by <strong>Viktor Kirilov</strong></li>
+<li>&quot;Clean code in Go&quot; by <strong>Mateusz Dymiński</strong></li>
+<li>&quot;GoLand Tips &amp; Tricks&quot; by <strong>Florin Pățan</strong></li>
+<li>&quot;Taming dynamic memory - An introduction to custom allocators in C++&quot; by <strong>Andreas Weis</strong></li>
+<li>&quot;Python as C++’s limiting case&quot; by <strong>Brandon Rhodes</strong></li>
+<li>&quot;How to do practical Data Science? From real-world examples to recommendations&quot; by <strong>Artur Suchwałko</strong></li>
+<li>&quot;C/C++ vs Security!&quot; by <strong>Gynvael Coldwind</strong></li>
+<li>&quot;A trusted trip in the cloud &mdash; working with trusted hardware in practice&quot; by <strong>Gabriela Limonta</strong></li>
+<li>&quot;Augmented Reality - The State of Play&quot; by <strong>Rafał Legiędź</strong></li>
+<li>&quot;Why algebraic data types are important&quot; by <strong>Bartosz Milewski</strong></li>
+</ul>
+</div>
+<div class="section" id="the-hitchhiker-s-guide-to-faster-builds">
+<h1>The Hitchhiker's Guide to Faster Builds</h1>
+<p>This talk, split into two parts, was packed with information. Viktor presented
+an awful lot of different techniques and tools that might boost building C++
+applications. On one hand it's good, but on the other hand I fell somehow
+overloaded.</p>
+<p>I didn't like the slides. They were filled with lots of text, and also
+have links to other presentations or articles. It might be useful when one goes
+through the presentation at home, at own pace. On a conference it doesn't look
+well.</p>
+<p>What I missed the most was real-life examples, hard numbers. There were some,
+but still not much. Also statements like &quot;reportedly it's faster&quot; are not too
+convincing.</p>
+<p>I really liked the history of C++ modules. I'm always saying that development
+of C++ is too slow and it's delayed several years to market needs. Modules are
+a bright example. The first proposal appeared in 2004. Moving fast forward, now
+we have 2018 and modules have just been accepted for the upcoming standard.
+Only 14 years, and it's almost there! But the idea of modules is not new. For
+instance, the first Ada edition from 1983 had modules (not to mention Modula by
+Wirth); Ada 1995 introduced generic modules, that can be parametrized with
+types. C++ programmers might be envious.</p>
+</div>
+<div class="section" id="clean-code-in-go">
+<h1>Clean code in Go</h1>
+<p>Mateusz tried to defend a thesis that Go programs are by design clean. The
+definition of &quot;clean code&quot; is that something is clean <em>if you see there what you
+expected to see</em>.</p>
+<p>The speaker cited all statements from the Go creators. So, we know that Go
+syntax is simple, there are no exceptions nor classes. That Go is stable, there
+are no new features and so on, and so forth. A Go source code is simple to
+read, reason about, etc. I was a bit disappointed with this form, I rather
+expected some real-world examples; I can always read Go propaganda on Hacker
+News.</p>
+<p>And to be honest, I didn't get convinced. But I liked the talk, as Matuesz also
+mentioned not so bright features of Go. Like lack of generics which forces
+people to copy-paste-driven development.</p>
+<p>The funny fact is the Go creators thought the language would lure C++
+programmers, as they solved some painful C++ problems.  It hasn't happened,
+people switched from PHP, Python and other dynamically-typed languages, but not
+from C++.</p>
+</div>
+<div class="section" id="goland-tips-tricks">
+<h1>GoLand Tips &amp; Tricks</h1>
+<p>My English teacher often says that I would do exercises from our textbook much
+better if I read instructions. Add my glasses to this and you'll understand why
+I was sure I was going to see &quot;GoLang Tips &amp; Tricks&quot;.</p>
+<p>The single letter made the difference. It was the live demo of a commercial
+product, an IDE for Go. During the presentation an extremely easy Go project
+was edited and refactored.</p>
+<p>But I'm not going to complain, to my surprise I enjoyed the show... in a way.</p>
+<p>Let me start with a bit of personal history. Last time I used an IDE was 15
+years ago. It was a pirated copy of Borland Pascal, run in DOS and I was
+obviously younger. Later, when I moved to Linux, I realized that with multiple
+shells &mdash; provided natively by the system or programs like <tt class="docutils literal">screen</tt> &mdash; an
+IDE is overkill, if not a plainly stupid concept. The standard shell commands,
+VIM and screen are enough to work rather efficiently.</p>
+<p>So, while I was watching how these colorful boxes popping around, how magic
+combinations of keystrokes have to be pressed in order to do basic text
+editing, how many mouse clicks are needed to do this and that, I felt this
+is not how I want to write my code. Ever. A simple script is better than
+two clicks. This is my motto coined during writing this paragraph.</p>
+</div>
+<div class="section" id="taming-dynamic-memory-an-introduction-to-custom-allocators-in-c">
+<h1>Taming dynamic memory - An introduction to custom allocators in C++</h1>
+<p>I enjoyed the talk, one of the best I saw this year. Andreas showed how simple
+allocation strategies work and also what traits do they have. He described
+memory pools and another one which name slept my mind (it's the allocation
+algorithm used by Pascal, where you allocate many objects but can free only
+all objects at once).</p>
+<p>We also learnt that C++ offers an interface to plug custom allocators, and that
+the names of related namespace/function are as always counter-intuitive. The
+C++ committee is bad at names.</p>
+</div>
+<div class="section" id="python-as-c-s-limiting-case">
+<h1>Python as C++’s limiting case</h1>
+<p>I'm not sure for 100%, but Brandon was the first presenter who wore a tie.</p>
+<p>The whole lecture was funny. I love the slides &mdash; there were a few words on
+each slide, typeset in a large font. One can read a slide in an eye blink, and
+then concentrate on the speaker. Learn from Brandon.</p>
+<p>It was talk about Python, how the language borrowed and simplified
+concepts, mostly from C++. He made fun from JavaScript (<tt class="docutils literal">'4' - 3</tt> is
+<tt class="docutils literal">int(3)</tt>, but <tt class="docutils literal">'4' + 3</tt> is <tt class="docutils literal">&quot;43&quot;</tt>), saying that such an absurd are
+almost nonexistent in Python.</p>
+<p>One really funny thing that caught my attention was hesitation about
+&quot;tuple&quot; pronunciation; English is funny.</p>
+<p>BTW it was said that CPython has no garbage collection, but only referenced
+counting. It's not true, there's a generational garbage collector, which can be
+accessed via a standard module <a class="reference external" href="https://docs.python.org/2/library/gc.html">gc</a>. Simple reference counting doesn't deal
+with cyclic references.</p>
+</div>
+<div class="section" id="how-to-do-practical-data-science-from-real-world-examples-to-recommendations">
+<h1>How to do practical Data Science? From real-world examples to recommendations</h1>
+<p>A nice description of three cases from Polish companies, huge ones: an
+insurance company and telecom. Unfortunately, the talk was too technical, most
+people are not data science practitioners. I expected something lighter and
+easier to digest, sometimes it was a bit difficult to follow.</p>
+<p>Most important takeaways from this talk are: 1) the big business is keen on
+spending money if it can help (save more money, for instance), and 2) data
+science doesn't require top-notch technology, most of work can be done on
+consumer hardware; I think only the telecom case involved extra servers.</p>
+</div>
+<div class="section" id="c-c-vs-security">
+<h1>C/C++ vs Security!</h1>
+<p>Do not confuse this talk with &quot;C/C++ vs Security&quot; (without the exclamation mark)!</p>
+<p>It was a nice talk, which I didn't like. I feel like it was too chaotic, where
+rather simple problems were mixed with very complex (like Spectre). Try to
+explain Spectre in five minutes to a person who doesn't know modern CPUs'
+details; it won't work, sorry.</p>
+</div>
+<div class="section" id="a-trusted-trip-in-the-cloud-working-with-trusted-hardware-in-practice">
+<h1>A trusted trip in the cloud &mdash; working with trusted hardware in practice</h1>
+<p>My second favourite talk. It was a story about IT reality, about hurdles, about
+specifications and implementations. I'm sure everybody listening to Gabriela
+stories will find there part of their own history. Thus no spoilers, but
+definitely loved XKCD used wisely!</p>
+</div>
+<div class="section" id="augmented-reality-the-state-of-play">
+<h1>Augmented Reality - The State of Play</h1>
+<p>A good overview of state of the art of augmented reality. The state is that
+although different solutions appears on the market they are not successful. But
+according to Rafał, this will finally happen and we should be already prepared.</p>
+<p>One important takeaway is that we usually thing about augmented reality in
+terms of vision, but humans have more senses. For instance, these noise-cutting
+headphones are means of augment reality, which surprised me.</p>
+</div>
+<div class="section" id="why-algebraic-data-types-are-important">
+<h1>Why algebraic data types are important</h1>
+<p>Well, this talk reminded me following joke: &quot;any web service can be represent
+by a nine-element tuple, but... it doesn't help&quot;.</p>
+<p>Bartosz showed algebra of functions, which is the foundation of, I guess, all
+functional languages. He claimed that C++ would be a better language if its
+type system was designed bottom-down, from these fancy theory. The problem is
+that all languages meant to replace C++ are either dead or used by few people.
+Also functional languages haven't taken over the IT world.  My gut feeling is
+that a type system is not a crucial problem.</p>
+<p>The speaker had enormous number of slides, so he managed to show us just a
+small portion of material. But I liked this, it was a bit like time travel to
+the past when I was programming in SML, Ocaml and reading about Clean (the
+language).</p>
+</div>
+<div class="section" id="random-bits">
+<h1>Random bits</h1>
+<ul class="simple">
+<li>The new word: <strong>shelfware</strong>. This is software which is put on
+&quot;a shelf&quot;, i.e. it is not officially dead, but we're hoping everybody
+will soon forget about it.</li>
+<li>I overheard a phone call, which went like this: &quot;we learnt a lot of new
+things, it appears that we have to remove everything and start over&quot;.</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-11-15-code-dive-2018.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:39 GMT -->
+</html>

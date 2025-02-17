@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2012-07-02-average-unsigned-ints.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:02 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Average of two unsigned integers</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="average-of-two-unsigned-integers">
+<h1 class="title">Average of two unsigned integers</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2012-07-02</td>
+</tr>
+</tbody>
+</table>
+<p>The famous error in Bentley's binary search code was caused
+by an integer overflow in following code:</p>
+<pre class="literal-block">
+unsigned a, b, c;
+
+c = (a + b)/2
+</pre>
+<p>First the sum is evaluated, then divided (or shifted), but the sum could
+exceed the integer range. In unsafe languages, like Java, C or C++,
+such errors are not detected, while Ada would trigger an exception.</p>
+<p>The safest expression, even in unsafe languages, looks like this:</p>
+<pre class="literal-block">
+unsigned a, b, c;
+unsigned LSB_carry;
+
+LSB_carry = a &amp; b &amp; 1;
+c = a/2 + b/2 + LSB_carry;
+</pre>
+<p>We sum up all-but-the-lowest bits, then adjust this sum with carry
+from lowest bit (<tt class="docutils literal">a &amp; b &amp; 1</tt>). This expression involves two
+shifts, 2 additions, and two ands, require also additional storage
+for carry.</p>
+<p>Another approach detects an overflow without accessing to hardware
+registers:</p>
+<pre class="literal-block">
+unsigned a, b, c;       // sizeof(unsigned) = 4;
+unsigned sum;
+
+sum = a + b;
+if (sum &lt; a) { // or sum &lt; b
+        // overflow, combine &quot;lost&quot; carry bit from the highest bit
+        c = (sum/2) | 0x8000000;
+} else {
+        c = sum/2;
+}
+</pre>
+<p>This require on sum, one shift and <strong>conditionally</strong> or. The condition
+could be expressed branchlessly:</p>
+<pre class="literal-block">
+unsigned a, b, c;
+unsigned sum;
+unsigned MSB_carry;
+
+sum = a + b;
+MSB_carry = (unsigned)(sum &lt; x); // 1 or 0
+
+c = sum/2 | (MSB_carry &lt;&lt; 31);
+</pre>
+<div class="section" id="sample-program">
+<h1>Sample program</h1>
+<p>Following python script verifies both methods (for 8-bit integers)</p>
+<pre class="code python literal-block">
+<span class="n">bits</span> <span class="o">=</span> <span class="mi">8</span>    <span class="c1"># unsigned width</span><span class="w">
+</span><span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="n">bits</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="w">
+</span><span class="n">MSB</span>  <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="p">(</span><span class="n">bits</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span><span class="w">
+
+</span><span class="k">def</span> <span class="nf">base</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span><span class="w">
+</span>    <span class="k">return</span> <span class="p">(</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="w">
+
+
+</span><span class="k">def</span> <span class="nf">safe1</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span><span class="w">
+</span>    <span class="n">LSB_carry</span> <span class="o">=</span> <span class="p">(</span><span class="n">a</span> <span class="o">&amp;</span> <span class="n">b</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">)</span><span class="w">
+</span>    <span class="k">return</span> <span class="p">(</span><span class="n">a</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="n">b</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">LSB_carry</span><span class="w">
+
+
+</span><span class="k">def</span> <span class="nf">safe2</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span><span class="w">
+</span>    <span class="nb">sum</span> <span class="o">=</span> <span class="p">(</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">mask</span><span class="w">
+</span>    <span class="k">if</span> <span class="nb">sum</span> <span class="o">&lt;</span> <span class="n">a</span><span class="p">:</span><span class="w">
+</span>        <span class="k">return</span> <span class="p">(</span><span class="nb">sum</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="o">|</span> <span class="n">MSB</span><span class="w">
+</span>    <span class="k">else</span><span class="p">:</span><span class="w">
+</span>        <span class="k">return</span> <span class="nb">sum</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span><span class="w">
+
+
+</span><span class="k">def</span> <span class="nf">safe3</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span><span class="w">
+</span>    <span class="nb">sum</span> <span class="o">=</span> <span class="p">(</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">mask</span><span class="w">
+</span>    <span class="n">MSB_carry</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">sum</span> <span class="o">&lt;</span> <span class="n">a</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="p">(</span><span class="nb">sum</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">MSB_carry</span> <span class="o">&lt;&lt;</span> <span class="p">(</span><span class="n">bits</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span><span class="w">
+
+
+</span><span class="k">def</span> <span class="nf">main</span><span class="p">():</span><span class="w">
+</span>    <span class="n">n</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="n">bits</span><span class="w">
+</span>    <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="n">n</span><span class="p">):</span><span class="w">
+</span>        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="n">n</span><span class="p">):</span><span class="w">
+</span>            <span class="n">ref</span> <span class="o">=</span> <span class="n">base</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="w">
+</span>            <span class="n">r1</span>  <span class="o">=</span> <span class="n">safe1</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="w">
+</span>            <span class="n">r2</span>  <span class="o">=</span> <span class="n">safe2</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="w">
+</span>            <span class="n">r3</span>  <span class="o">=</span> <span class="n">safe3</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span><span class="w">
+
+</span>            <span class="k">assert</span> <span class="n">ref</span> <span class="o">==</span> <span class="n">r1</span><span class="w">
+</span>            <span class="k">assert</span> <span class="n">ref</span> <span class="o">==</span> <span class="n">r2</span><span class="w">
+</span>            <span class="k">assert</span> <span class="n">ref</span> <span class="o">==</span> <span class="n">r3</span><span class="w">
+
+</span><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s1">'__main__'</span><span class="p">:</span><span class="w">
+</span>    <span class="n">main</span><span class="p">()</span>
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2012-07-02-average-unsigned-ints.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:02 GMT -->
+</html>

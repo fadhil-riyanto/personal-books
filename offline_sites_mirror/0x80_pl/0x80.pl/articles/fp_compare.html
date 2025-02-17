@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/fp_compare.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Porównywanie liczb floating point</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="porownywanie-liczb-floating-point">
+<h1 class="title">Porównywanie liczb floating point</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">23.10.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a><ul>
+<li><a class="reference internal" href="#format-liczb-floating-point" id="toc-entry-2">Format liczb floating point</a></li>
+<li><a class="reference internal" href="#porownywanie" id="toc-entry-3">Porównywanie</a></li>
+<li><a class="reference internal" href="#kod-w-jezyku-c" id="toc-entry-4">Kod w języku C</a></li>
+<li><a class="reference internal" href="#kod-w-asemblerze-bez-rozgalezien" id="toc-entry-5">Kod w asemblerze (bez rozgałęzień)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>W procesorach Pentium nie ma rozkazu porównywania liczb zmiennoprzecinkowych,
+takiego który bezpośrednio modyfikował rejestr flag.  Dopiero w Pentium Pro
+wprowadzono rozkaz <tt class="docutils literal">fcom</tt>.</p>
+<p>Poniżej przedstawię sposób porównywania liczb floating point tylko za
+pomocą rozkazów stałoprzecinkowych.</p>
+<div class="section" id="format-liczb-floating-point">
+<h2>Format liczb floating point</h2>
+<p>Liczba zmiennoprzecinkowa o pojedynczej precyzji (32-bitowa) ma następującą
+strukturę:</p>
+<pre class="literal-block">
+31 30       23                      0
+ +-+--------+-----------------------+
+ |S|EXP+bias|      mantissa         |
+ +-+--------+-----------------------+
+</pre>
+<ul class="simple">
+<li><tt class="docutils literal">S</tt>        (1 bit)   &mdash; bit znaku (dla liczb ujemnych ustawiony)</li>
+<li><tt class="docutils literal">EXP+bias</tt> (8 bitów) &mdash; wykładnik (ang. <em>exponent</em>) + przesunięcie (<em>bias</em>)</li>
+<li><tt class="docutils literal">mantissa</tt> (23 bity) &mdash; znormalizowana mantysa (<em>mantissa</em>)</li>
+</ul>
+<p>Wykładnik nie jest zapisywany jako liczba ujemna, tylko <strong>liczba z
+przesunięciem</strong> (ang. <em>bias</em>) i dla liczb typu single przesunięcie
+wynosi 127, tak więc w NKB zawsze jest to liczba dodatnia.</p>
+<p>Normalizacja mantysy polega na doprowadzeniu liczby zmiennoprzecinkowej
+do postaci <tt class="docutils literal">1.bity po przecinku</tt>, wobec czego część całkowita jest
+znana i nie zapisuje się jej.</p>
+<p>Wartość liczby obliczana jest zgodnie ze wzorem:</p>
+<p><span class="cmath"> &minus; 1<sup>S</sup> &sdot; (1 + <i>mantissa</i>) &sdot; 2<sup><i>exponent</i> &minus; <i>bias</i></sup></span></p>
+<p>Ponieważ za znak odpowiada 1 bit wyznaczenie modułu lub wartości
+przeciwnej jest banalne:</p>
+<pre class="literal-block">
+; eax - liczba zmiennoprzecinkowa (32 bity)
+
+and eax, 7fffffffh ; moduł
+xor eax, 80000000h ; wartość przeciwna
+</pre>
+</div>
+<div class="section" id="porownywanie">
+<h2>Porównywanie</h2>
+<p>Jeśli policzyć wartość dwusłowa, zawierającego liczbę typu float, jako
+liczbę zapisaną w naturalnym kodzie binarnym (<strong>NKB</strong>), to jej
+wartość wyniesie:</p>
+<pre class="literal-block">
+(S shl 31) or ((EXP+Bias) shl 23) or mantissa
+</pre>
+<p>Jak widać wartościowanie pól <tt class="docutils literal">EXP+Bias</tt> i <tt class="docutils literal">mantissa</tt> jest takie samo
+jak we wzorze na wartość liczby floating-point (większą wagę ma
+wykładnik). Jedynie bit znaku <tt class="docutils literal">S</tt> ma niewłaściwą (zbyt dużą)
+wagę &mdash; wartość w NKB liczby ujemnej będzie <strong>zawsze większa</strong> od liczby
+dodatniej.</p>
+<p>Z tego powodu trzeba rozpatrzeć trzy przypadki:</p>
+<ol class="arabic simple">
+<li>obie liczby są dodatnie &mdash; <tt class="docutils literal">S=0</tt>, więc wystarczy zwykłe porównanie</li>
+<li>obie liczby są ujemne &mdash; przed porównaniem należy odwrócić kolejność liczb</li>
+<li>liczby mają różne znaki &mdash; należy porównywać liczby przeciwne (zanegowane bity znaku).</li>
+</ol>
+</div>
+<div class="section" id="kod-w-jezyku-c">
+<h2>Kod w języku C</h2>
+<pre class="literal-block">
+int compare_fp(float A, float B) {
+
+ // liczby binarne
+ dword a = (dword*)&amp;A;
+ dword b = (dword*)&amp;B;
+
+ // znaki liczb
+ dword sign_a = a &amp; 0x80000000;
+ dword sign_b = b &amp; 0x80000000;
+
+ // obie dodatnie
+ if ((sign_a == 0) &amp;&amp; (sign_b == 0))
+        return a &gt; b;
+
+ // obie ujemne
+ if ((sign_a != 0) &amp;&amp; (sign_b != 0))
+        return b &gt; a;
+
+ // różne znaki
+ a ^= 0x80000000;
+ b ^= 0x80000000;
+ return a &gt; b;
+}
+</pre>
+</div>
+<div class="section" id="kod-w-asemblerze-bez-rozgalezien">
+<h2>Kod w asemblerze (bez rozgałęzień)</h2>
+<pre class="literal-block">
+; wejście: eax - a
+;          ebx - b
+; wyjście: znaczniki flag ustawione zgodnie z warunkiem float(eax) &amp; float(ebx)
+
+compare_fp:
+        mov ecx, eax
+        mov edx, ebx
+        and ecx, 0x80000000 ; ecx := sign_a
+        and edx, 0x80000000 ; edx := sign_b
+
+        ; jeśli obie liczby ujemne zamień ich kolejność
+        ; cond1 := (float(eax) &lt; 0 and float(ebx) &lt; 0)
+        push ecx
+        push edx
+
+        and  ecx, edx       ;
+        sar  ecx, 31        ; ecx = cond1 ? 0xffffffff  : 0x00000000
+
+        mov  edx, ebx       ;
+        sub  edx, eax       ;
+        and  edx, ecx       ; edx = cond1 ? ebx - eax   : 0x00000000
+
+        add  eax, edx       ; eax = cond1 ? eax+ebx-eax : eax
+        sub  ebx, edx       ; ebx = cond1 ? ebx-ebx+eax : ebx
+
+        ; jeśli liczby są różnych znaków zaneguj bity znaku
+        ; cond2 := (float(eax) &lt; 0 xor float(ebx) &lt; 0)
+        pop  ecx
+        pop  edx
+        xor  ecx, edx       ; ecx = cond2 ? 0x80000000  : 0x00000000
+        xor  eax, ecx
+        xor  edx, ecx
+
+        ; na końcu porównaj
+        cmp  eax, ebx
+        ret
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/fp_compare.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

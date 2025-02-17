@@ -1,0 +1,800 @@
+<!DOCTYPE html><html lang="zh">
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter9.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+<head>
+        <title>9 Soft Real-Time Scheduling &#xB7; Linux Process Schedule</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content>
+        <meta name="generator" content="GitBook 3.1.1">
+        <meta name="author" content="Ezio Zhang">
+        
+        
+    
+    <link rel="stylesheet" href="gitbook/style.css">
+
+    
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-comment/plugin.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-highlight/website.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-search/search.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-fontsettings/website.css">
+                
+            
+        
+
+    
+
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+
+        
+    
+    
+    <meta name="HandheldFriendly" content="true">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="gitbook/images/apple-touch-icon-precomposed-152.png">
+    <link rel="shortcut icon" href="https://gstatic.gitbook.com/images/b1c4c86ca817a71628d2debe73be9a64.ico" type="image/x-icon">
+
+    
+    <link rel="next" href="chapter10.html">
+    
+    
+    <link rel="prev" href="chapter8.html">
+    
+
+    
+<style>
+    .book .book-summary .book-search,
+    .book .book-summary ul.summary {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        bottom: auto;
+    }
+    .book-summary {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        display: flex;
+        flex-direction: column;
+        -webkit-box-orient: vertical;
+        -webkit-box-direction: normal;
+        overflow-y: auto;
+    }
+    .book-summary > nav {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overflow-y: overlay;
+    }
+    .gl-wrapper {
+        margin: 0;
+        display: block;
+        padding: 0;
+        position: relative;
+        line-height: 15px;
+        background: #fafafa;
+    }
+    .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        background: -moz-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        top: -24px;
+        width: 100%;
+        height: 24px;
+        content: "";
+        display: block;
+        position: absolute;
+        background: linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+    }
+    .book.color-theme-1 .gl-wrapper {
+        background: #121212;
+    }
+    .book.color-theme-1 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: -moz-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+    }
+    .book.color-theme-2 .gl-wrapper {
+        background: #2e3243;
+    }
+    .book.color-theme-2 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: -moz-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+    }
+    .gl-wrapper .gitbook-link {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        color: #9DAAB6;
+        margin: 16px;
+        display: flex;
+        padding: 0;
+        align-items: center;
+        margin-left: 32px;
+        padding-top: 8px;
+        padding-left: 16px;
+        border-radius: 3px;
+        padding-right: 16px;
+        padding-bottom: 8px;
+        text-decoration: none;
+        background-color: #E6ECF1;
+        -webkit-box-align: center;
+    }
+    .gl-wrapper .tm-logo {
+        margin: 0;
+        display: block;
+        padding: 0;
+        font-size: 40px;
+    }
+    .gl-wrapper .tm-content {
+        flex: 1;
+        margin: 0;
+        display: block;
+        padding: 0;
+        padding-left: 16px;
+    }
+    .gl-wrapper .tm-content .container {
+        margin: 0;
+        display: block;
+        padding: 0;
+    }
+    .gl-wrapper .tm-content .tm-container .tm-text {
+        font-size: 12px;
+        font-family: "Roboto", sans-serif;
+        font-weight: 400;
+        line-height: 1.625;
+    }
+</style></head>
+    <body>
+        
+<div class="book">
+    <div class="book-summary">
+        
+            
+<div id="book-search-input" role="search">
+    <input type="text" placeholder="Type to search">
+</div>
+
+            
+                <nav role="navigation">
+                
+
+
+<ul class="summary">
+    
+    
+    
+        
+        <li>
+            <a href="https://www.gitbook.com/book/oska874/process-scheduling-in-linux" target="_blank" class="custom-link">Linux Process Schedule</a>
+        </li>
+    
+    
+
+    
+    <li class="divider"></li>
+    
+
+    
+        
+        
+    
+        <li class="chapter " data-level="1.1" data-path="./">
+            
+                <a href="index.html">
+            
+                    
+                    Introduction
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.2" data-path="chapter1.html">
+            
+                <a href="chapter1.html">
+            
+                    
+                    1 Process Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.3" data-path="chapter2.html">
+            
+                <a href="chapter2.html">
+            
+                    
+                    2 Task Classification
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.4" data-path="chapter3.html">
+            
+                <a href="chapter3.html">
+            
+                    
+                    3 Scheduling Classes
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.5" data-path="chapter4.html">
+            
+                <a href="chapter4.html">
+            
+                    
+                    4 Main Runqueue
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.6" data-path="chapter5.html">
+            
+                <a href="chapter5.html">
+            
+                    
+                    5 Scheduler Skeleton
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.7" data-path="chapter6.html">
+            
+                <a href="chapter6.html">
+            
+                    
+                    6 Short Scheduling Algorithm History
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.8" data-path="chapter7.html">
+            
+                <a href="chapter7.html">
+            
+                    
+                    7 Completely Fair Scheduler (CFS)
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.9" data-path="chapter8.html">
+            
+                <a href="chapter8.html">
+            
+                    
+                    8 CFS Implementation Details
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter active" data-level="1.10" data-path="chapter9.html">
+            
+                <a href="chapter9.html">
+            
+                    
+                    9 Soft Real-Time Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.11" data-path="chapter10.html">
+            
+                <a href="chapter10.html">
+            
+                    
+                    10 Load Balancing on SMP Systems
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.12" data-path="chapter11.html">
+            
+                <a href="chapter11.html">
+            
+                    
+                    11 Real Time Load Balancing
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.13" data-path="chapter12.html">
+            
+                <a href="chapter12.html">
+            
+                    
+                    12. Resources
+            
+                </a>
+            
+
+            
+        </li>
+    
+
+    
+
+    <li class="divider"></li>
+
+    
+</ul>
+
+
+                </nav>
+            
+        
+    
+<div class="gl-wrapper">
+    <a class="gitbook-link" href="https://www.gitbook.com/?utm_source=public_site_legacy&amp;utm_medium=referral&amp;utm_campaign=trademark&amp;utm_term=oska874&amp;utm_content=powered_by" target="blank">
+        <div class="tm-logo">
+            <svg preserveAspectRatio="xMidYMid meet" height="1em" width="1em" fill="currentColor" viewBox="0 0 1067 769" xmlns="http://www.w3.org/2000/svg" stroke="none" class="icon-7f6730be--text-3f89f380"><g><path d="M480.026 640.677c17.205 0 31.2 13.997 31.2 31.194s-13.995 31.193-31.2 31.193c-17.197 0-31.193-13.996-31.193-31.193 0-17.197 13.996-31.194 31.193-31.194m489.93-193.226c-17.203 0-31.2-13.998-31.2-31.195 0-17.204 13.997-31.2 31.2-31.2 17.198 0 31.194 13.996 31.194 31.2 0 17.197-13.996 31.195-31.193 31.195m0-127.804c-53.269 0-96.609 43.34-96.609 96.609 0 10.373 1.723 20.702 5.123 30.741L559.328 616.879c-18.132-26.128-47.521-41.617-79.302-41.617-36.821 0-70.391 21.065-86.63 54.003L106.68 478.109c-30.288-15.927-52.965-65.817-50.56-111.223 1.248-23.687 9.438-42.071 21.897-49.17 7.916-4.493 17.436-4.099 27.526 1.188l1.916 1.01c75.96 40.022 324.6 170.981 335.063 175.844 16.157 7.47 25.14 10.5 52.659-2.547l513.958-267.3c7.53-2.844 16.315-10.062 16.315-21.023 0-15.205-15.72-21.199-15.765-21.199-29.218-14.018-74.163-35.054-117.987-55.57C798.033 84.26 691.861 34.547 645.23 10.132c-40.253-21.072-72.655-3.311-78.432.282l-11.227 5.555C345.727 119.743 64.898 258.826 48.911 268.553 20.278 285.973 2.547 320.679.252 363.768c-3.586 68.304 31.261 139.506 81.069 165.634l303.172 156.354c6.83 47.306 47.55 82.725 95.532 82.725 52.78 0 95.808-42.546 96.603-95.14L910.541 492.38c16.93 13.233 37.92 20.486 59.416 20.486 53.268 0 96.61-43.341 96.61-96.61s-43.342-96.61-96.61-96.61" fill-rule="evenodd"/></g></svg>
+        </div>
+        <div class="tm-content">
+            <div class="tm-container">
+                <span class="tm-text">
+                    Powered by <b>GitBook</b>
+                </span>
+            </div>
+        </div>
+    </a>
+</div></div>
+
+    <div class="book-body">
+        
+            <div class="body-inner">
+                
+                    
+
+<div class="book-header" role="navigation">
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href=".html">9 Soft Real-Time Scheduling</a>
+    </h1>
+</div>
+
+
+
+
+                    <div class="page-wrapper" tabindex="-1" role="main">
+                        <div class="page-inner">
+                            
+<div id="book-search-results">
+    <div class="search-noresults">
+    
+                                <section class="normal markdown-section">
+                                
+                                <h1 id="9-soft-real-time-scheduling">9. Soft Real-Time Scheduling</h1>
+<p>The Linux scheduler supports soft real-time (RT) scheduling. This means that is can effectively schedule tasks that have strict timing requirements. However, while the kernel is usually capable of meeting very strict RT scheduling deadlines, it does not guarantee that deadlines will be met.</p>
+<p>The corresponding scheduling class is rt_sched_class which is implemented in kernel/sched_rt.c. RT tasks have priority over CFS tasks.</p>
+<h2 id="91-scheduling-modes">9.1. Scheduling Modes</h2>
+<p>Tasks handled by the RT scheduler can be configured in two different scheduling modes:</p>
+<ul>
+<li>SCHED_FIFO: A scheduled FIFO task has no time slice and will be scheduled until it terminates,yields the processor voluntarily or a higher priority task becomes runnable.</li>
+<li>SCHED_RR: An RR task will be scheduled for a fixed time slice and then pre-empted in a round robin fashion by tasks with the same priority. That means, as soon as the task&apos;s time slice is over, it is set to the end of the queue and its slice is refilled. It can also be pre-empted by tasks with higher priority before the time slice is over.
+-<h2 id="92-priorities">9.2. Priorities</h2>
+</li>
+</ul>
+<p>With its priority implementation, the RT class follows the same concept, the previous O(1) scheduler did. It uses multiple runqueues where one is reserved for each priority. That way,operations like adding, removing or finding task with highest priority can be achieved in O(1) time.</p>
+<h2 id="93-real-time-throttling">9.3 Real Time Throttling</h2>
+<p>Occasionally, you can see throttling or bandwith operations in the RT scheduler implementation.These were added to add some safety to SCHED_FIFO tasks. They assign an RT task group with FIFO tasks a certain bandwith for a processor (95% by default) before they are pre-empted if they want to or not. This is supposed to add more security to the kernel against blocking FIFO tasks. It, however, started a discussion among kernel developers and its future is not entirely set.</p>
+<h2 id="94-implementation-details">9.4. Implementation Details</h2>
+<h3 id="data-structures">Data Structures</h3>
+<p>Like CFS, the RT scheduler has its own scheduling entity and runqueue data structure which are added as members to task_struct and the main runqueue.
+sched_rt_entity is implemented in /include/linux/sched.h. It has fields for time slice accounting, a pointer to the priority list it belongs to and group scheduling related members.</p>
+<pre><code>struct sched_rt_entity {
+    struct list_head run_list;
+    unsigned long timeout;
+    unsigned int time_slice;
+    int nr_cpus_allowed;
+    struct sched_rt_entity *back;
+#ifdef CONFIG_RT_GROUP_SCHED
+    struct sched_rt_entity*parent;
+    /* rq on which this entity is (to be) queued: */
+    struct rt_rq *rt_rq;
+    /* rq &quot;owned&quot; by this entity/group: */
+    struct rt_rq *my_q;
+#endif
+};
+</code></pre><p>rt_rq is implemented in kernel/sched.c. The first field holds the priority arrays. Almost all other fields are for SMP and group scheduling.</p>
+<pre><code>/* Real-Time classes&apos; related field in a runqueue: */
+struct rt_rq {
+    struct rt_prio_array active;
+    unsigned long rt_nr_running;
+#if defined CONFIG_SMP || defined CONFIG_RT_GROUP_SCHED
+    struct {
+        int curr; /* highest queued rt task prio */
+#ifdef CONFIG_SMP
+        int next; /* next highest */
+#endif
+    } highest_prio;
+#endif
+#ifdef CONFIG_SMP
+    unsigned long rt_nr_migratory;
+    unsigned long rt_nr_total;
+    int overloaded;
+    struct plist_head pushable_tasks;
+#endif
+    int rt_throttled;
+    u64 rt_time;
+    u64 rt_runtime;
+    /* Nests inside the rq lock: */
+    raw_spinlock_t rt_runtime_lock;
+#ifdef CONFIG_RT_GROUP_SCHED
+    unsigned long rt_nr_boosted;
+    struct rq *rq;
+    struct list_head leaf_rt_rq_list;
+    struct task_group *tg;
+#endif
+};
+</code></pre><h3 id="time-accounting">Time Accounting</h3>
+<p>scheduler_tick() calls task_tick_rt() to update the current task&apos;s time slice. It is pretty straight forward: In the beginning runtime statistics of the current task and its runqueue are updated in update_curr_rt(). Then the function returns if current is a FIFO task.</p>
+<p>If not, the RR task&apos;s timeslice is reduced by one. If it reaches 0, it is set back to a default value and put back to the end of its runqueue if other tasks are available in the queue. Additionally the need_resched flag is set.</p>
+<pre><code>static void task_tick_rt(struct rq *rq, struct task_struct *p, int queued)
+{
+    update_curr_rt(rq);
+    watchdog(rq, p);
+    /*
+    * RR tasks need a special form of timeslice management.
+    * FIFO tasks have no timeslices.
+    */
+    if (p-&gt;policy != SCHED_RR)
+        return;
+    if (--p-&gt;rt.time_slice)
+        return;
+    p-&gt;rt.time_slice = DEF_TIMESLICE;
+    /*
+    * Requeue to the end of queue if we are not the only element
+    * on the queue:
+    */
+    if (p-&gt;rt.run_list.prev != p-&gt;rt.run_list.next) {
+        requeue_task_rt(rq, p, 0);
+        set_tsk_need_resched(p);
+    }
+}
+</code></pre><h3 id="picking-the-next-task">Picking the Next Task</h3>
+<p>As said earlier, picking the next task to run can be done with constant time complexity. It starts in pick_next_task_rt() which immediately calls _pick_next_task_rt() to do the actual work.</p>
+<pre><code>static struct task_struct *pick_next_task_rt(struct rq *rq)
+{
+    struct task_struct *p = _pick_next_task_rt(rq);
+    /* The running task is never eligible for pushing */
+    if (p)
+        dequeue_pushable_task(rq, p);
+#ifdef CONFIG_SMP
+    /*
+    * We detect this state here so that we can avoid taking the RQ
+    * lock again later if there is no need to push
+    */
+    rq-&gt;post_schedule = has_pushable_tasks(rq);
+#endif
+    return p;
+}
+</code></pre><p>If no tasks are runnable, NULL is returned and a different scheduling class will be searched for tasks. pick_next_rt_entity() gets the next task with the highest priority from the runqueue.</p>
+<pre><code>static struct task_struct *_pick_next_task_rt(struct rq *rq)
+{
+    struct sched_rt_entity *rt_se;
+    struct task_struct *p;
+    struct rt_rq *rt_rq;
+    rt_rq = &amp;rq-&gt;rt;
+    if (!rt_rq-&gt;rt_nr_running)
+        return NULL;
+    if (rt_rq_throttled(rt_rq))
+        return NULL;
+    do {
+        rt_se = pick_next_rt_entity(rq, rt_rq);
+        BUG_ON(!rt_se);
+        rt_rq = group_rt_rq(rt_se);
+    } while (rt_rq);
+    p = rt_task_of(rt_se);
+    p-&gt;se.exec_start = rq-&gt;clock_task;
+    return p;
+}
+</code></pre><p>In pick_next_rt_entity() you can see how a bitmap is used for all priority levels to quickly find the highest priority queue with a runnable task. The priority queue itself is a simple linked list and the next runnable task can be found at its head.</p>
+<pre><code>static struct sched_rt_entity *pick_next_rt_entity(struct rq *rq,
+        struct rt_rq *rt_rq)
+{
+    struct rt_prio_array *array = &amp;rt_rq-&gt;active;
+    struct sched_rt_entity *next = NULL;
+    struct list_head *queue;
+    int idx;
+    idx = sched_find_first_bit(array-&gt;bitmap);
+    BUG_ON(idx &gt;= MAX_RT_PRIO);
+    queue = array-&gt;queue + idx;
+    next = list_entry(queue-&gt;next, struct sched_rt_entity, run_list);
+    return next;
+}
+</code></pre><p>Adding and removing a task from the priority queues is also pretty straight forward. There is merely the right queue to be found and a bit to be set or removed from the priority bitmap. Therefore, I will not supply any further details here.</p>
+<hr>
+<h1 id="9-&#x8F6F;&#x5B9E;&#x65F6;&#x8C03;&#x5EA6;">9. &#x8F6F;&#x5B9E;&#x65F6;&#x8C03;&#x5EA6;</h1>
+<p>Linux &#x8C03;&#x5EA6;&#x5668;&#x652F;&#x6301;&#x8F6F;&#x5B9E;&#x65F6;&#xFF08;RT&#xFF09;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#x3002;&#x8FD9;&#x610F;&#x5473;&#x7740;&#x5185;&#x6838;&#x53EF;&#x4EE5;&#x6709;&#x6548;&#x7684;&#x8C03;&#x5EA6;&#x6709;&#x4E25;&#x683C;&#x65F6;&#x95F4;&#x9650;&#x5236;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x867D;&#x7136;&#x5185;&#x6838;&#x53C8;&#x80FD;&#x529B;&#x6EE1;&#x8DB3;&#x5BF9;&#x622A;&#x6B62;&#x65F6;&#x95F4;&#x8981;&#x6C42;&#x975E;&#x5E38;&#x4E25;&#x683C;&#x7684;&#x5B9E;&#x65F6;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#xFF0C;&#x4F46;&#x662F;&#x5E76;&#x4E0D;&#x80FD;&#x4FDD;&#x8BC1;&#x4E00;&#x5B9A;&#x80FD;&#x6EE1;&#x8DB3;&#x8FD9;&#x4E2A;&#x622A;&#x6B62;&#x65F6;&#x95F4;&#x3002;</p>
+<p>&#x5BF9;&#x5E94;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#x662F;&#x5728; <code>kernel/sched_rt.c</code> &#x5B9E;&#x73B0;&#x7684; <code>rt_sched_class</code> &#x3002; RT &#x4EFB;&#x52A1;&#x62E5;&#x6709;&#x6BD4; CFS &#x4EFB;&#x52A1;&#x9AD8;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x3002;</p>
+<h2 id="91-&#x8C03;&#x5EA6;&#x6A21;&#x5F0F;">9.1. &#x8C03;&#x5EA6;&#x6A21;&#x5F0F;</h2>
+<p>&#x7531; RT &#x8C03;&#x5EA6;&#x5668;&#x5904;&#x7406;&#x7684;&#x4EFB;&#x52A1;&#x53EF;&#x4EE5;&#x914D;&#x7F6E;&#x6210;&#x4E0B;&#x9762;&#x4E24;&#x79CD;&#x4E0D;&#x540C;&#x7684;&#x6A21;&#x5F0F;&#xFF1A;</p>
+<ul>
+<li>SCHED_FIFO &#xFF1A; &#x4E00;&#x4E2A;&#x6309;&#x7167; FIFO&#xFF08;&#x5148;&#x5165;&#x5148;&#x51FA;&#xFF09; &#x6A21;&#x5F0F;&#x8C03;&#x5EA6;&#x7684;&#x4EFB;&#x52A1;&#x5E76;&#x6CA1;&#x6709;&#x65F6;&#x95F4;&#x7247;&#xFF0C;&#x5E76;&#x4E14;&#x53EA;&#x4F1A;&#x5728;&#x4EFB;&#x52A1;&#x7EC8;&#x6B62;&#x3001;&#x653E;&#x5F03;&#x5904;&#x7406;&#x5668;&#x65F6;&#x88AB;&#x5207;&#x6362;&#x3002;</li>
+<li>SCHED_RR &#xFF1A; &#x4E00;&#x4E2A; RR &#x4EFB;&#x52A1;&#x4F1A;&#x6309;&#x7167;&#x56FA;&#x5B9A;&#x7684;&#x65F6;&#x95F4;&#x7247;&#x8FDB;&#x884C;&#x8C03;&#x5EA6;&#xFF0C;&#x7136;&#x540E;&#x4F1A;&#x6309;&#x7167;&#x5FAA;&#x73AF;&#x65B9;&#x5F0F;&#x88AB;&#x76F8;&#x540C;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x62A2;&#x5360;&#x3002;&#x8FD9;&#x5C31;&#x662F;&#x8BF4;&#x53EA;&#x8981;&#x4EFB;&#x52A1;&#x7684;&#x65F6;&#x95F4;&#x7247;&#x7528;&#x5B8C;&#x4E86;&#x5C31;&#x4F1A;&#x88AB;&#x653E;&#x5230;&#x4EFB;&#x52A1;&#x961F;&#x5217;&#x7684;&#x672B;&#x5C3E;&#x5E76;&#x4E14;&#x65F6;&#x95F4;&#x7247;&#x4F1A;&#x91CD;&#x65B0;&#x586B;&#x6EE1;&#x3002;&#x5728;&#x65F6;&#x95F4;&#x7247;&#x7528;&#x5B8C;&#x4E4B;&#x524D;&#xFF0C;&#x4EFB;&#x52A1;&#x540C;&#x6837;&#x4E5F;&#x53EF;&#x80FD;&#x88AB;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x62A2;&#x5360;&#x3002;</li>
+</ul>
+<h2 id="92-&#x4F18;&#x5148;&#x7EA7;">9.2. &#x4F18;&#x5148;&#x7EA7;</h2>
+<p>&#x6839;&#x636E;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x5B9E;&#x73B0;&#x5185;&#x5BB9;&#xFF0C;RT &#x8C03;&#x5EA6;&#x7C7B;&#x4E5F;&#x9075;&#x5FAA;&#x4E4B;&#x524D; O(1) &#xFF08;&#x590D;&#x6742;&#x5EA6;&#xFF09;&#x8C03;&#x5EA6;&#x5668;&#x540C;&#x6837;&#x7684;&#x89C4;&#x5219;&#x3002;&#x5185;&#x6838;&#x4F7F;&#x7528;&#x591A;&#x4E2A;&#x8FD0;&#x884C;&#x961F;&#x5217;&#xFF0C;&#x6BCF;&#x4E2A;&#x961F;&#x5217;&#x5BF9;&#x5E94;&#x4E00;&#x4E2A;&#x4F18;&#x5148;&#x7EA7;&#x3002;&#x6309;&#x7167;&#x8FD9;&#x79CD;&#x65B9;&#x5F0F;&#xFF0C;&#x6DFB;&#x52A0;&#x3001;&#x5220;&#x9664;&#x6216;&#x8005;&#x5BFB;&#x627E;&#x6700;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x7684;&#x64CD;&#x4F5C;&#x53EF;&#x4EE5;&#x5728; O(1) &#x65F6;&#x95F4;&#x5185;&#x5B8C;&#x6210;&#x3002;</p>
+<h2 id="93-&#x5B9E;&#x65F6;&#x8C03;&#x8282;">9.3. &#x5B9E;&#x65F6;&#x8C03;&#x8282;</h2>
+<p>&#x4F60;&#x5076;&#x5C14;&#x53EF;&#x4EE5;&#x770B;&#x5230; RT &#x8C03;&#x5EA6;&#x5668;&#x5B9E;&#x73B0;&#x4E2D;&#x7684;&#x8C03;&#x8282;&#x548C;&#x5E26;&#x5BBD;&#x64CD;&#x4F5C;&#x3002;&#x6DFB;&#x52A0;&#x8FD9;&#x4E9B;&#x64CD;&#x4F5C;&#x662F;&#x4E3A;&#x4E86;&#x63D0;&#x9AD8; <code>SCHED_FIFO</code> &#x4EFB;&#x52A1;&#x7684;&#x5B89;&#x5168;&#x6027;&#x3002;&#x5728;&#x4EFB;&#x52A1;&#x81EA;&#x5DF1;&#x60F3;&#x8981;&#x6216;&#x4E0D;&#x60F3;&#x8981;&#x88AB;&#x6253;&#x65AD;&#x4E4B;&#x524D;&#xFF0C;&#x8FD9;&#x4E9B;&#x64CD;&#x4F5C;&#x4F1A;&#x4E3A;&#x6BCF;&#x4E2A;&#x5904;&#x7406;&#x5668;&#x5206;&#x914D;&#x4E00;&#x4E2A;&#x7531; FIFO &#x4EFB;&#x52A1;&#x7EC4;&#x6210;&#x7684; RT &#x4EFB;&#x52A1;&#x7EC4;&#x3002;&#x8FD9;&#x5C31;&#x5728;&#x5185;&#x6838;&#x5F00;&#x53D1;&#x8005;&#x5F53;&#x4E2D;&#x5F15;&#x8D77;&#x4E86;&#x4E00;&#x4E9B;&#x8BA8;&#x8BBA;&#xFF0C;&#x800C;&#x8BA8;&#x8BBA;&#x7684;&#x7ED3;&#x679C;&#x8FD8;&#x6CA1;&#x6709;&#x5B9A;&#x4E0B;&#x6765;&#x3002;</p>
+<h2 id="94-&#x5B9E;&#x73B0;&#x7EC6;&#x8282;">9.4. &#x5B9E;&#x73B0;&#x7EC6;&#x8282;</h2>
+<h3 id="&#x6570;&#x636E;&#x7ED3;&#x6784;">&#x6570;&#x636E;&#x7ED3;&#x6784;</h3>
+<p>&#x548C; CFS &#x7C7B;&#x4F3C;&#xFF0C; RT &#x8C03;&#x5EA6;&#x5668;&#x6709;&#x5B83;&#x81EA;&#x5DF1;&#x7684;&#x8C03;&#x5EA6;&#x5B9E;&#x4F53;&#x548C;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x6570;&#x636E;&#x7ED3;&#x6784;&#xFF0C;&#x8FD9;&#x4E9B;&#x5DF2;&#x7ECF;&#x4F5C;&#x4E3A;&#x6210;&#x5458;&#x6DFB;&#x52A0;&#x5230;&#x4E86; <code>task_struct</code> &#x548C;&#x4E3B;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x3002;</p>
+<p><code>sched_rt_entity</code> &#x5728; <code>/include/linux/sched.h</code> &#x5B9E;&#x73B0;&#x3002;&#x5B83;&#x6709;&#x8BB0;&#x5F55;&#x65F6;&#x95F4;&#x7247;&#x7684;&#x5B57;&#x6BB5;&#xFF0C;&#x4E00;&#x4E2A;&#x6307;&#x5411;&#x5B83;&#x6240;&#x5C5E;&#x4F18;&#x5148;&#x7EA7;&#x5217;&#x8868;&#x7684;&#x6307;&#x9488;&#xFF0C;&#x4EE5;&#x53CA;&#x548C;&#x7EC4;&#x8C03;&#x5EA6;&#x76F8;&#x5173;&#x7684;&#x6210;&#x5458;&#x3002;</p>
+<pre><code>struct sched_rt_entity {
+    struct list_head run_list;
+    unsigned long timeout;
+    unsigned int time_slice;
+    int nr_cpus_allowed;
+    struct sched_rt_entity *back;
+#ifdef CONFIG_RT_GROUP_SCHED
+    struct sched_rt_entity*parent;
+    /* rq on which this entity is (to be) queued: */
+    struct rt_rq *rt_rq;
+    /* rq &quot;owned&quot; by this entity/group: */
+    struct rt_rq *my_q;
+#endif
+};
+</code></pre><p><code>rt_rq</code> &#x5728; <code>kernel/sched.c</code> &#x5B9E;&#x73B0;&#x3002;&#x7B2C;&#x4E00;&#x4E2A;&#x5B57;&#x6BB5;&#x8BB0;&#x5F55;&#x4E86;&#x4F18;&#x5148;&#x7EA7;&#x6570;&#x7EC4;&#x3002;&#x5176;&#x4ED6;&#x51E0;&#x4E4E;&#x6240;&#x6709;&#x7684;&#x5B57;&#x6BB5;&#x90FD;&#x662F;&#x4E0E; SMP &#x548C;&#x7EC4;&#x8C03;&#x5EA6;&#x76F8;&#x5173;&#x7684;&#x3002;</p>
+<pre><code>/* Real-Time classes&apos; related field in a runqueue: */
+struct rt_rq {
+    struct rt_prio_array active;
+    unsigned long rt_nr_running;
+#if defined CONFIG_SMP || defined CONFIG_RT_GROUP_SCHED
+    struct {
+        int curr; /* highest queued rt task prio */
+#ifdef CONFIG_SMP
+        int next; /* next highest */
+#endif
+    } highest_prio;
+#endif
+#ifdef CONFIG_SMP
+    unsigned long rt_nr_migratory;
+    unsigned long rt_nr_total;
+    int overloaded;
+    struct plist_head pushable_tasks;
+#endif
+    int rt_throttled;
+    u64 rt_time;
+    u64 rt_runtime;
+    /* Nests inside the rq lock: */
+    raw_spinlock_t rt_runtime_lock;
+#ifdef CONFIG_RT_GROUP_SCHED
+    unsigned long rt_nr_boosted;
+    struct rq *rq;
+    struct list_head leaf_rt_rq_list;
+    struct task_group *tg;
+#endif
+};
+</code></pre><h2 id="&#x8BB0;&#x5F55;&#x65F6;&#x95F4;">&#x8BB0;&#x5F55;&#x65F6;&#x95F4;</h2>
+<p><code>scheduler_tick()</code> &#x8C03;&#x7528; <code>task_tick_rt()</code> &#x66F4;&#x65B0;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x7684;&#x65F6;&#x95F4;&#x7247;&#x3002;&#x5B9E;&#x73B0;&#x76F8;&#x5F53;&#x7B80;&#x5355;&#xFF1A;&#x4E00;&#x5F00;&#x59CB;&#x5C31;&#x4F7F;&#x7528; <code>update_curr_rt()</code> &#x66F4;&#x65B0;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x7684;&#x8FD0;&#x884C;&#x65F6;&#x6570;&#x636E;&#x548C;&#x5BF9;&#x5E94;&#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x3002;&#x7136;&#x540E;&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x8FD4;&#x56DE;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x662F;&#x5426;&#x662F; FIFO &#x4EFB;&#x52A1;&#x3002;</p>
+<p>&#x5982;&#x679C;&#x4E0D;&#x662F;&#xFF0C; RR &#x4EFB;&#x52A1;&#x7684;&#x65F6;&#x95F4;&#x7247;&#x5C31;&#x4F1A;&#x51CF; 1 &#x3002;&#x5982;&#x679C;&#x51CF;&#x5230; 0 &#x4E86;&#x5C31;&#x8BBE;&#x56DE;&#x9ED8;&#x8BA4;&#x503C;&#x7136;&#x540E;&#x5982;&#x679C;&#x8FD8;&#x4EFB;&#x52A1;&#x961F;&#x5217;&#x4E2D;&#x6709;&#x5176;&#x4ED6;&#x4EFB;&#x52A1;&#x7684;&#x8BDD;&#x5C31;&#x628A;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x653E;&#x5230;&#x961F;&#x5217;&#x7684;&#x672B;&#x5C3E;&#x3002;&#x6B64;&#x5916;&#x8FD8;&#x8981;&#x8BBE;&#x7F6E; <code>need_resched</code> &#x6807;&#x5FD7;&#x3002;</p>
+<pre><code>static void task_tick_rt(struct rq *rq, struct task_struct *p, int queued)
+{
+    update_curr_rt(rq);
+    watchdog(rq, p);
+    /*
+    * RR tasks need a special form of timeslice management.
+    * FIFO tasks have no timeslices.
+    */
+    if (p-&gt;policy != SCHED_RR)
+        return;
+    if (--p-&gt;rt.time_slice)
+        return;
+    p-&gt;rt.time_slice = DEF_TIMESLICE;
+    /*
+    * Requeue to the end of queue if we are not the only element
+    * on the queue:
+    */
+    if (p-&gt;rt.run_list.prev != p-&gt;rt.run_list.next) {
+        requeue_task_rt(rq, p, 0);
+        set_tsk_need_resched(p);
+    }
+}
+</code></pre><h3 id="&#x6311;&#x9009;&#x4E0B;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;">&#x6311;&#x9009;&#x4E0B;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;</h3>
+<p>&#x5982;&#x4E4B;&#x524D;&#x6240;&#x8BF4;&#x7684;&#xFF0C;&#x6311;&#x9009;&#x4E0B;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x53EF;&#x4EE5;&#x5728;&#x5E38;&#x6570;&#x65F6;&#x95F4;&#x590D;&#x6742;&#x5EA6;&#x5185;&#x5B8C;&#x6210;&#x3002;&#x4EE5;&#x51FD;&#x6570; <code>pick_next_task_rt()</code> &#x5F00;&#x59CB;&#xFF0C;&#x5B83;&#x4F1A;&#x76F4;&#x63A5;&#x8C03;&#x7528; <code>_pick_next_task_rt()</code> &#x5B8C;&#x6210;&#x5B9E;&#x9645;&#x5DE5;&#x4F5C;&#x3002;</p>
+<pre><code>static struct task_struct *pick_next_task_rt(struct rq *rq)
+{
+    struct task_struct *p = _pick_next_task_rt(rq);
+    /* The running task is never eligible for pushing */
+    if (p)
+        dequeue_pushable_task(rq, p);
+#ifdef CONFIG_SMP
+    /*
+    * We detect this state here so that we can avoid taking the RQ
+    * lock again later if there is no need to push
+    */
+    rq-&gt;post_schedule = has_pushable_tasks(rq);
+#endif
+    return p;
+}
+</code></pre><p>&#x5982;&#x679C;&#x6CA1;&#x6709;&#x53EF;&#x4EE5;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#xFF0C;&#x5C31;&#x8FD4;&#x56DE; NULL&#xFF0C;&#x7136;&#x540E;&#x5176;&#x5B83;&#x8C03;&#x5EA6;&#x7C7B;&#x4F1A;&#x5BFB;&#x627E;&#x53EF;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x3002;</p>
+<p><code>pick_next_rt_entity()</code> &#x4F1A;&#x4ECE;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x9009;&#x51FA;&#x4F18;&#x5148;&#x7EA7;&#x6700;&#x9AD8;&#x7684;&#x4EFB;&#x52A1;&#x4F5C;&#x4E3A;&#x4E0B;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x3002;</p>
+<pre><code>static struct task_struct *_pick_next_task_rt(struct rq *rq)
+{
+    struct sched_rt_entity *rt_se;
+    struct task_struct *p;
+    struct rt_rq *rt_rq;
+    rt_rq = &amp;rq-&gt;rt;
+    if (!rt_rq-&gt;rt_nr_running)
+        return NULL;
+    if (rt_rq_throttled(rt_rq))
+        return NULL;
+    do {
+        rt_se = pick_next_rt_entity(rq, rt_rq);
+        BUG_ON(!rt_se);
+        rt_rq = group_rt_rq(rt_se);
+    } while (rt_rq);
+    p = rt_task_of(rt_se);
+    p-&gt;se.exec_start = rq-&gt;clock_task;
+    return p;
+}
+</code></pre><p>&#x5728; <code>pick_next_rt_entity()</code> &#x4E2D;&#x4F60;&#x53EF;&#x4EE5;&#x770B;&#x5230;&#x5982;&#x4F55;&#x4F7F;&#x7528;&#x4F4D;&#x56FE;&#x6765;&#x5728;&#x5168;&#x90E8;&#x4F18;&#x5148;&#x7EA7;&#x4E2D;&#x5FEB;&#x901F;&#x7684;&#x627E;&#x51FA;&#x62E5;&#x6709;&#x53EF;&#x8FD0;&#x884C;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x6700;&#x9AD8;&#x7684;&#x961F;&#x5217;&#x3002;&#x4F18;&#x5148;&#x7EA7;&#x961F;&#x5217;&#x672C;&#x4E8B;&#x662F;&#x4E00;&#x4E2A;&#x7B80;&#x5355;&#x7684;&#x94FE;&#x8868;&#xFF0C;&#x800C;&#x4E0B;&#x4E00;&#x4E2A;&#x53EF;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x53EF;&#x4EE5;&#x5728;&#x5B83;&#x7684;&#x8868;&#x5934;&#x627E;&#x5230;&#x3002;</p>
+<pre><code>static struct sched_rt_entity *pick_next_rt_entity(struct rq *rq,
+        struct rt_rq *rt_rq)
+{
+    struct rt_prio_array *array = &amp;rt_rq-&gt;active;
+    struct sched_rt_entity *next = NULL;
+    struct list_head *queue;
+    int idx;
+    idx = sched_find_first_bit(array-&gt;bitmap);
+    BUG_ON(idx &gt;= MAX_RT_PRIO);
+    queue = array-&gt;queue + idx;
+    next = list_entry(queue-&gt;next, struct sched_rt_entity, run_list);
+    return next;
+}
+</code></pre><p>&#x5728;&#x4F18;&#x5148;&#x7EA7;&#x961F;&#x5217;&#x4E2D;&#x6DFB;&#x52A0;&#x3001;&#x5220;&#x9664;&#x4EFB;&#x52A1;&#x4E5F;&#x662F;&#x975E;&#x5E38;&#x7684;&#x7B80;&#x5355;&#x3002;&#x4EC5;&#x4EC5;&#x5C31;&#x662F;&#x627E;&#x51FA;&#x6B63;&#x786E;&#x7684;&#x961F;&#x5217;&#x7136;&#x540E;&#x8BBE;&#x7F6E;&#x6216;&#x8005;&#x6E05;&#x6389;&#x4F18;&#x5148;&#x7EA7;&#x4F4D;&#x56FE;&#x4E2D;&#x5BF9;&#x5E94;&#x4F4D;&#x7F6E;&#x3002;&#x56E0;&#x6B64;&#x6211;&#x5C31;&#x4E0D;&#x5728;&#x8FD9;&#x91CC;&#x63D0;&#x4F9B;&#x66F4;&#x8FDB;&#x4E00;&#x6B65;&#x7684;&#x7EC6;&#x8282;&#x4E86;&#x3002;</p>
+
+                                
+                                </section>
+                            
+    </div>
+    <div class="search-results">
+        <div class="has-results">
+            
+            <h1 class="search-results-title"><span class="search-results-count"></span> results matching &quot;<span class="search-query"></span>&quot;</h1>
+            <ul class="search-results-list"></ul>
+            
+        </div>
+        <div class="no-results">
+            
+            <h1 class="search-results-title">No results matching &quot;<span class="search-query"></span>&quot;</h1>
+            
+        </div>
+    </div>
+</div>
+
+                        </div>
+                    </div>
+                
+            </div>
+
+            
+                
+                <a href="chapter8.html" class="navigation navigation-prev " aria-label="Previous page: 8 CFS Implementation Details">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+                
+                
+                <a href="chapter10.html" class="navigation navigation-next " aria-label="Next page: 10 Load Balancing on SMP Systems">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+                
+            
+        
+    </div>
+
+    <script>
+        var gitbook = gitbook || [];
+        gitbook.push(function() {
+            gitbook.page.hasChanged({"page":{"title":"9 Soft Real-Time Scheduling","level":"1.10","depth":1,"next":{"title":"10 Load Balancing on SMP Systems","level":"1.11","depth":1,"path":"chapter10.md","ref":"chapter10.md","articles":[]},"previous":{"title":"8 CFS Implementation Details","level":"1.9","depth":1,"path":"chapter8.md","ref":"chapter8.md","articles":[]},"dir":"ltr"},"config":{"plugins":["comment"],"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"pluginsConfig":{"comment":{"highlightCommented":true},"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"theme":"default","author":"Ezio Zhang","pdf":{"pageNumbers":true,"fontSize":16,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"variables":{},"title":"Linux Process Schedule","language":"zh","links":{"sidebar":{"Linux Process Schedule":"https://www.gitbook.com/book/oska874/process-scheduling-in-linux"},"gitbook":true},"gitbook":"*","description":"tittle : Process Scheduling in Linux\r\n\r\nauthor : Volker Seeker – University of Edinburgh\r\n\r\ntype : technology translation\r\n\r\ninterpret : Ezio"},"file":{"path":"chapter9.md","mtime":"2016-08-11T15:51:40.000Z","type":"markdown"},"gitbook":{"version":"3.1.1","time":"2016-08-12T02:04:09.535Z"},"basePath":".","book":{"language":""}});
+        });
+    </script>
+</div>
+
+        
+    <script src="gitbook/gitbook.js"></script>
+    <script src="gitbook/theme.js"></script>
+    
+        
+        <script src="gitbook/gitbook-plugin-comment/plugin.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search-engine.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-sharing/buttons.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+        
+    
+
+    
+
+
+</body>
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter9.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+</html>

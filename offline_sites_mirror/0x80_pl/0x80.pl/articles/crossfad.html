@@ -1,0 +1,468 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/crossfad.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Miksowanie obrazów</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="miksowanie-obrazow">
+<h1 class="title">Miksowanie obrazów</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">17.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">17.07.2005</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#rownanie-1-algorytm-ogolny" id="toc-entry-2">Równanie 1 (algorytm ogólny)</a></li>
+<li><a class="reference internal" href="#rownanie-1-x86" id="toc-entry-3">Równanie 1 (x86)</a></li>
+<li><a class="reference internal" href="#rownanie-1-mmx" id="toc-entry-4">Równanie 1 (MMX)</a></li>
+<li><a class="reference internal" href="#rownanie-2-x86" id="toc-entry-5">Równanie 2 (x86)</a></li>
+<li><a class="reference internal" href="#rownanie-2-mmx" id="toc-entry-6">Równanie 2 (MMX)</a></li>
+<li><a class="reference internal" href="#przyspieszenie" id="toc-entry-7">Przyspieszenie</a></li>
+<li><a class="reference internal" href="#uproszczony-crossfade" id="toc-entry-8">Uproszczony crossfade</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Miksowanie, inaczej <em>crossfading</em> polega na wyznaczeniu sumy ważonej
+dwóch obrazów (<em>równanie 1</em>):</p>
+<p><span class="cmath">P = A &sdot; <i>u</i> + B &sdot; (1 &minus; <i>u</i>)</span>
+<span class="cmath"><i>u</i> = 0..1</span></p>
+<p>Inna postać tego równania to (<em>równanie 2</em>):</p>
+<p><span class="cmath">P = A + <i>u</i> &sdot; (B &minus; A)</span></p>
+<p>Przedstawione przykłady są przeznaczone dla obrazów 8bpp (grayscale) i
+32bpp. Współczynnik <em>u</em> jest zapisany w fixed-point o podstawie 256
+(<em>u</em> w zakresie 0..255).</p>
+<p>Aby uzyskać uzyskać wartość <span class="math">1 &minus; <i>u</i></span> w arytmetyce fixed-point, czyli
+tak naprawdę <tt class="docutils literal"><span class="pre">256-u</span></tt>, należy zanegować 8 najmłodszych bitów <tt class="docutils literal">u</tt>.</p>
+<pre class="literal-block">
+; al == u
+
+mov ebx, eax        ;
+xor ebx, 0x000000ff ; bl = 256-u
+</pre>
+</div>
+<div class="section" id="rownanie-1-algorytm-ogolny">
+<h1>Równanie 1 (algorytm ogólny)</h1>
+<p>Dodane 17.07.2005, na postawie <a class="reference external" href="http://groups.google.pl/group/pl.comp.programming/msg/5248e371a47e73e0?hl=pl">niegdysiejszej dyskusji na
+pl.comp.programming</a>.</p>
+<p><span class="cmath">P = A<i>u</i> + B(256 &minus; <i>u</i>)</span>
+<span class="cmath">P, A, B, <i>u</i> = 0..255</span></p>
+<p>Po rozwinięciu otrzymujemy: <span class="math">P = (B &sdot; 256 &minus; A &sdot; <i>u</i> + B &sdot; <i>u</i>) &gt  &gt 8</span>.
+Można każdy ze składników sumy oddzielnie podzielić przez 256,
+uzyskując co prawda nico inny wynik, ale niewiele odbiegający od
+&bdquo;oryginalnego wzoru&rdquo;. Tzn. otrzymujemy coś takiego:
+<span class="math">P = B &minus; (A &sdot; <i>u</i>) &gt  &gt 8 + (B &sdot; <i>u</i>) &gt  &gt 8</span>.</p>
+<p>Ponieważ mnożone są bajty, to mnożenia <span class="math">A &sdot; <i>u</i></span> oraz <span class="math">B &sdot; <i>u</i></span>
+można wykonać za pomocą <strong>jednej</strong> 32-bitowej operacji mnożenia:</p>
+<pre class="literal-block">
+byte  A,B,u
+dword X;                          // dword: 32 bity bez znaku
+dword Au,Bu;
+X  = ((dword)A &lt;&lt; 16) | (dword)B; // |0|A|0|B|
+X *= (dword)u                     // |A*u|B*u| -- wyniki mnożenia 16-bitowe
+
+Au = X &gt;&gt; 24  // (A*u) &gt;&gt; 8
+Bu = X &gt;&gt;  8  // (B*u) &gt;&gt; 8
+
+P  = A - Au + Bu
+</pre>
+<p>W asemblerze to będzie wyglądać jakoś tak (miałem ładnie działającą
+procedurkę, ale została utracona w ferworze porządkowania burdelu
+w <tt class="docutils literal">/home</tt>...):</p>
+<pre class="literal-block">
+; al = A ; starsze części rejestrów wyzerowane
+; bl = B
+; cl = u
+
+shl eax, 16
+mov al, bl
+mul ecx
+
+add cl, ah
+shr eax, 16
+sub cl, ah      ; w cl wynik
+</pre>
+</div>
+<div class="section" id="rownanie-1-x86">
+<h1>Równanie 1 (x86)</h1>
+<p>Dogodnie jest stablicować wyniki mnożenia danej wartości <tt class="docutils literal">u</tt> oraz <tt class="docutils literal"><span class="pre">256-u</span></tt>
+i wszystkich wartości pikseli (albo składowej). Ponieważ piksel ma co najwyżej 8 bitów zatem będą potrzebne 2 tablice po 256 bajtów każda.</p>
+<pre class="literal-block">
+segment .data
+
+        mul_tbl1 resb 256 ; i*u
+        mul_tbl2 resb 256 ; i*(256-u)
+
+segment .text
+
+; wejście: al - wartość u
+fill_tables:
+        push eax
+        push ebx
+        push ecx
+        push edx
+
+        movzx eax, al   ; al = u
+
+        xor   ebx, ebx  ; ebx = i*u
+        xor   ecx, ecx  ; licznik
+        xor   edx, edx  ; tmp
+        prepare:
+                mov dl, bh
+                xor dl, 0xff
+
+                mov [mul_tbl1 + ecx], bh ; mul_tbl1[i] = (u*i) &gt;&gt; 8
+                mov [mul_tbl2 + ecx], dl ; mul_tbl2[i] = ((1-u)*i) &gt;&gt; 8
+
+                add ebx, eax
+
+                inc ecx
+                test ch, ch
+                jz   prepare
+
+        pop edx
+        pop ecx
+        pop ebx
+        pop eax
+        ret
+</pre>
+<p>Poniżej funkcja, która wykorzystuje <em>równanie 1</em>.</p>
+<pre class="literal-block">
+; edi - wskaźnik na obraz 1
+; esi - wskaźnik na obraz 2
+; ecx - ilość bajtów do przetworzenia
+;
+; funkcja dokonuje operacji: [esi] = [edi]*u + [esi]*(1-u)
+
+crossfade1:
+        push eax
+        push ebx
+        push ecx
+        push edx
+
+        xor eax, eax
+        xor ebx, ebx
+        xor edx, edx
+
+        .loop:
+                mov al, [edi]
+                mov bl, [esi]
+
+                mov dl, [mul_tbl1 + eax] ; dl = al*u
+                add dl, [mul_tbl2 + ebx] ; dl = al*u + bl*(1-u)
+
+                inc edi
+
+                mov [esi], dl
+                inc esi
+
+                dec ecx
+                jnz .loop
+
+        push ebx
+        push ecx
+        push edx
+        push eax
+        ret
+</pre>
+</div>
+<div class="section" id="rownanie-1-mmx">
+<h1>Równanie 1 (MMX)</h1>
+<p>Rozkaz <tt class="docutils literal">pmaddwd</tt> jest bardzo użyteczny.</p>
+<pre class="literal-block">
+        movq mm7, {u, 1-u, u, 1-u} ; to trzeba zrobić tylko raz
+        pxor mm6, mm6
+        ...
+.crossfade:
+        movd      mm0, [edi]  ; mm0 = |0 |0 |0 |0 |d0|c0|b0|a0|
+        movd      mm1, [esi]  ; mm1 = |0 |0 |0 |0 |d1|c1|b1|a1|
+
+        punpclkbw mm0, mm6    ; mm0 = | d0 | c0 | b0 | a0 | -- rozszerzenie zakresu
+        punpclkbw mm1, mm6    ; mm1 = | d1 | c1 | b1 | a1 |
+
+        movq      mm2, mm0
+        movq      mm3, mm1
+
+        punpcklwd mm0, mm1    ; mm0 = | b1 | b0 | a1 | a0 |
+        punpcklwd mm2, mm3    ; mm2 = | d1 | d0 | c1 | c0 |
+
+        pmaddwd   mm0, mm7    ; mm0 = |u*b1+(1-u)*b0|u*a1+(1-u)*a0|
+        pmaddwd   mm2, mm7    ; mm2 = |u*d1+(1-u)*d0|u*c1+(1-u)*c0|
+
+        psrld     mm0, 8      ; /256 (u jest fixed-point o podstawie 256)
+        psrld     mm2, 8
+
+        packssdw  mm0, mm1    ; mm0 = | d' | c' | b' | a' |
+
+        ; itd.
+
+        ; ...
+        ; obsługa pętli itp.
+</pre>
+</div>
+<div class="section" id="rownanie-2-x86">
+<h1>Równanie 2 (x86)</h1>
+<p>Zamiast wykorzystywać dwie tablce, można stworzyć jedną
+tablicę &mdash; trzeba poszerzyć jej zakres.</p>
+<pre class="literal-block">
+signed dword mul_tbl[512];
+// może być signed word, ale nie polecam - x86 szybciej czyta pamięć spod
+// adresów podzielnych przez 4.
+
+for (i=-255; i&lt;256; i++)
+   mul_tbl[i+255] = (i*u)/256;
+</pre>
+<p>Podczas wypełniania tablicy można wykorzystać &bdquo;symetrię&rdquo; wartości
+tablicy.  Kod asemblerowy będzie wówczas bardzo krótki.</p>
+<pre class="literal-block">
+signed dword mul_tbl[512];
+
+temp = 0;
+for (i=0; i&lt;256; i++) {
+   mul_tbl[256+i] = temp;
+   mul_tbl[256-i] =-temp;
+   temp += u;
+  }
+</pre>
+<p>Poniżej funkcja, która wykorzystuje <em>równanie 2</em> (pojedynczą tablicę).</p>
+<pre class="literal-block">
+; edi - wskaźnik na obraz 1
+; esi - wskaźnik na obraz 2
+; ecx - ilość bajtów do przetworzenia
+;
+; funkcja dokonuje operacji: [esi] = [edi] + u*([esi] - [edi])
+
+crossfade2:
+        push eax
+        push ebx
+        push ecx
+
+        crossfade:
+                xor ebx, ebx
+
+                mov  al, [edi]
+                mov  bl, [esi]
+
+                sub ebx, eax
+                add eax, [mul_tbl + ebx + 255]
+
+                inc edi
+
+                mov [esi], al
+                inc esi
+
+                dec ecx
+                jnz crossfade
+
+        pop ecx
+        pop ebx
+        pop eax
+</pre>
+</div>
+<div class="section" id="rownanie-2-mmx">
+<h1>Równanie 2 (MMX)</h1>
+<p>Przy wykorzystaniu instrukcji MMX nie trzeba wykorzystywać żadnych tablic.</p>
+<pre class="literal-block">
+; wejście: al - u
+
+and eax, 0x000000ff
+mov  ah, al
+
+xor  mm7, mm7
+
+movd      mm6, eax ; mm6 = |00|00|00|00|00|u |00|u |
+punpckldq mm6, mm6 ; mm6 = |00|u |00|u |00|u |00|u |
+
+crossfade:
+        movq mm0, [edi]  ; mm0 = |p7|p6|p5|p4|p3|p2|p1|p0| -- numery pixeli
+        movq mm1, [esi]  ; mm1 = |pf|pe|pd|pc|pb|pa|p9|p8|
+
+        movq mm2, mm0
+        movq mm3, mm1
+
+        punpcklbw mm0, mm7 ; mm0 = |00|p3|00|p2|00|p1|00|p0|
+        punpcklbw mm1, mm7 ;
+        punpcklbw mm2, mm7 ;
+        punpcklbw mm3, mm7 ;
+
+        psubw  mm2, mm0    ; oblicz czynnik (b-a)
+        psubw  mm3, mm1    ;
+
+        pmullw mm2, mm6    ; (b-a)*u
+        pmullw mm3, mm6    ;
+
+        psrlw  mm2, 8      ; /256 -- w tym przypadku trzeba dzielić
+        psrlw  mm3, 8      ; /256 -- w tablicach wyniki mnożeń już były podzielone
+
+        paddw  mm0, mm2    ; a += (b-a)*u/256
+        paddw  mm1, mm2    ; a += (b-a)*u/256
+
+        packuswb mm0, mm1
+
+        movq   [esi], mm0
+
+        add edi, 8
+        add esi, 8
+
+        dec ecx
+        jnz crossfade
+</pre>
+</div>
+<div class="section" id="przyspieszenie">
+<h1>Przyspieszenie</h1>
+<p>Przesunięcie bitowe w prawo jest równoważne dzieleniu &mdash; inaczej mnożeniu
+przez odwrotność. Wobec tego równanie 2 można przyjąć następującą postać:</p>
+<p><span class="cmath">P = A &gt  &gt <i>n</i> + B &minus; B &gt  &gt <i>n</i></span>
+<span class="cmath"><i>u</i> = &frac12;<sup><i>n</i></sup></span></p>
+<p>Zatem dzięki przesunięciom bitowym można uzyskać miksowanie obrazów,
+z pewnymi ustalonymi wartościami <tt class="docutils literal">u</tt>: <tt class="docutils literal">0,5</tt>, <tt class="docutils literal">0,25</tt>,
+<tt class="docutils literal">0,125</tt>, <tt class="docutils literal">0,0625</tt> itd.</p>
+<p>Przedstawiona metoda doskonale nadaje się nie tylko dla pixeli 8bpp/32bpp,
+ale również 15bpp. Ponieważ kod jest bardzo szybki można tę metodę używać
+do <tt class="docutils literal">motionblur</tt>.</p>
+<p>Kod x86:</p>
+<pre class="literal-block">
+; maska = packed_byte((1 &lt;&lt; (9-n))-1)
+;
+; np. dla n==2
+;
+;     maska = packed_byte((1 &lt;&lt; 7)-1) = packed_byte(0b00111111)
+
+...
+mov eax, [edi] ; załaduj cztery pixele
+mov ebx, [esi] ;
+
+
+shr eax, n      ;
+and eax, maska  ; eax = packed_byte(pixel1/2^n)
+
+mov edx, ebx    ;
+shr ebx, n      ;
+and ebx, maska  ;
+sub edx, ebx    ; edx = packed_byte(pixel2 - pixel2/2^n)
+
+add eax, ebx
+
+mov [esi], eax
+...
+</pre>
+<p>Kod dla MMX będzie taki sam, gdyż zastosowanie masek niweluje wpływ
+&bdquo;wsuniętych&rdquo; bitów z sąsiednich bajtów.</p>
+<p>W przypadku <span class="math"><i>u</i> = 0.5</span> (fixed-point <tt class="docutils literal">u=127</tt>) można posłużyć się
+uproszczoną formułą:</p>
+<pre class="literal-block">
+; p = (a &gt;&gt; 1) + (b &gt;&gt; 1)
+
+...
+mov eax, [edi] ; załaduj cztery pixele
+mov ebx, [esi] ;
+
+shr eax, 1
+shr ebx, 1
+
+and eax, 0x7f7f7f7f
+and ebx, 0x7f7f7f7f
+
+add eax, ebx
+
+mov [esi], eax
+...
+</pre>
+</div>
+<div class="section" id="uproszczony-crossfade">
+<h1>Uproszczony crossfade</h1>
+<p><em>Kod jest autorstwa</em> <strong>smoly</strong>. <em>Dodałem tylko opis i trochę komentarzy.
+Autor rzecz jasna wyraził zgodę na umieszczenie swojego dzieła na tej
+stronie</em></p>
+<p>Metoda nadaje się do crossfadingu obrazów 24/32bpp oraz obrazów grayscale
+o dowolnej liczbie poziomów szarości:</p>
+<pre class="literal-block">
+// odejmowanie z nasyceniem
+int subtract_sat(int a, int b) {
+ int result = a - b;
+
+ if (result &lt; 0) return 0;
+            else return result;
+}
+
+int thershold_A, thershold_B;
+
+int crossfade(int pix_A, int pix_B) {
+ return substract_sat(pix_A, thershold_A) + subtract_sat(pix_B, thershold_B);
+}
+</pre>
+<p>Wartości progowe są w zakresie <tt class="docutils literal"><span class="pre">0..255</span></tt> i spełniają warunek:</p>
+<pre class="literal-block">
+thershold_A = 255 - thershold_B;
+</pre>
+<p>Implementacja <strong>smoly</strong> MMX [przy mojej niewielkiej optymalizacji]:</p>
+<pre class="literal-block">
+crossfade32bpp:
+        mov edx, screen_A ; obrazy
+        mov edi, screen_B ; wejściowe
+
+        mov esi, output   ; obraz wynikowy
+
+        mov       eax, 01010101h
+        movd      mm7, eax
+        punpckldq mm7, mm7         ; mm7 = packed_byte(0x01)
+
+        pxor      mm0, mm0         ; mm0 = packed_byte(0x00)
+        pcmpeqd   mm1, mm1         ; mm1 = packed_byte(0xff)
+
+        sub       eax, eax         ; eax = 0
+
+.next_blit:
+
+        iterations equ (pixel_count*4/8)-1
+
+        ; zmiana polega na kopiowaniu w kolejności
+        ; rosnących adresów - smola robił odwrotnie
+
+        xor ecx, ecx
+.crossfade:
+        movq    mm2, [edx+ecx*8]
+        movq    mm3, [edi+ecx*8]
+
+        psubusb mm2, mm0           ; subtract_sat(pix_A, thersold_A)
+        psubusb mm3, mm1           ; subtract_sat(pix_B, thersold_B)
+        paddusb mm2, mm3           ; suma
+
+        movq   [esi+ecx*8], mm2
+
+        inc     ecx
+        cmp     ecx, iterations
+        jne     .crossfade
+
+        paddusb mm0, mm7
+        psubusb mm1, mm7
+
+        ; tutaj kopiowanie bufora na ekran,
+        ; retrace itp.
+
+        inc     al                 ; 255 iteracji
+        jnc     .next_blit
+        ret
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/crossfad.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+</html>

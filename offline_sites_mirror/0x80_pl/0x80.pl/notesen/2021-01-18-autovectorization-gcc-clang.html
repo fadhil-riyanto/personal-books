@@ -1,0 +1,656 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2021-01-18-autovectorization-gcc-clang.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Autovectorization status in GCC &amp; Clang in 2021</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="autovectorization-status-in-gcc-clang-in-2021">
+<h1 class="title">Autovectorization status in GCC &amp; Clang in 2021</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2021-01-18</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#comparison" id="toc-entry-2">Comparison</a><ul>
+<li><a class="reference internal" href="#compiler-versions" id="toc-entry-3">Compiler versions</a></li>
+<li><a class="reference internal" href="#compiler-flags" id="toc-entry-4">Compiler flags</a></li>
+<li><a class="reference internal" href="#results" id="toc-entry-5">Results</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#summary" id="toc-entry-6">Summary</a></li>
+<li><a class="reference internal" href="#vectorization-of-is-sorted" id="toc-entry-7">Vectorization of <tt class="docutils literal">is_sorted</tt></a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-8">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Almost two years ago I did an <a class="reference external" href="2019-02-02-autovectorization-gcc-clang.html">in-depth comparison</a> of autovectorization
+abilities of popular compilers: <strong>GCC</strong>, <strong>clang</strong>, <strong>ICC</strong> and <strong>MSVC</strong>.  In
+this text only <strong>GCC</strong> and <strong>clang</strong> are considered, as I don't see any new
+versions of ICC nor MSVC on <a class="reference external" href="https://godbolt.org/">godbolt.org</a> (drop me a line if I got lost in the
+multitude of compiler versions). <strong>Update 2021-02-17</strong>: <a class="reference external" href="2021-02-17-autovectorization-msvc.html">MSVC 19.28 status</a>.</p>
+<p>The question is: &quot;what has changed between GCC 9 and GCC 10, and between clang
+9 and clang 11?&quot;.</p>
+</div>
+<div class="section" id="comparison">
+<h1>Comparison</h1>
+<p>In this comparison we consider only two targets:</p>
+<ol class="arabic simple">
+<li>AVX2,</li>
+<li>AVX512 with all possible extensions (AVX512BW, AVX512VL, AVX512VBMI, etc.)</li>
+</ol>
+<p>A few basic algorithm available in <a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm">C++ algorithm library</a> were picked.</p>
+<div class="section" id="compiler-versions">
+<h2>Compiler versions</h2>
+<ul class="simple">
+<li><tt class="docutils literal">Debian GCC 10.2.1 20210108</tt></li>
+<li><tt class="docutils literal">Debian clang version <span class="pre">11.0.1-2</span></tt></li>
+</ul>
+</div>
+<div class="section" id="compiler-flags">
+<h2>Compiler flags</h2>
+<ul class="simple">
+<li>AVX2: <tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-mavx2</span></tt></li>
+<li>AVX512: <tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-mavx512f</span> <span class="pre">-mavx512dq</span> <span class="pre">-mavx512bw</span> <span class="pre">-mavx512vbmi</span> <span class="pre">-mavx512vbmi2</span> <span class="pre">-mavx512vl</span></tt></li>
+</ul>
+</div>
+<div class="section" id="results">
+<h2>Results</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="22%" />
+<col width="22%" />
+<col width="7%" />
+<col width="7%" />
+<col width="7%" />
+<col width="7%" />
+<col width="7%" />
+<col width="7%" />
+<col width="7%" />
+<col width="7%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">algorithm</th>
+<th class="head">procedure</th>
+<th class="head" colspan="2">GCC 9</th>
+<th class="head" colspan="2">GCC 10</th>
+<th class="head" colspan="2">Clang 9</th>
+<th class="head" colspan="2">Clang 11</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+<th class="head">AVX2</th>
+<th class="head">AVX512</th>
+<th class="head">AVX2</th>
+<th class="head">AVX512</th>
+<th class="head">AVX2</th>
+<th class="head">AVX512</th>
+<th class="head">AVX2</th>
+<th class="head">AVX512</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/accumulate">accumulate &mdash; custom</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/accumulate_custom.cpp">accumulate_custom_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>accumulate_custom_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/accumulate">accumulate &mdash; default</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/accumulate_default.cpp">accumulate_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>accumulate_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/all_any_none_of">all_of</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/all_of.cpp">all_of_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>all_of_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/all_any_none_of">any_of</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/any_of.cpp">any_of_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>any_of_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/copy">copy</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/copy.cpp">copy_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no<a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>copy_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no<a class="footnote-reference" href="#footnote-1" id="footnote-reference-2">[1]</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/copy">copy_if</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/copy_if.cpp">copy_if_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no<a class="footnote-reference" href="#footnote-1" id="footnote-reference-3">[1]</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>copy_if_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no<a class="footnote-reference" href="#footnote-1" id="footnote-reference-4">[1]</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/count">count</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/count.cpp">count_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>count_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/count">count_if</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/count_if.cpp">count_if_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>count_if_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/fill">fill</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/fill.cpp">fill_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no<a class="footnote-reference" href="#footnote-2" id="footnote-reference-5">[2]</a></td>
+<td>no<a class="footnote-reference" href="#footnote-2" id="footnote-reference-6">[2]</a></td>
+<td>no</td>
+<td>no</td>
+<td>no<a class="footnote-reference" href="#footnote-2" id="footnote-reference-7">[2]</a></td>
+<td>no<a class="footnote-reference" href="#footnote-2" id="footnote-reference-8">[2]</a></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>fill_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/find">find</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/find.cpp">find_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>find_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/find">find_if</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/find_if.cpp">find_if_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>find_if_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/is_sorted">is_sorted</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/is_sorted.cpp">is_sorted_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>is_sorted_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/all_any_none_of">none_of</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/none_of.cpp">none_of_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>none_of_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/remove">remove</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/remove.cpp">remove_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>remove_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/remove">remove_if</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/remove_if.cpp">remove_if_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>remove_if_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/replace">replace</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/replace.cpp">replace_epi8</a></td>
+<td>no</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td><strong>yes</strong></td>
+<td>no<a class="footnote-reference" href="#footnote-3" id="footnote-reference-9">[3]</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>replace_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/replace">replace_if</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/replace_if.cpp">replace_if_epi8</a></td>
+<td>no</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>replace_if_epi32</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/reverse">reverse</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/reverse.cpp">reverse_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>reverse_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/transform">transform &mdash; abs</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/transform_abs.cpp">transform_abs_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>transform_abs_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/transform">transform &mdash; increment</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/transform_inc.cpp">transform_inc_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>transform_inc_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/transform">transform &mdash; negation</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/transform_neg.cpp">transform_neg_epi8</a></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>transform_neg_epi32</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+</tr>
+<tr><td><a class="reference external" href="https://en.cppreference.com/w/cpp/algorithm/unique">unique</a></td>
+<td><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/autovectorization-tests/unique.cpp">unique_epi8</a></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>unique_epi32</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label">[1]</td><td><em>(<a class="fn-backref" href="#footnote-reference-1">1</a>, <a class="fn-backref" href="#footnote-reference-2">2</a>, <a class="fn-backref" href="#footnote-reference-3">3</a>, <a class="fn-backref" href="#footnote-reference-4">4</a>)</em> SIMD instructions present, but not in the main loop</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label">[2]</td><td><em>(<a class="fn-backref" href="#footnote-reference-5">1</a>, <a class="fn-backref" href="#footnote-reference-6">2</a>, <a class="fn-backref" href="#footnote-reference-7">3</a>, <a class="fn-backref" href="#footnote-reference-8">4</a>)</em> calls <tt class="docutils literal">memset</tt></td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-9">[3]</a></td><td>loads input's chunk into a vector register, but all comparisons and stores are scalar</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="summary">
+<h1>Summary</h1>
+<p>The answer to the initial question is pretty sad: there is no progress.</p>
+<p>GCC learnt how to vectorize <tt class="docutils literal">replace_if_epi32</tt> for AVX512 targets. At the same
+time clang lost this ability. These are the only changes.</p>
+<p>BTW, it's worth to note that MSVC gained support for AVX512 in <a class="reference external" href="https://devblogs.microsoft.com/cppblog/avx-512-auto-vectorization-in-msvc">2020</a>.</p>
+</div>
+<div class="section" id="vectorization-of-is-sorted">
+<h1>Vectorization of <tt class="docutils literal">is_sorted</tt></h1>
+<p><a class="reference external" href="https://twitter.com/realsmbear">Tomasz Duda</a> <a class="reference external" href="https://twitter.com/realsmbear/status/1350204268071051269">showed</a> that following C++ code is nicely vectorized
+by clang 9 and newer:</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">is_sorted3</span><span class="p">(</span><span class="kt">int32_t</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">])</span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="p">])</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="p">])</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">4</span><span class="p">]))</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">])</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>I purposely called it &quot;vectorization&quot; not &quot;autovectorization&quot;, as the main loop
+of algorithm has to be manually adjusted to let a compiler discover
+vectorization opportunity. Personally I'd reserve the term &quot;autovectorization&quot;
+for procedures that don't need such hints from a programmer.</p>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All implementations are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/autovectorization-tests">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2021-01-18-autovectorization-gcc-clang.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

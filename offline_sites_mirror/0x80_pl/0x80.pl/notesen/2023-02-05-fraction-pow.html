@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2023-02-05-fraction-pow.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Faster fractional exponents</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="faster-fractional-exponents">
+<h1 class="title">Faster fractional exponents</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2023-02-05</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#float-to-fraction" id="toc-entry-2">Float to fraction</a></li>
+<li><a class="reference internal" href="#evaluation" id="toc-entry-3">Evaluation</a></li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-4">Sample code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>A well known method of calculating powers of integers is based on the binary
+representation of an exponent. Let's consider a simple example. Exponent
+equals <tt class="docutils literal">y = 9 = 0b1001</tt>; its value can be expressed as
+<span class="math">1 &sdot; 2<sup>0</sup> + 0 &sdot; 2<sup>1</sup> + 0 &sdot; 2<sup>2</sup> + 1 &sdot; 2<sup>3</sup></span>; after constant folding
+it simplifies to <span class="math">2<sup>0</sup> + 2<sup>3</sup> = 1 + 8 = 9</span>. Thus <span class="math"><i>x</i><sup>9</sup></span> can
+be expanded into <span class="math"><i>x</i><sup>2<sup>0</sup> + 2<sup>3</sup></sup> = <i>x</i><sup>2<sup>0</sup></sup> &sdot; <i>x</i><sup>2<sup>3</sup></sup> = <i>x</i><sup>1</sup> &sdot; <i>x</i><sup>8</sup></span>.</p>
+<p>The main observation is that the product contains <span class="math"><i>x</i><sup>2<sup><i>i</i></sup></sup></span> only
+if the i-th bit of exponent is 1.</p>
+<p>An algorithm utilizing this observation is quite simple:</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">powint</span><span class="p">(</span><span class="nx">x</span><span class="w"> </span><span class="kt">float64</span><span class="p">,</span><span class="w"> </span><span class="nx">y</span><span class="w"> </span><span class="kt">uint</span><span class="p">)</span><span class="w"> </span><span class="kt">float64</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">result</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mf">1.0</span><span class="w">   </span><span class="c1">// x^0</span><span class="w">
+    </span><span class="nx">tmp</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">x</span><span class="w">        </span><span class="c1">// tmp is x^{2^i}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">y</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="nx">y</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">             </span><span class="c1">// i-th bit set?</span><span class="w">
+            </span><span class="nx">result</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">tmp</span><span class="w">   </span><span class="c1">// result times x^{2^i}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="c1">// square in each iteration</span><span class="w">
+        </span><span class="nx">tmp</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">tmp</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">tmp</span><span class="w">
+
+        </span><span class="c1">// scan bits starting from the least significant one</span><span class="w">
+        </span><span class="nx">y</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nx">result</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Exactly the same schema can be used if an exponent is fractional;
+for simplicity let's assume the exponent is positive and less than 1.</p>
+<p>We also use binary representation of fraction, we just need to remember
+that weights of bits are fractions: <span class="math"><i>x</i><sup>2<sup> &minus; <i>i</i></sup></sup></span>. They equals
+1/2, 1/4, 1/8, 1/16, 1/32, and so on, so forth.</p>
+<p>The algorithm is almost identical: we scan bits starting from the
+most significant one &mdash; bit weights are decreasing by factor 1/2.
+Value <span class="math"><i>x</i><sup>&frac12;</sup></span> is <strong>a square root</strong>.</p>
+<p>Let's assume that we have a fraction expressed as a <tt class="docutils literal">uint64</tt>,
+where the decimal dot is <strong>before</strong> the most significant bit. For
+instance fraction <span class="math">0.1010111<sub>2</sub></span> would have the following
+representation as <tt class="docutils literal">uint64</tt>:</p>
+<div class="asciidiag"><pre class="asciidiag">decimal dot
+|
+[10101110|00000000|00000000|00000000|00000000|00000000|00000000|00000000]
+ ||│                                                                   |
+ ││└- bit 61, weight 1/8                                           bit 0
+ │└─╴ bit 62, weight 1/4
+ └──╴ bit 63, weight 1/2</pre></div><p>In the next section we will see how to convert a normalized
+float into that representation.</p>
+<p>The algorithm is:</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">powfracaux</span><span class="p">(</span><span class="nx">x</span><span class="w"> </span><span class="kt">float64</span><span class="p">,</span><span class="w"> </span><span class="nx">fraction</span><span class="w"> </span><span class="kt">uint64</span><span class="p">)</span><span class="w"> </span><span class="kt">float64</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">res</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mf">1.0</span><span class="w">              </span><span class="c1">// res = 2^0</span><span class="w">
+    </span><span class="nx">sq</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">x</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">fraction</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nx">sq</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">math</span><span class="p">.</span><span class="nx">Sqrt</span><span class="p">(</span><span class="nx">sq</span><span class="p">)</span><span class="w">       </span><span class="c1">// sq = x^(1/2^i)</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="nb">int64</span><span class="p">(</span><span class="nx">fraction</span><span class="p">)</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// i-th bit set (MSB)</span><span class="w">
+            </span><span class="nx">res</span><span class="w"> </span><span class="o">*=</span><span class="w"> </span><span class="nx">sq</span><span class="w">            </span><span class="c1">// update result</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="nx">fraction</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nx">res</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="float-to-fraction">
+<h1>Float to fraction</h1>
+<p>A normalized 64-bit floating point value has the bit following layout:</p>
+<pre class="literal-block">
+[S|eeeeeeeeeee|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm]
+ |  exponent  |               significand (mantissa)
+ sign bit     |
+              +- decimal dot is here
+</pre>
+<p>Biased exponent spans 11 bits and significand spans 52 bits. The significand
+has implicit 1 at 53rd position.</p>
+<p>We assume only positive floats less than 1. The algorithm to convert
+such number into a fraction goes as follows.</p>
+<ol class="arabic">
+<li><p class="first">Get the <tt class="docutils literal">float64</tt> as raw bits.</p>
+<pre class="code go literal-block">
+<span class="nx">u64</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">math</span><span class="p">.</span><span class="nx">Float64bits</span><span class="p">(</span><span class="nx">x</span><span class="p">)</span>
+</pre>
+</li>
+<li><p class="first">Then extract the significand bits.</p>
+<pre class="code go literal-block">
+<span class="kd">const</span><span class="w"> </span><span class="nx">mask</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w">
+</span><span class="nx">fraction</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">u64</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="nx">mask</span>
+</pre>
+<div class="asciidiag"><pre class="none">
+  [<span style="color: gray">0</span>|<span style="color: gray">eeeeeeeeeee</span>|<span style="color: blue">mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm</span>] u64
+&amp; [0|00000000000|<span style="font-weight: bold">1111111111111111111111111111111111111111111111111111</span>] mask
+  [0|00000000000|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm] fraction</pre></div></li>
+<li><p class="first">Complete the significand with the implicit 1. The integer value
+can be interpreted as <span class="math">(1 + <i>significand</i>) &sdot; 2<sup>52</sup></span>.</p>
+<pre class="code go literal-block">
+<span class="nx">fraction</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">52</span>
+</pre>
+<div class="asciidiag"><pre class="none">
+  [<span style="color: gray">S</span>|<span style="color: gray">0000000000</span><span style="color: blue">0</span>|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm] fraction
+| [0|0000000000<span style="font-weight: bold">1</span>|0000000000000000000000000000000000000000000000000000] one
+  [0|00000000001|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm] fraction</pre></div></li>
+<li><p class="first">Extract the exponent value; the bias equals 1023. The exponent will always
+be negative.</p>
+<pre class="code go literal-block">
+<span class="kd">const</span><span class="w"> </span><span class="nx">bias</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1023</span><span class="w">
+</span><span class="kd">const</span><span class="w"> </span><span class="nx">mask</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">11</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w">
+</span><span class="nx">exp</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="p">((</span><span class="nx">u64</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="nx">mask</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">bias</span>
+</pre>
+<div class="asciidiag"><pre class="none">
+
+[<span style="color: gray">S</span>|<span style="font-weight: bold">eeeeeeeeeee</span>|<span style="color: gray">mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm</span>] u64
+[0|00000000000|00000000000000000000000000000000000000000<span style="font-weight: bold">eeeeeeeeeee</span>] exp</pre></div></li>
+<li><p class="first">Adjust the fraction. We first shift left <tt class="docutils literal">fraction</tt> by 11 bits left; we
+do it to place the most significant bit at bit #63. Then we shift right
+by <tt class="docutils literal"><span class="pre">-exp</span> - 1</tt>. Why :<span class="math"> &minus; 1</span>? For example if <span class="math"><i>x</i> = 0.5</span>, than the
+exponent equals <span class="math"> &minus; 1</span>. The completed significand equals <span class="math">1000&hellip;000<sub>2</sub></span>,
+and after shifting 11 bits left, its value as a fraction is valid. Thus
+shifting right is not needed; only for values less than 0.5 this shift
+is required.</p>
+<pre class="code go literal-block">
+<span class="nx">fraction</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">11</span><span class="w">
+</span><span class="nx">fraction</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="o">-</span><span class="nx">exp</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w">   </span><span class="c1">// for example exp = -5</span>
+</pre>
+<div class="asciidiag"><pre class="none">
+[<span style="color: gray">0</span>|<span style="color: gray">0000000000</span><span style="color: blue">1</span>|<span style="color: blue">mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm</span>] fraction
+[<span style="color: blue">1</span>|<span style="color: blue">mmmmmmmmmmm</span>|<span style="color: blue">mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm</span>00000000000] &lt;&lt;= 11
+[0|000<span style="color: blue">1mmmmmmm</span>|<span style="color: blue">mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm</span>0000000] &gt;&gt;= -exp - 1 = 4</pre></div></li>
+</ol>
+</div>
+<div class="section" id="evaluation">
+<h1>Evaluation</h1>
+<p>The square root function is a native instruction <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/SQRTSD.html">SQRTSD</a> on x86 CPUs, and compilers
+emit this instruction. Here is a part of objdump of <tt class="docutils literal">powfracaux</tt> function:</p>
+<pre class="literal-block">
+...
+main.go:39 4885c0         TESTQ AX, AX
+main.go:39 740c           JE 0x4f53b6
+main.go:40 f20f51d0       SQRTSD X0, X2   // &lt;--- here
+main.go:41 7def           JGE 0x4f539f
+main.go:42 f20f59ca       MULSD X2, X1
+main.go:42 ebe9           JMP 0x4f539f
+main.go:12 0f10c1         MOVUPS X1, X0
+...
+</pre>
+<p>The problem with <tt class="docutils literal">SQRT</tt> instruction is its hight latency. And the latency is
+the major issue here, as we have dependencies between iterations. It's not
+possible to calculate <tt class="docutils literal">SQRT</tt> independently, even the hardware is capable of
+doing this. <a class="reference external" href="https://uops.info/table.html?search=sqrtsd&amp;cb_lat=on&amp;cb_tp=on&amp;cb_SKX=on&amp;cb_CNL=on&amp;cb_ICL=on&amp;cb_ADLP=on&amp;cb_measurements=on&amp;cb_doc=on&amp;cb_avx512=on&amp;cb_sse=on">Latency</a> for the instruction varies from 13 to 19 cycles; while
+latency for multiplication is 4 cycles. The timings are the same for Skylake-X,
+Cannon Lake, Ice Lake and Adler Lake-P.</p>
+<p>The number of square root calculation equals the number of significant
+bits in the fraction &mdash; in the case of 64-bit floats, this is 53 max.</p>
+<p>Below are benchmark results, comparing the default Go <a class="reference external" href="https://pkg.go.dev/math@go1.20#Pow">math.Pow</a> with
+implementation of the algorithm. The benchmarks were run on an Ice Lake
+machine with Go 1.20.</p>
+<pre class="literal-block">
+benchmark               old ns/op     new ns/op     delta
+Benchmark/2^{-1}-8      4.20          5.45          +29.80%
+Benchmark/2^{-2}-8      46.0          11.3          -75.46%
+Benchmark/2^{-3}-8      46.0          16.4          -64.31%
+Benchmark/2^{-4}-8      46.0          21.9          -52.45%
+Benchmark/2^{-5}-8      46.0          28.3          -38.57%
+Benchmark/2^{-6}-8      46.0          33.2          -27.79%
+Benchmark/2^{-7}-8      46.0          38.7          -15.90%
+Benchmark/2^{-8}-8      46.0          45.1          -1.98%
+Benchmark/2^{-9}-8      46.0          50.0          +8.77%
+Benchmark/2^{-10}-8     46.0          55.5          +20.69%
+Benchmark/2^{-11}-8     46.0          61.9          +34.67%
+Benchmark/2^{-12}-8     46.0          66.8          +45.33%
+Benchmark/2^{-13}-8     46.0          72.3          +57.32%
+</pre>
+<p>As we can observe, the complexity of Go algorithm is not value-sensitive.
+The linear algorithm wins for a quite small set of numbers. Only
+approx <span class="math">2<sup>7</sup></span> exponents can be evaluated faster than a generic
+algorithm.</p>
+<p>However, detecting if the linear algorithm can be used is cheap. It
+costs counting of trailing zero bits and a single comparison.</p>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample source code is available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/powfraction">Github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2023-02-05-fraction-pow.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

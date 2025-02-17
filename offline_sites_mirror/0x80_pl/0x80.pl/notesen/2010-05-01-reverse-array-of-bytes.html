@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2010-05-01-reverse-array-of-bytes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:14 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Speedup reversing table of bytes</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="speedup-reversing-table-of-bytes">
+<h1 class="title">Speedup reversing table of bytes</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2010-05-01</td>
+</tr>
+</tbody>
+</table>
+<p>In-place reversing is performed by following algorithm:</p>
+<pre class="literal-block">
+// n - table size
+
+int i = 0;      // index1
+int j = n - 1;  // index2
+int c = n/2;    // counter
+int x, y;
+while (c--)
+        x = table[i];
+        y = table[j];
+        table[i] = y;
+        table[j] = x;
+        i++;
+        j--;
+        c--;
+}
+</pre>
+<p>We can use some CPU-specific instruction to speedup the algorithm.</p>
+<ol class="arabic simple">
+<li>486 processors have <tt class="docutils literal">BSWAP</tt> instruction that swaps
+four bytes (quick conversion between big-/little-endian);</li>
+<li>SSE2 extension has <tt class="docutils literal">PSHUFD</tt> that calculate any combination
+of dwords in an <tt class="docutils literal">xmm</tt> register, likewise <tt class="docutils literal">PSHUFLW</tt> and
+<tt class="docutils literal">PSHUFHW</tt> calculate combinations of words;</li>
+<li>SSSE3 extension has <tt class="docutils literal">PSHUFB</tt> that calculates any combination
+of 16 bytes from an <tt class="docutils literal">xmm</tt> register.</li>
+</ol>
+<p>Program can load a part of table into registers, then swap
+bytes in register using one or more instructions and then
+store register's content at new position. If the size of a table
+is not multiply of register size, then few bytes in the middle
+of a table have to be swapped using default algorithm.</p>
+<p>Modified algorithm outline:</p>
+<pre class="literal-block">
+// n - table size
+// k - register size - k=4 for BSWAP and k=16 for PSHUFB
+
+int i = 0;              // index1
+int j = n - k - 1;      // index2  !!!
+int c = n/(2*k);        // counter !!!
+register char x[k], y[k];       // hardware registers
+while (c--)
+        x = table[i];           // load k bytes
+        y = table[j];           // ...
+        hardware_swap(x);       // reverse these bytes
+        hardware_swap(y);       // ...
+        table[i] = y;           // store k bytes
+        table[j] = x;           // ..
+        i += k;
+        j -= k;
+        c--;
+}
+
+if (n % (2*k) != 0)
+        swap rest byte-by-byte
+</pre>
+<p>Function <tt class="docutils literal">hardware_swap(x)</tt> is equivalent to single instruction:
+<tt class="docutils literal">BSWAP reg</tt> or <tt class="docutils literal">PSHUFB xmm, const</tt>; SSE2 code requires more instructions:</p>
+<pre class="literal-block">
+movaps  %xmm0, %xmm1
+psrlw      $8, %xmm0
+psllw      $8, %xmm1
+por     %xmm1, %xmm0            ; swap adjacent bytes
+
+pshufd  $0x4e, %xmm0, %xmm0     ; swap order of dwords
+pshuflw $0x1b, %xmm0, %xmm0     ; swap order of words in lower
+pshufhw $0x1b, %xmm0, %xmm0     ; .. and higher half of register
+</pre>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/reverse_tab">Test program</a> contains several procedures that implement the modified algorithm:</p>
+<ol class="arabic simple">
+<li><tt class="docutils literal">swap_tab_asm</tt> (alias x86) &mdash; asm implementation of default algorithm (reference);</li>
+<li><tt class="docutils literal">swap_tab_bswap</tt> (bswap) &mdash; modified algorithm:
+one <tt class="docutils literal">bswap</tt> (8 bytes per iteration)</li>
+<li><tt class="docutils literal">swap_tab_bswap_unrolled</tt> (bswap2) &mdash; modified algorithm:
+two <tt class="docutils literal">bswap</tt> (16 bytes per iteration)</li>
+<li><tt class="docutils literal">swap_tab_sse</tt> (sse) &mdash; modified algorithm:
+one SSE swap (32 bytes per iteration)</li>
+<li><tt class="docutils literal">swap_tab_sse_unrolled</tt> (sse2) &mdash; modified algorithm:
+two SSE swaps (64 bytes per iteration)</li>
+<li><tt class="docutils literal">swap_tab_pshufb</tt> (pshuf) &mdash; modified algorithm:
+one <tt class="docutils literal">PSHUFB</tt> (32 bytes per iteration)</li>
+<li><tt class="docutils literal">swap_tab_pshufb_unrolled</tt> (pshuf2) &mdash; modified algorithm:
+two <tt class="docutils literal">PSHUFB</tt> (64 bytes per iteration)</li>
+</ol>
+<p><strong>Important note</strong>: SSE implementations use safe <tt class="docutils literal">MOVUPS</tt> instruction
+for transfers data from/to memory. This instruction is much slower than
+<tt class="docutils literal">MOVAPS</tt> even if accessing aligned data!</p>
+<div class="section" id="tests">
+<h1>Tests</h1>
+<p>Two scenarios of test were considered:</p>
+<ol class="arabic simple">
+<li>The table size is hardware friendly, i.e. is multiply of implementation
+base step; also address of table is aligned:<ul>
+<li>all procedures use <tt class="docutils literal">MOVUPS</tt>,</li>
+<li>all procedures use <tt class="docutils literal">MOVAPS</tt>.</li>
+</ul>
+</li>
+<li>The size is not hardware friendly and address is not aligned.</li>
+</ol>
+<p>Procedures were tested on following computers:</p>
+<ul class="simple">
+<li>recent Core 2 Due E8200,</li>
+<li>quite old Pentium M (instruction <tt class="docutils literal">PSHUFB</tt> not available).</li>
+</ul>
+<p>Quick results discussion:</p>
+<ul class="simple">
+<li>As always speedup depends on the table size &mdash; for larger tables
+speedup is also larger. Max speedup:<ul>
+<li>Core 2:<ul>
+<li><strong>15.5 times</strong> &mdash; <tt class="docutils literal">PSHUFB</tt> unrolled &amp; <tt class="docutils literal">MOVAPS</tt></li>
+<li>3.5 times &mdash; <tt class="docutils literal">PSHUFB</tt> &amp; <tt class="docutils literal">MOVUPS</tt></li>
+</ul>
+</li>
+<li>Pentium M:<ul>
+<li>4 times &mdash; <tt class="docutils literal">BSWAP</tt> unrolled</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Unaligned memory access kills performance &mdash; results clearly
+shows this behaviour.</li>
+</ul>
+<div class="section" id="results-for-core-2">
+<h2>Results for Core 2</h2>
+<p><a class="reference external" href="2010-05-01-reverse-array-of-bytes/results-core2.txt">Results</a></p>
+<img alt="Core 2 - tables aligned, use MOVUPS for memory transfers" class="align-center" src="2010-05-01-reverse-array-of-bytes/core2-aligned.png" />
+<p><a class="reference external" href="2010-05-01-reverse-array-of-bytes/results-core2-movaps.txt">Results</a></p>
+<img alt="Core 2 - tables aligned, use MOVAPS for memory transfers" class="align-center" src="2010-05-01-reverse-array-of-bytes/core2-aligned-movaps.png" />
+<p><a class="reference external" href="2010-05-01-reverse-array-of-bytes/results-core2.txt">Results</a></p>
+<img alt="Core 2 - tables unaligned" class="align-center" src="2010-05-01-reverse-array-of-bytes/core2-unaligned.png" />
+</div>
+<div class="section" id="results-for-pentium-m">
+<h2>Results for Pentium M</h2>
+<p><a class="reference external" href="2010-05-01-reverse-array-of-bytes/results-pentiumm.txt">Results</a></p>
+<img alt="Pentium M - tables aligned, use MOVUPS for memory transfers" class="align-center" src="2010-05-01-reverse-array-of-bytes/pentiumm-aligned.png" />
+<p><a class="reference external" href="2010-05-01-reverse-array-of-bytes/results-pentiumm-movaps.txt">Results</a></p>
+<img alt="Pentium M - tables aligned, use MOVAPS for memory transfers" class="align-center" src="2010-05-01-reverse-array-of-bytes/pentiumm-aligned-movaps.png" />
+<p><a class="reference external" href="2010-05-01-reverse-array-of-bytes/results-pentiumm.txt">Results</a></p>
+<img alt="Pentium M - tables unaligned" class="align-center" src="2010-05-01-reverse-array-of-bytes/pentiumm-unaligned.png" />
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2010-05-01-reverse-array-of-bytes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:24 GMT -->
+</html>

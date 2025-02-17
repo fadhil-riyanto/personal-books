@@ -1,0 +1,725 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/string_h.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Implementacje funkcji ze string.h</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="implementacje-funkcji-ze-string-h">
+<h1 class="title">Implementacje funkcji ze string.h</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">21.11.2001</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">13.10.2005</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#funkcje-standardowe-string-h" id="toc-entry-2">Funkcje standardowe (string.h)</a><ul>
+<li><a class="reference internal" href="#strcpy" id="toc-entry-3"><tt class="docutils literal">strcpy</tt></a></li>
+<li><a class="reference internal" href="#strcat" id="toc-entry-4"><tt class="docutils literal">strcat</tt></a></li>
+<li><a class="reference internal" href="#strchr" id="toc-entry-5"><tt class="docutils literal">strchr</tt></a></li>
+<li><a class="reference internal" href="#strcmp" id="toc-entry-6"><tt class="docutils literal">strcmp</tt></a></li>
+<li><a class="reference internal" href="#strcspn" id="toc-entry-7"><tt class="docutils literal">strcspn</tt></a></li>
+<li><a class="reference internal" href="#strlen" id="toc-entry-8"><tt class="docutils literal">strlen</tt></a></li>
+<li><a class="reference internal" href="#strncat" id="toc-entry-9"><tt class="docutils literal">strncat</tt></a></li>
+<li><a class="reference internal" href="#strncmp" id="toc-entry-10"><tt class="docutils literal">strncmp</tt></a></li>
+<li><a class="reference internal" href="#strncpy" id="toc-entry-11"><tt class="docutils literal">strncpy</tt></a></li>
+<li><a class="reference internal" href="#strpbrk" id="toc-entry-12"><tt class="docutils literal">strpbrk</tt></a></li>
+<li><a class="reference internal" href="#strrchr" id="toc-entry-13"><tt class="docutils literal">strrchr</tt></a></li>
+<li><a class="reference internal" href="#strspn" id="toc-entry-14"><tt class="docutils literal">strspn</tt></a></li>
+<li><a class="reference internal" href="#strstr" id="toc-entry-15"><tt class="docutils literal">strstr</tt></a></li>
+<li><a class="reference internal" href="#strtok" id="toc-entry-16"><tt class="docutils literal">strtok</tt></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#funkcje-niestandardowe" id="toc-entry-17">Funkcje niestandardowe</a><ul>
+<li><a class="reference internal" href="#strrev" id="toc-entry-18"><tt class="docutils literal">strrev</tt></a></li>
+<li><a class="reference internal" href="#strtrim" id="toc-entry-19"><tt class="docutils literal">strtrim</tt></a></li>
+<li><a class="reference internal" href="#strrepchar" id="toc-entry-20"><tt class="docutils literal">strrepchar</tt></a></li>
+<li><a class="reference internal" href="#strignore" id="toc-entry-21"><tt class="docutils literal">strignore</tt></a></li>
+<li><a class="reference internal" href="#strremdup" id="toc-entry-22"><tt class="docutils literal">strremdup</tt></a></li>
+<li><a class="reference internal" href="#compresspaces" id="toc-entry-23"><tt class="docutils literal">compresspaces</tt></a></li>
+<li><a class="reference internal" href="#strremove" id="toc-entry-24"><tt class="docutils literal">strremove</tt></a></li>
+<li><a class="reference internal" href="#strinsert" id="toc-entry-25"><tt class="docutils literal">strinsert</tt></a></li>
+<li><a class="reference internal" href="#strcharc" id="toc-entry-26"><tt class="docutils literal">strcharc</tt></a></li>
+<li><a class="reference internal" href="#match-parentcheses" id="toc-entry-27"><tt class="docutils literal">match_parentcheses</tt></a></li>
+<li><a class="reference internal" href="#match-parentcheses2" id="toc-entry-28"><tt class="docutils literal">match_parentcheses2</tt></a></li>
+<li><a class="reference internal" href="#match-pair" id="toc-entry-29"><tt class="docutils literal">match_pair</tt></a></li>
+<li><a class="reference internal" href="#match-pair2" id="toc-entry-30"><tt class="docutils literal">match_pair2</tt></a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Ot tak, dla rozrywki, postanowiłem samodzielnie zakodować większość funkcji
+dostępnych w <tt class="docutils literal">string.h</tt>. Może się przydać do szkoły lub na uczelnie.
+Dokładne opisy funkcji są dostępne pod adresem
+<a class="reference external" href="http://www.delorie.com/djgpp/doc/libc/">http://www.delorie.com/djgpp/doc/libc/</a>.</p>
+<p>Przedstawię również kilka dodatkowych, niestandardowych funkcji, które
+mogą się przydać.</p>
+</div>
+<div class="section" id="funkcje-standardowe-string-h">
+<h1>Funkcje standardowe (string.h)</h1>
+<div class="section" id="strcpy">
+<h2><tt class="docutils literal">strcpy</tt></h2>
+<p>Funkcja kopiuje łańcuch znaków.</p>
+<pre class="literal-block">
+char *strcpy(char *dest, const char *src)
+{
+ char* p=dest;
+ while (*dest++ = *src++);
+ return p;
+}
+</pre>
+</div>
+<div class="section" id="strcat">
+<h2><tt class="docutils literal">strcat</tt></h2>
+<p>Funkcja dołącza łańcuch.</p>
+<pre class="literal-block">
+char *strcat(char *dest, const char *src)
+{
+ char* p=dest;
+
+ while (*dest) dest++;      /* przejdź na koniec łańcucha docelowego */
+ while (*dest++ = *src++);  /* dołącz łańcuch źródłowy */
+
+ return p;
+}
+</pre>
+<p>Jest to równoważne:</p>
+<pre class="literal-block">
+strcpy(dest[strlen(dest)+1], src);
+</pre>
+</div>
+<div class="section" id="strchr">
+<h2><tt class="docutils literal">strchr</tt></h2>
+<p>Funkcja zwraca wskaźnik do pierwszego wystąpienia znaku <tt class="docutils literal">c</tt>, jeśli nie
+zostanie on znaleziony wynikiem funkcji jest <tt class="docutils literal">NULL</tt>.</p>
+<pre class="literal-block">
+char *strchr(const char *s, int c)
+{
+ char* temp = (char*)s;
+
+ while (*temp &amp;&amp; *temp != c) temp++;
+
+ if (*temp == '\0')
+        return NULL;
+
+ return temp;
+}
+</pre>
+</div>
+<div class="section" id="strcmp">
+<h2><tt class="docutils literal">strcmp</tt></h2>
+<p>Funkcja zwraca różnicę kodów ASCII pierwszego różniącego się znaku. Jeśli
+porównywane łańcuchy są identyczne zwraca 0.</p>
+<pre class="literal-block">
+int strcmp(const char *s1, const char*s2)
+{
+ while ((*s1) &amp;&amp; (*s2) &amp;&amp; (*s1==*s2)) s1++, s2++;
+
+ return (int)*s1-(int)*s2;
+}
+</pre>
+<p>Aby wszystko było w porządku należałoby zrzutować <tt class="docutils literal">s1</tt> i <tt class="docutils literal">s2</tt>
+na <tt class="docutils literal">char*</tt>, gdyż obie zmienne są stałymi wskaźnikami. Nie chcę
+zaciemniać kodu zbędnymi zmiennymi, poza tym kompilator może rzucić
+co najwyżej ostrzeżeniem.</p>
+</div>
+<div class="section" id="strcspn">
+<h2><tt class="docutils literal">strcspn</tt></h2>
+<p>Funkcja zwraca indeks pierwszego znaku z <tt class="docutils literal">s1</tt> <em>należącego</em>
+do zbioru znaków <tt class="docutils literal">set</tt>.</p>
+<pre class="literal-block">
+size_t strcspn(const char *s, const char *set)
+{
+ size_t pos = 0;
+ char *temp;
+
+ while (*s)          /* przetwarzaj wszystkie znaki łańcucha */
+  {
+
+   temp = (char*)set;
+   while (*temp)                  /* porównaj każdy znak ze zbioru z bieżącym znakiem */
+     if (*s == *temp) return pos; /* zwróć indeks bieżącego znaku gdy należy on do zbioru */
+                 else temp++;
+
+   s++;
+   pos++;
+  }
+ return pos;
+}
+</pre>
+</div>
+<div class="section" id="strlen">
+<h2><tt class="docutils literal">strlen</tt></h2>
+<p>Funkcja zwraca długość łańcucha, nie uwzględnia kończącego zera.</p>
+<pre class="literal-block">
+size_t strlen(const char* string)
+{
+ size_t len = 0;
+ while (*string++) len++;
+ return len;
+}
+</pre>
+</div>
+<div class="section" id="strncat">
+<h2><tt class="docutils literal">strncat</tt></h2>
+<p>Funkcja dołącza maksymalnie <tt class="docutils literal">n</tt> znaków.</p>
+<pre class="literal-block">
+char* strncat(char *s1, const char *s2, size_t n)
+{
+ size_t num    = 0;
+ char*  result = s1;
+
+ while (*s1) s1++;
+
+ while ((*s1++ = *s2++) &amp;&amp; (++num &lt; n));
+
+ *s1 = 0;
+ return result;
+}
+</pre>
+</div>
+<div class="section" id="strncmp">
+<h2><tt class="docutils literal">strncmp</tt></h2>
+<p>Funkcja porównuje maksymalnie <tt class="docutils literal">n</tt> znaków.</p>
+<pre class="literal-block">
+int strncmp(const char *s1, const char *s2, size_t n)
+{
+ size_t num = 0;
+ while ((*s1) &amp;&amp; (*s2) &amp;&amp; (*s1==*s2) &amp;&amp; (++num &lt; n)) s1++, s2++;
+
+ return (int)*s1-(int)*s2;
+}
+</pre>
+</div>
+<div class="section" id="strncpy">
+<h2><tt class="docutils literal">strncpy</tt></h2>
+<p>Funkcja kopiuje maksymalnie <tt class="docutils literal">n</tt> znaków.</p>
+<pre class="literal-block">
+char* strncpy(char *s1, const char *s2, size_t n)
+{
+ char*  result = s1;
+ size_t num    = 0;
+
+ while ((*s1++ = *s2++) &amp;&amp; (++num &lt; n));
+ *s1 = 0;  /* dopisz kończące zero - w standardzie tego nie ma! */
+ return result;
+}
+</pre>
+</div>
+<div class="section" id="strpbrk">
+<h2><tt class="docutils literal">strpbrk</tt></h2>
+<p>Funkcja zwraca adres pierwszego znaku z <tt class="docutils literal">s1</tt> należącego do zbioru
+<tt class="docutils literal">set</tt>.</p>
+<pre class="literal-block">
+char* strpbrk(const char *s, const char *set)
+{
+ char *temp;
+
+ while (*s)
+  {
+   temp = (char*)set;
+   while (*temp)      /* process set */
+     if (*s == *temp) return (char*)s;
+                  else temp++;
+   s++;
+  }
+ return NULL;
+}
+</pre>
+</div>
+<div class="section" id="strrchr">
+<h2><tt class="docutils literal">strrchr</tt></h2>
+<p>Zwraca adres ostatniego wystąpienia znaku <tt class="docutils literal">c</tt>, lub <tt class="docutils literal">NULL</tt> gdy
+w łańcuchu <tt class="docutils literal">s1</tt> nie ma tego znaku.</p>
+<pre class="literal-block">
+char *strrchr(const char *s, int c)
+{
+ char* result = NULL;
+
+ while (*s)
+  {
+   if (*s == c)
+        result = (char*)s;
+   s++;
+  }
+
+ return result;
+}
+</pre>
+</div>
+<div class="section" id="strspn">
+<h2><tt class="docutils literal">strspn</tt></h2>
+<p>Funkcja zwraca indeks pierwszego znaku z <tt class="docutils literal">s1</tt> <em>nie należącego</em>
+do zbioru znaków <tt class="docutils literal">set</tt>.</p>
+<pre class="literal-block">
+size_t strspn(const char *s, const char *set)
+{
+ size_t pos = 0;
+ char *temp;
+
+ while (*s)
+  {
+   temp = (char*)set;
+   while (*temp) {
+     if (*s == *temp) break;
+     temp++;
+   }
+
+   if (*temp == '\0')
+     break;
+
+   s++;
+   pos++;
+  }
+
+ return pos;
+}
+</pre>
+</div>
+<div class="section" id="strstr">
+<h2><tt class="docutils literal">strstr</tt></h2>
+<p>Funkcja zwraca adres początku łańcucha <tt class="docutils literal">s2</tt> występującego w <tt class="docutils literal">s1</tt>.</p>
+<pre class="literal-block">
+char* my_strstr(char* s, char* s1)
+{
+ if ((*s1 == '\0') || (*s == '\0'))
+        return NULL;
+
+ while (*s)
+   {
+    char* temp1 = s;
+    char* temp2 = s1;
+
+    while (*temp1 == *temp2 &amp;&amp; *temp1 &amp;&amp; *temp2)
+        temp1++, temp2++;
+
+    if (*temp2 == '\0')
+        return s;
+    else
+       if (*temp1 == '\0')
+         return NULL;
+    s++;
+   }
+}
+</pre>
+</div>
+<div class="section" id="strtok">
+<h2><tt class="docutils literal">strtok</tt></h2>
+<p>Funkcja zwraca kolejne słowa (ang. tokens), oddzielone znakami z <tt class="docutils literal">s2</tt>.</p>
+<pre class="literal-block">
+char *strtok(char *s1, const char *s2)
+{
+ static char* result;
+ char* temp;
+
+ if (s1) result=s1;
+    else while (*result++);
+
+ temp = (char*)s2;
+ while (*temp)
+  {
+   if (*result == *temp)
+     {
+      temp = (char*)s2;
+      result++;
+      continue;
+     }
+   temp++;
+  }
+
+ s1 = result;
+ while (*s1)
+  {
+   temp = (char*)s2;
+   while ((*s1 != *temp) &amp;&amp; (*temp)) temp++;
+   if (*temp == 0) s1++;
+   else break;
+  }
+ *s1 = 0;
+ return result;
+}
+</pre>
+<p>Można zgrabnie zapisać tę funkcję przy użyciu funkcji <tt class="docutils literal">strcspn</tt> i
+<tt class="docutils literal">strspn</tt>.</p>
+</div>
+</div>
+<div class="section" id="funkcje-niestandardowe">
+<h1>Funkcje niestandardowe</h1>
+<div class="section" id="strrev">
+<h2><tt class="docutils literal">strrev</tt></h2>
+<p>Funkcja odwraca kolejność znaków w łańcuchu.</p>
+<pre class="literal-block">
+/* 21.11.2001
+
+   char e[256] = &quot;Kajak&quot;;
+   strrev(e);
+
+   e==&quot;kajaK&quot;
+*/
+void strrev(char* e)
+{
+ char* s=e;
+ char  t;
+
+ if (!*e) return;
+
+ while (*e) e++;
+ e--;
+
+ while (s &lt;= e)
+  {
+   t = *s;
+  *s = *e;
+  *e =  t;
+   s++;
+   e--;
+  }
+}
+</pre>
+</div>
+<div class="section" id="strtrim">
+<h2><tt class="docutils literal">strtrim</tt></h2>
+<p>Funkcja &bdquo;ucina&rdquo; znaki kończące łańcuch.</p>
+<pre class="literal-block">
+/* 12.12.2001, 15.11.2002
+
+   char s[256] = &quot;jakiś tekst----------------&quot;;
+   strtim(s, '-');
+
+   s == &quot;jakiś tekst&quot;
+*/
+char* strtrim(const char *s, char c)
+{
+ char* l = s;
+
+ s--;
+ while (*(++s))
+       if (*s != c) l = s;
+ *l = '\0';
+ return (char*)s;
+}
+</pre>
+</div>
+<div class="section" id="strrepchar">
+<h2><tt class="docutils literal">strrepchar</tt></h2>
+<p>Funkcja zamienia znaki.</p>
+<pre class="literal-block">
+/* 13.12.2001
+
+  char *s = &quot;long file name.mp3&quot;;
+  strreplchar(s, ' ', '_');
+
+  s==&quot;long_file_name.mp3&quot;
+*/
+char* strreplchar(char *str, char from, char to)
+{
+ char *c = str;
+
+ while (*c)
+   {
+    if (*c == from) *c = to;
+    c++;
+   }
+
+ return str;
+}
+</pre>
+</div>
+<div class="section" id="strignore">
+<h2><tt class="docutils literal">strignore</tt></h2>
+<p>Funkcja kopiuje łańcuchy pomijając wskazany znak.</p>
+<pre class="literal-block">
+/* 12.12.2001
+
+   char *s = &quot;  te sp  a  cje          s ą zupe     łnie zbęd  n  e&quot;;
+   char  d[256];
+   strigniore(d,s, ' ');
+
+   d==&quot;tespacjesązupełniezbędne&quot;
+*/
+char* strignore(char* dst, const char* src, char c)
+{
+ char *s = (char*)src;
+ char *d = dst;
+
+ while (*s)
+  {
+   if (*s != c) *d++ = *s;
+   s++;
+  }
+ *d = 0;
+ return dst;
+}
+</pre>
+</div>
+<div class="section" id="strremdup">
+<h2><tt class="docutils literal">strremdup</tt></h2>
+<p>Funkcja kopiuje łańcuch pomijając powtarzające się znaki.</p>
+<pre class="literal-block">
+/* 12.12.2001
+
+   char *s = &quot;1111122233344445555555666666677777778888888&quot;;
+   char  d[256];
+   strremdup(d, s);
+
+   d==&quot;12345678&quot;
+*/
+char* strremdup(char* dst, const char* src)
+{
+ char *s = (char*)src;
+ char *d = dst;
+
+ char last = 0;
+ while (*s)
+  {
+   if (*s != last) *d++ = last = *s;
+   s++;
+  }
+ *d = 0;
+ return dst;
+}
+</pre>
+</div>
+<div class="section" id="compresspaces">
+<h2><tt class="docutils literal">compresspaces</tt></h2>
+<p>Funkcja usuwa nadmiarowe spacje.</p>
+<pre class="literal-block">
+/* 13.08.2002
+
+   char *s = &quot;  Linux    does    it    better       &quot;;
+   compresspaces(s);
+
+   s = &quot; Linux does it better &quot;
+*/
+char* compresspaces(const char* S)
+{
+ char *s   = (char*)S;
+ char prev = '1';
+
+ while (*S)
+  {
+   if ((prev != ' ') || (*S != ' '))
+         *s++ = *S;
+
+   prev = *S++;
+  }
+ *s = '\0';
+ return S;
+}
+</pre>
+</div>
+<div class="section" id="strremove">
+<h2><tt class="docutils literal">strremove</tt></h2>
+<p>Funkcja usuwa wskazany fragment łańcucha.</p>
+<pre class="literal-block">
+/* 7.12.2001
+
+   char *s = &quot;to słowo jest zbędne&quot;;
+   strremove(s, 3, 6);
+
+   s==&quot;to jest zbędne&quot;
+*/
+char* strremove(char* str, int pos, int length)
+{
+ char* p = str+pos;
+ char* t = str+pos+length;
+
+ if (p &lt; str+strlen(str))
+ if (t &gt; str+strlen(str)) str[pos]=0; else
+  {
+   while (*t) *p++ = *t++;
+   *p=0;
+  }
+
+ return str;
+}
+</pre>
+</div>
+<div class="section" id="strinsert">
+<h2><tt class="docutils literal">strinsert</tt></h2>
+<pre class="literal-block">
+/* 13.12.2001
+
+   char s[256] = &quot;http://.republika.pl&quot;;
+   strinsert(s, &quot;asmcorner&quot;, 6);
+
+   s==&quot;http://asmcorner.republika.pl&quot;
+*/
+char* strinsert(char* str, const char* new_str, int pos)
+{
+ int str_len = strlen(str);
+ int new_len = strlen(new_str);
+
+ int tocopy = str_len - pos;       /* 14 znaków do skopiowania */
+
+ char* s = str + str_len-1;
+ char* e = s   + new_len;
+
+ while (tocopy--) *e-- = *s--;     /* str == &quot;http://.republik.republika.pl&quot;  */
+ s = str+pos;                      /* po czym skopiuje                        */
+ e = (char*)new_str;               /* łańcuch na właściwą pozycję             */
+ while (*e) *s++ = *e++;           /* str == &quot;http://asmcorner.republika.pl&quot;  */
+
+ return str;
+}
+</pre>
+</div>
+<div class="section" id="strcharc">
+<h2><tt class="docutils literal">strcharc</tt></h2>
+<p>Funkcja oblicza ilość wystąpień znaku.</p>
+<pre class="literal-block">
+/* 7.12.2001
+
+   char *s = &quot;xx001x011&quot;
+   if (strchrc(s, 'x') == 3)
+        puts(&quot;3 razy X&quot;)
+*/
+size_t strchrc(const char* str, char c)
+{
+ size_t num = 0;
+ char   *n = (char*)str;
+ while (*n)
+  {
+   if ( (n=(char*)strchr(n, c))==NULL) break;
+   num++;
+   n+=1;
+  }
+ return num;
+}
+</pre>
+</div>
+<div class="section" id="match-parentcheses">
+<h2><tt class="docutils literal">match_parentcheses</tt></h2>
+<pre class="literal-block">
+/* 7.12.2001
+
+   char *s = &quot;być może (albo na pewno) tak nie jest&quot;;
+   char  d[256];
+   match_parentcheses(d, s, '(', ')');
+
+   d == &quot;(albo na pewno)&quot;
+*/
+char* match_parentcheses(char* dst, const char* src, char left, char right)
+{
+ char *A = (char*)strchr(src, left);
+ char *B = (char*)strchr(src, right);
+
+ if ((A) &amp;&amp; (B) &amp;&amp; (A &lt; B))
+  {
+   strncpy(dst, A, B-A+1);
+   dst[B-A+1] = 0;
+  }
+ else
+  dst[0] = 0;
+
+ return dst;
+}
+</pre>
+</div>
+<div class="section" id="match-parentcheses2">
+<h2><tt class="docutils literal">match_parentcheses2</tt></h2>
+<pre class="literal-block">
+/* 7.12.2001
+
+   char *s = &quot;być może (albo na pewno) tak nie jest&quot;;
+   char  d[256];
+   match_parentcheses(d, s, '(', ')');
+
+   d == &quot;albo na pewno&quot;
+*/
+char* match_parentcheses2(char* dst, const char* src, char left, char right)
+{
+ char *A = (char*)strchr(src, left);
+ char *B = (char*)strchr(src, right);
+
+ if ((A) &amp;&amp; (B) &amp;&amp; (A &lt; B))
+  {
+   strncpy(dst, A+1, B-A-1);
+   dst[B-A-1] = 0;
+  }
+ else
+  dst[0] = 0;
+
+ return dst;
+}
+</pre>
+</div>
+<div class="section" id="match-pair">
+<h2><tt class="docutils literal">match_pair</tt></h2>
+<pre class="literal-block">
+/* 7.12.2001
+
+   char *s = &quot;niemniej jednak *istotą* sprawy...&quot;
+   char  d[256];
+   match_pair(d, s, '*');
+
+   d==&quot;*istotą*&quot;
+*/
+char* match_pair(char* dst, const char* src, char c)
+{
+ char *A = (char*)strchr(src, c);
+ char *B = (char*)strchr(A+1, c);
+
+ if ((A) &amp;&amp; (B))
+  {
+   strncpy(dst, A, B-A+1);
+   dst[B-A+1] = 0;
+  }
+ else
+  dst[0] = 0;
+
+ return dst;
+}
+</pre>
+</div>
+<div class="section" id="match-pair2">
+<h2><tt class="docutils literal">match_pair2</tt></h2>
+<pre class="literal-block">
+/* 7.12.2001
+
+   char *s = &quot;niemniej jednak *istotą* sprawy...&quot;
+   char  d[256];
+   match_pair(d, s, '*');
+
+   d==&quot;istotą&quot;
+*/
+char* match_pair2(char* dst, const char* src, char c)
+{
+ char *A = (char*)strchr(src, c);
+ char *B = (char*)strchr(A+1, c);
+
+ if ((A) &amp;&amp; (B))
+  {
+   strncpy(dst, A+1, B-A-1);
+   dst[B-A-1] = 0;
+  }
+ else
+  dst[0] = 0;
+
+ return dst;
+}
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/string_h.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+</html>

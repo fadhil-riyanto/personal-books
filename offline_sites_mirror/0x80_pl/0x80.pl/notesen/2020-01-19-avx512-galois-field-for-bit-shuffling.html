@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2020-01-19-avx512-galois-field-for-bit-shuffling.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:34 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Use AVX512 Galois field affine transformation for bit shuffling</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="use-avx512-galois-field-affine-transformation-for-bit-shuffling">
+<h1 class="title">Use AVX512 Galois field affine transformation for bit shuffling</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2020-01-19</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#what-affine-transformation-does" id="toc-entry-2">What affine transformation does?</a></li>
+<li><a class="reference internal" href="#how-can-we-ab-use-affine-transformation" id="toc-entry-3">How can we (ab)use affine transformation?</a></li>
+<li><a class="reference internal" href="#bit-shuffling" id="toc-entry-4">Bit shuffling</a></li>
+<li><a class="reference internal" href="#gathering-bits" id="toc-entry-5">Gathering bits</a><ul>
+<li><a class="reference internal" href="#x64-bit-matrix-transposition" id="toc-entry-6">64x64 bit matrix transposition</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-7">Sample code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>This article was inspired by Geoff Langdale's text <a class="reference external" href="https://branchfree.org/2019/05/29/why-ice-lake-is-important-a-bit-bashers-perspective/">Why Ice Lake is
+Important (a bit-basher’s perspective)</a>. I'm also grateful <a class="reference external" href="https://github.com/zwegner/">Zach Wegner</a>
+for an inspiring discussion.</p>
+<p>The AVX512 extension GFNI adds three instructions related to <a class="reference external" href="http://en.wikipedia.org/wiki/Finite_field">Galois field</a>:</p>
+<ol class="arabic simple">
+<li><tt class="docutils literal">VGF2P8MULB</tt> (<tt class="docutils literal">_mm512_gf2p8mul_epi8</tt>) &mdash; multiply 8-bit integers
+in the field <span class="math">GF(2<sup>8</sup>)</span>;</li>
+<li><tt class="docutils literal">VGF2P8AFFINEINVQB</tt> (<tt class="docutils literal">_mm512_gf2p8affineinv_epi64_epi8</tt>) &mdash; inverse
+affine transformation in the field <span class="math">GF(2<sup>8</sup>)</span>;</li>
+<li><tt class="docutils literal">VGF2P8AFFINEQB</tt> (<tt class="docutils literal">_mm512_gf2p8affine_epi64_epi8</tt>) &mdash; affine transformation
+in the field <span class="math">GF(2<sup>8</sup>)</span>.</li>
+</ol>
+<p>While the two first instructions perform quite specific algorithms, the third
+one is the most generic and promising.</p>
+</div>
+<div class="section" id="what-affine-transformation-does">
+<h1>What affine transformation does?</h1>
+<p>Below is a C-like pseudocode for <tt class="docutils literal">VGF2P8AFFINEQB</tt>.  The main properties of
+the instruction are:</p>
+<ol class="arabic simple">
+<li>It transforms 64-bit lanes (<em>qwords</em>) separately.</li>
+<li>Each byte gets transformed by the same procedure <tt class="docutils literal">affine_byte</tt>.
+It is important to note that the arguments for the procedure are
+a byte and qword. We're combining <strong>one byte</strong> from the first
+vector (<tt class="docutils literal">x</tt>) with <strong>eight bytes</strong> from the second vector (<tt class="docutils literal">A</tt>).</li>
+<li>A constant <tt class="docutils literal">imm8</tt> allows to negate selected bits of result.
+Unfortunately, it's a compile-time constant (saved as a part of
+instruction opcode).</li>
+</ol>
+<pre class="code cpp literal-block">
+<span class="c1">// x, A -- input vectors
+// imm8 -- 8-bit constant
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">_mm512_gf2p8affine_epi64_epi8</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">imm8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">qword_A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">];</span><span class="w">
+        </span><span class="n">qword_x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">];</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">affine_byte</span><span class="p">(</span><span class="n">qword_A</span><span class="p">,</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">imm8</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="nf">affine_byte</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">qword</span><span class="p">[</span><span class="mi">8</span><span class="p">],</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword</span><span class="p">[</span><span class="mi">7</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">byte</span><span class="p">;</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parity</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="n">bit</span><span class="w"> </span><span class="nf">parity</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">bit</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+        </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">t</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="how-can-we-ab-use-affine-transformation">
+<h1>How can we (ab)use affine transformation?</h1>
+<p>The crucial observation is that the <tt class="docutils literal">parity</tt> function can be used to <strong>copy
+selected bit</strong>.</p>
+<p>This function calculates bit-xor for all bits of input, i.e. it returns 1 when
+number of ones in input is odd.  We know that <tt class="docutils literal">0 xor 0 = 0</tt>, thus <tt class="docutils literal">parity(0)
+= 0</tt>. If the input has exactly one bit set, i.e. its form is <tt class="docutils literal">1 &lt;&lt; k</tt>, we
+hit the case <tt class="docutils literal">1 xor 0 = 1</tt> during computations, which means that <tt class="docutils literal">parity(1
+&lt;&lt; k) = 1</tt>.</p>
+<p>The function <tt class="docutils literal">parity</tt> is called with the result of bit-and of two bytes
+fetched from the two argument vectors (<tt class="docutils literal">qword[7 - i] &amp; byte</tt>).  If we assure
+that one of bytes is constant and has the k-th bit set, than <tt class="docutils literal">parity</tt> yields
+k-th bit from another, non-constant byte.</p>
+<p>We may conclude that at least two bit-shuffling operations are possible:</p>
+<ol class="arabic simple">
+<li>Arbitrary reshuffle bits within a byte. We may reverse bits, rotate,
+set the order of bits, broadcast selected bit(s), etc.</li>
+<li>Gather in a byte selected bit from a lane.</li>
+</ol>
+<p>There are also two extra degrees of freedom:</p>
+<ul class="simple">
+<li>Since all operations are done on lanes, each lane might have different
+settings.</li>
+<li>As it was mentioned, <tt class="docutils literal">imm8</tt> can be used to negate selected bits
+(<tt class="docutils literal">parity(x) ^ imm8.bit[i]</tt>).</li>
+</ul>
+</div>
+<div class="section" id="bit-shuffling">
+<h1>Bit shuffling</h1>
+<p>Let's do some inlining on the sample psuedocode to make that ability clearly
+visible:</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">gather_bits</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">imm8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">qword_A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">];</span><span class="w">
+
+        </span><span class="c1">// A contains the fixed bit-masks in form 1 &lt;&lt; k; bit_pos returns k
+</span><span class="w">        </span><span class="n">k0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">7</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">6</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">5</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">4</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">3</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">2</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span><span class="w">
+        </span><span class="n">k7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">tmp</span><span class="p">;</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k0</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k1</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k2</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k3</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k4</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k5</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k6</span><span class="p">];</span><span class="w">
+            </span><span class="n">tmp</span><span class="p">.</span><span class="n">bit</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k7</span><span class="p">];</span><span class="w">
+
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">imm8</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Bit shuffling requires to setup a pattern in argument <tt class="docutils literal">A</tt>. The pattern for
+each lane is a 64-bit number in form:</p>
+<pre class="literal-block">
+(1 &lt;&lt; bit0) or (1 &lt;&lt; bit1) or (1 &lt;&lt; bit2) or (1 &lt;&lt; bit3) or
+(1 &lt;&lt; bit4) or (1 &lt;&lt; bit5) or (1 &lt;&lt; bit6) or (1 &lt;&lt; bit7)
+</pre>
+<p>where constants <tt class="docutils literal">bit0</tt>, <tt class="docutils literal">bit1</tt>, ..., <tt class="docutils literal">bit7</tt> have to be in range 0..7.
+Please bear in mind that the order of bytes in a constant has to be
+reversed, as procedure <tt class="docutils literal">affine_byte</tt> fetches bytes from <tt class="docutils literal">A</tt> using
+index <tt class="docutils literal">7 - i</tt>.</p>
+<p>For instance, to interleave bits, i.e. set the output order to 0, 4, 1, 5, 2, 6,
+3, 7, the constant has to be <tt class="docutils literal">0x0110022004400880</tt> (not
+<tt class="docutils literal">0x8008400420021001</tt>). If we want to reverse bits within a byte, the constant
+is <tt class="docutils literal">0x8040201008040201</tt>. If we want to populate one bit, let say 5th, the constant
+is <tt class="docutils literal">0x2020202020202020</tt>.</p>
+<p>Usage in code requires only setup a proper constant and invocation of
+<tt class="docutils literal">_mm512_gf2p8affine_epi64_epi8</tt> intrinsic function:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;immintrin.h&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">reverse</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">select</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="mh">0x8040201008040201</span><span class="p">);</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_gf2p8affine_epi64_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">select</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Below is a sample bit flow for interleave operation in one iteration
+of affine transformation.</p>
+<img alt="2020-01-19-avx512-galois-field-for-bit-shuffling/gf2p8affine.png" src="2020-01-19-avx512-galois-field-for-bit-shuffling/gf2p8affine.png" />
+</div>
+<div class="section" id="gathering-bits">
+<h1>Gathering bits</h1>
+<p>To build a byte from selected bit we must fill the argument <tt class="docutils literal">x</tt> with proper
+masks, argument <tt class="docutils literal">A</tt> is then treated as &quot;variable&quot;.  Again, we do some
+simplifications to the pseudocode to reveal this property:</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">gather_bits</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">imm8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">qword_A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">];</span><span class="w">
+        </span><span class="n">qword_x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">];</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// x contains the fixed bit-masks in form 1 &lt;&lt; k
+</span><span class="w">            </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bit_pos</span><span class="p">(</span><span class="n">qword_x</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">7</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">6</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">5</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">4</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">3</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">2</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword_A</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">].</span><span class="n">bit</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+
+            </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">qword</span><span class="p">[</span><span class="n">j</span><span class="p">].</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">imm8</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Please note that the order of bits is reversed, because in <tt class="docutils literal">affine_byte</tt>
+bytes from <tt class="docutils literal">A</tt> are fetched from index <tt class="docutils literal">7 - i</tt>.</p>
+<div class="section" id="x64-bit-matrix-transposition">
+<h2>64x64 bit matrix transposition</h2>
+<p>If we treat a 64-bit lanes as matrices 64x64 of bits, then transposition with
+<tt class="docutils literal">VGF2P8AFFINEQB</tt> is quite simple.</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">transpose_8x8_epi64</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">select</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="mh">0x8040201008040201ul</span><span class="p">);</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_gf2p8affine_epi64_epi8</span><span class="p">(</span><span class="n">select</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample code is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/avx512-galois">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2020-01-19-avx512-galois-field-for-bit-shuffling.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:35 GMT -->
+</html>

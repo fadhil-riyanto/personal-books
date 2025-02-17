@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/roles.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>reST modifications</title>
+<link rel="stylesheet" href="index.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="rest-modifications">
+<h1 class="title">reST modifications</h1>
+
+<p>Last update: 2025-01-02</p>
+<p>The list of roles and directives I've added to &quot;my&quot; <a class="reference external" href="http://docutils.sourceforge.net/">reST</a>.</p>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#roles" id="toc-entry-1">Roles</a><ul>
+<li><a class="reference internal" href="#simple-math-math-cmath" id="toc-entry-2">Simple math &mdash; <tt class="docutils literal">math</tt> &amp; <tt class="docutils literal">cmath</tt></a></li>
+<li><a class="reference internal" href="#wikipedia-links" id="toc-entry-3">Wikipedia links</a></li>
+<li><a class="reference internal" href="#x86doc-links" id="toc-entry-4">x86doc links</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#asciidiag-directive" id="toc-entry-5">Asciidiag directive</a></li>
+<li><a class="reference internal" href="#downloads" id="toc-entry-6">Downloads</a></li>
+</ul>
+</div>
+<div class="section" id="roles">
+<h1>Roles</h1>
+<p>In order to use own roles you have to modify a file
+<tt class="docutils literal"><span class="pre">.../doctuils/parsers/rst/roles.py</span></tt> &mdash; simply append
+<tt class="docutils literal">myroles.py</tt> at end of <tt class="docutils literal">roles.py</tt>, and copy <tt class="docutils literal">roles_aux.py</tt>
+to the same directory where <tt class="docutils literal">roles.py</tt> is located.</p>
+<div class="section" id="simple-math-math-cmath">
+<h2>Simple math &mdash; <tt class="docutils literal">math</tt> &amp; <tt class="docutils literal">cmath</tt></h2>
+<p>Syntax of math expression has been borrowed from TeX;
+at the moment just subscripts and superscripts are supported.
+Small letters are italized, and some replacements are made.</p>
+<p>Both roles <tt class="docutils literal">math</tt> and <tt class="docutils literal">cmath</tt> do the same thing, just produce
+nodes with different class names.  For example my <tt class="docutils literal">cmath</tt> style
+definition: <tt class="docutils literal">display: block; <span class="pre">text-align:</span> center; <span class="pre">font-size:</span> larger</tt>.</p>
+<p>Syntax:</p>
+<pre class="literal-block">
+:math:`expression`
+:cmath:`expression`
+</pre>
+<p>Famous <a class="reference external" href="http://en.wikipedia.org/wiki/Albert_Einstein">Einstein</a> equation (<tt class="docutils literal">e = m*c^2</tt>)</p>
+<p><span class="cmath"><i>e</i> = <i>m</i> &sdot; <i>c</i><sup>2</sup></span></p>
+<p>Determinant of matrix <span class="math">A<sub>4<i>x</i>4</sub></span> (<tt class="docutils literal"><span class="pre">a_{11}*a_{22}</span> - <span class="pre">a_{12}*a_{21}</span></tt>):</p>
+<p><span class="cmath">det(A<sub>4<i>x</i>4</sub>) = <i>a</i><sub>11</sub> &sdot; <i>a</i><sub>22</sub> &minus; <i>a</i><sub>12</sub> &sdot; <i>a</i><sub>21</sub></span></p>
+<p>Cubic <a class="reference external" href="http://en.wikipedia.org/wiki/Bezier_curve">Bezier curve</a> (<tt class="docutils literal">p(t) = p_0 B^3_0(t) + p_1 B^3_1(t) + p_2 B^3_2(t) + p_3 B^3_3(t), 1 &gt;= t &gt;= 0</tt>):</p>
+<p><span class="cmath"><i>p</i>(<i>t</i>) = <i>p</i><sub>0</sub>B<sup>3</sup><sub>0</sub>(<i>t</i>) + <i>p</i><sub>1</sub>B<sup>3</sup><sub>1</sub>(<i>t</i>) + <i>p</i><sub>2</sub>B<sup>3</sup><sub>2</sub>(<i>t</i>) + <i>p</i><sub>3</sub>B<sup>3</sup><sub>3</sub>(<i>t</i>), 1 &ge; <i>t</i> &ge; 0</span></p>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/Polynomial">Polynomial</a> of degree <span class="math"><i>n</i></span> (f(x) = a_0*x^n + a_1*x^{n-1} + ... + a_n*x^0):</p>
+<p><span class="cmath"><i>f</i>(<i>x</i>) = <i>a</i><sub>0</sub> &sdot; <i>x</i><sup><i>n</i></sup> + <i>a</i><sub>1</sub> &sdot; <i>x</i><sup><i>n</i> &minus; 1</sup> + &hellip; + <i>a</i><sub><i>n</i></sub> &sdot; <i>x</i><sup>0</sup></span></p>
+<p>Trigonometry: <tt class="docutils literal">sin^2x+cos^2x=1</tt></p>
+<p><span class="cmath">sin<sup>2</sup><i>x</i> + cos<sup>2</sup><i>x</i> = 1</span></p>
+</div>
+<div class="section" id="wikipedia-links">
+<h2>Wikipedia links</h2>
+<p>Links to Wikipedia articles. For example <tt class="docutils literal"><span class="pre">:enwiki:`Albert</span> Einstein`</tt>
+produces <a class="reference external" href="http://en.wikipedia.org/wiki/Albert_Einstein">Albert Einstein</a>, and <tt class="docutils literal"><span class="pre">:enwiki:`Albert</span>
+Einstein|Einstein`</tt> makes shorter link title <a class="reference external" href="http://en.wikipedia.org/wiki/Albert Einstein">Einstein</a></p>
+</div>
+<div class="section" id="x86doc-links">
+<h2>x86doc links</h2>
+<p>Links to x86 documentation generated by <a class="reference external" href="https://github.com/HJLebbink">Henk-Jan Lebbink</a> or <a class="reference external" href="https://www.felixcloutier.com/x86/">Félix Cloutier</a>.
+For example <tt class="docutils literal"><span class="pre">:x86:`PSHUFB`</span></tt> produces <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PSHUFB.html">PSHUFB</a>, <tt class="docutils literal"><span class="pre">:x86:`blsi`</span></tt>
+yields <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/BLSI.html">BLSI</a>.</p>
+</div>
+</div>
+<div class="section" id="asciidiag-directive">
+<h1>Asciidiag directive</h1>
+<pre class="literal-block">
+.. asciidiag::
+
+        r: red
+        g: green
+        b: blue
+        &#64;: bold
+
+            +-----------+-----------+------------+
+            | 1001 0000 | 1111 0110 | 1100 01011 |
+        ^     rrrr rrrr   gggg gggg   bbbb bbbbb
+            +-----------+-----------+------------+
+
+             &lt;------------- 24 bits ------------&gt;
+        ^                   &#64;&#64;&#64;&#64;&#64;&#64;&#64;
+</pre>
+<div class="asciidiag"><pre class="asciidiag">┌───────────┬───────────┬────────────┐
+│ <span style="color: red">1001</span> <span style="color: red">0000</span> │ <span style="color: green">1111</span> <span style="color: green">0110</span> │ <span style="color: blue">1100</span> <span style="color: blue">01011</span> │
+└───────────┴───────────┴────────────┘
+
+ ◀────────────╴ <span style="font-weight: bold">24 bits</span> ╶───────────▶</pre></div></div>
+<div class="section" id="downloads">
+<h1>Downloads</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/restructuredtext">https://github.com/WojciechMula/toys/tree/master/restructuredtext</a></p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/roles.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:31 GMT -->
+</html>

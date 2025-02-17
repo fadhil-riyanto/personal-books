@@ -1,0 +1,571 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2011-10-21-sse-itoa.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:06 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SSE: conversion integers to decimal representation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="sse-conversion-integers-to-decimal-representation">
+<h1 class="title">SSE: conversion integers to decimal representation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2011-10-21</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-03-25 (updated test results, link to Milo's benchmarks)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#sse-details" id="toc-entry-2">SSE details</a><ul>
+<li><a class="reference internal" href="#division" id="toc-entry-3">Division</a></li>
+<li><a class="reference internal" href="#variable-shifts" id="toc-entry-4">Variable shifts</a></li>
+<li><a class="reference internal" href="#counting-leading-zeros" id="toc-entry-5">Counting leading zeros</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#algorithm-1" id="toc-entry-6">Algorithm 1</a></li>
+<li><a class="reference internal" href="#algorithm-2" id="toc-entry-7">Algorithm 2</a></li>
+<li><a class="reference internal" href="#real-word-requirements-limitations" id="toc-entry-8">Real-word requirements &amp; limitations</a></li>
+<li><a class="reference internal" href="#implementation" id="toc-entry-9">Implementation</a></li>
+<li><a class="reference internal" href="#tests-results" id="toc-entry-10">Tests results</a><ul>
+<li><a class="reference internal" href="#core2-duo-e8200-2gz" id="toc-entry-11">Core2 Duo E8200 (2Gz)</a><ul>
+<li><a class="reference internal" href="#algorithm-1-utoa32-sse" id="toc-entry-12">Algorithm 1 &mdash; utoa32_sse</a></li>
+<li><a class="reference internal" href="#algorithm-2-utoa32-sse-2" id="toc-entry-13">Algorithm 2 &mdash; utoa32_sse_2</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#westmere-i5-m540-2-53ghz" id="toc-entry-14">Westmere i5 M540 &#64; 2.53GHz</a><ul>
+<li><a class="reference internal" href="#algorithm-1-utoa32-sse-1" id="toc-entry-15">Algorithm 1 &mdash; utoa32_sse</a></li>
+<li><a class="reference internal" href="#algorithm-2-utoa32-sse-2-1" id="toc-entry-16">Algorithm 2 &mdash; utoa32_sse_2</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#core-i7-6700-cpu-3-40ghz" id="toc-entry-17">Core i7-6700 CPU &#64; 3.40GHz</a><ul>
+<li><a class="reference internal" href="#algorithm-1-utoa32-sse-2" id="toc-entry-18">Algorithm 1 &mdash; utoa32_sse</a></li>
+<li><a class="reference internal" href="#algorithm-2-utoa32-sse-2-2" id="toc-entry-19">Algorithm 2 &mdash; utoa32_sse_2</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-20">See also</a></li>
+<li><a class="reference internal" href="#changelog" id="toc-entry-21">Changelog</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>With SSE2 instructions it's possible to convert up to four numbers
+in range 0..9999_9999 and get 32 decimal digits results. This texts
+describe code for two numbers (suitable for 64-bit conversions)
+and for one number (suitable for 32-bit conversions).</p>
+<p>The outline of algorithm 1 has been posted by <a class="reference external" href="http://42.pl/na/j5aji9$oe4$1@news.task.gda.pl">Piotr Wyderski</a>
+on the usenet group <tt class="docutils literal">pl.comp.lang.c</tt>, I merely implemented it.
+The main idea is to perform in <strong>parallel</strong> divisions &amp; modulo
+by <span class="math">10<sup>8</sup></span> (for 64-bit numbers), then <span class="math">10<sup>4</sup></span>,
+<span class="math">10<sup>2</sup></span> and finally <span class="math">10<sup>1</sup></span>.</p>
+<p>I've developed the algorithm 2, converting just a single 8-digit number.
+First division &amp; modulo by <span class="math">10<sup>8</sup></span> is performed, and an input
+vector is formed <span class="math">[<i>abcd</i>, <i>abcd</i>, <i>abcd</i>, <i>abcd</i>, <i>efgh</i>, <i>efgh</i>, <i>efgh</i>, <i>efgh</i>]</span>.
+Then this vector is divided by vector <span class="math">[10<sup>3</sup>, 10<sup>2</sup>, 10<sup>1</sup>, 10<sup>0</sup>, 10<sup>3</sup>, 10<sup>2</sup>, 10<sup>1</sup>, 10<sup>0</sup>]</span> yielding vector <span class="math">[<i>a</i>, <i>ab</i>, <i>abc</i>, <i>abcd</i>, <i>e</i>, <i>ef</i>, <i>efg</i>, <i>efgh</i>]</span>. Obtaining an 8 digits result from this vector requires
+some shuffling, multiply by 10 and a subtract.</p>
+</div>
+<div class="section" id="sse-details">
+<h1>SSE details</h1>
+<div class="section" id="division">
+<h2>Division</h2>
+<p>SSE doesn't provide an integer division, but division by a constant can be
+achieved using multiplication. This is well known and widespread
+technique, see for example <a class="reference external" href="http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.1.2556">Division by Invariant Integers using
+Multiplication</a> by Torbjörn Granlund &amp; Peter L. Montgomery, it's
+also described in <a class="reference external" href="http://www.hackersdelight.org/">Hackers Delight</a> and <a class="reference external" href="http://homepage.cs.uiowa.edu/~jones/bcd/divide.html">Reciprocal Multiplication</a>.</p>
+<p>The division algorithm follows scheme:</p>
+<pre class="literal-block">
+k   := 10^n
+div := (x * MC) &gt;&gt; shift
+mod := x - div * k
+</pre>
+<p>There are two multiplication, one subtract and (sometimes optional)
+one right shift. The constant <tt class="docutils literal">MC</tt> is calculated with following formula:</p>
+<pre class="literal-block">
+MC := (2^d - k + correction)/k
+shift := d
+</pre>
+<p>Where <tt class="docutils literal">d &gt;= word bits</tt> and <tt class="docutils literal">word bits = {8, 16, 32, 64, <span class="pre">...}</span></tt>.
+The value of <tt class="docutils literal">correction</tt> depends on divisor and number of bits, please
+check one of the notes source for details.</p>
+</div>
+<div class="section" id="variable-shifts">
+<h2>Variable shifts</h2>
+<p>Instruction <tt class="docutils literal">pmulhuw</tt> does in parallel <tt class="docutils literal">(word_x[i] * word_y[i]) &gt;&gt; 16</tt>.</p>
+<p>If one component has form <tt class="docutils literal">1 &lt;&lt; n[i]</tt> (<tt class="docutils literal">n[i] = 0 .. 15</tt>), then the result
+of the instruction is <tt class="docutils literal">word_x[i] &gt;&gt; (16 - n[i])</tt>, i.e. a word shifted right
+by specified amount from 1 to 16. This is used in algorithm 2.</p>
+<p>(Likewise <tt class="docutils literal">pmullw</tt> can be used to perform shifts left.)</p>
+</div>
+<div class="section" id="counting-leading-zeros">
+<h2>Counting leading zeros</h2>
+<p>Both algorithms require this. Removing leading zeros is similar
+procedure to <tt class="docutils literal">strchr</tt>:</p>
+<pre class="literal-block">
+pcmpeqb     packed_byte('0'), xmmreg
+pmovmskb    xmmreg, reg
+not         reg               -- invert bits
+or          $0x8000, reg      -- do not trim '0' if val was 0
+bsf         reg, reg          -- reg contains position of first non-zero digit
+</pre>
+<p>On a CPU with SSE4.2 this could be done with <a class="reference external" href="../articles/sse4-string-instr.html#strchr">single instruction</a>.</p>
+</div>
+</div>
+<div class="section" id="algorithm-1">
+<h1>Algorithm 1</h1>
+<p>Division by <span class="math">10<sup>8</sup></span> is not suitable for SSE code, because
+require a 64-bit multiplication. In a 64-bit code such multiplication
+is available with CPU instructions, but in a 32-bit code require
+4 multiplications and a long add &mdash; this would kill performance.</p>
+<p>Division by <span class="math">10<sup>4</sup></span> require a 32-bit multiplication. SSE have
+<tt class="docutils literal">pmuludq</tt> that does 2 multiplications and store full a 64-bit result.</p>
+<p>Division by <span class="math">10<sup>2</sup></span> require a 16-bit multiplication. SSE have
+<tt class="docutils literal">pmulhuw</tt> that does 8 multiplications and store the high 16-bit of
+result; likewise <tt class="docutils literal">pmullw</tt> stores the low 16-bit of result. This perfectly
+fits our needs.</p>
+<p>Division by <span class="math">10<sup>1</sup></span> require an 8-bit multiplication, but SSE does not
+provide any instruction that vertically multiply bytes. We have to use
+a 16-bit multiplication.</p>
+<p>Code for conversion 64-bit numbers consist following steps:</p>
+<ol class="arabic">
+<li><p class="first">Start with two 8-digit numbers (32-bit values):</p>
+<pre class="literal-block">
+[ ____ ____ | ____ ____ | 9765 4321 | 1234 5678 ]       -- packed dword (_ = 0)
+</pre>
+</li>
+<li><p class="first">Then divmod 32-bit numbers by <span class="math">10<sup>4</sup></span> (<tt class="docutils literal">pmuludq</tt>),
+results are 32-bit numbers:</p>
+<pre class="literal-block">
+[ ____ 9765 | ____ 4321 | ____ 1234 | ____ 5678 ]       -- packed dword
+</pre>
+</li>
+<li><p class="first">Then divmod 32-bit numbers by <span class="math">10<sup>2</sup></span> (<tt class="docutils literal">pmulhuw</tt> and <tt class="docutils literal">pmullw</tt>),
+results are 16-bit numbers:</p>
+<pre class="literal-block">
+[ __97 | __65 | __43 | __21 | __12 | __34 | __56 | __78 ]       -- packed word
+</pre>
+</li>
+<li><p class="first">Then divmod 32-bit numbers by <span class="math">10<sup>1</sup></span> (again <tt class="docutils literal">pmulhuw</tt> and <tt class="docutils literal">pmullw</tt>),
+results are 16-bit numbers:</p>
+<pre class="literal-block">
+[ ___7 | ___5 | ___3 | ___1 | ___2 | ___4 | ___6 | ___8 ]       -- packed word
+[ ___9 | ___6 | ___4 | ___2 | ___1 | ___3 | ___5 | ___7 ]       -- packed word
+</pre>
+</li>
+<li><p class="first">Finally join decimal digits, convert to ASCII and remove leading zeros.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="algorithm-2">
+<h1>Algorithm 2</h1>
+<p>This algorithm can convert only a single number from range 0..9999_9999.
+The main idea is to divide 4-digits numbers by <span class="math">10<sup>3</sup></span>, <span class="math">10<sup>2</sup></span>
+and <span class="math">10<sup>1</sup></span> at once.</p>
+<ol class="arabic">
+<li><p class="first">Divide &amp; modulo by <span class="math">10<sup>4</sup></span> (<tt class="docutils literal">pmuludq</tt>):</p>
+<pre class="literal-block">
+v0 = [ 0000 | abcd | 0000 | efgh ] -- packed dword
+</pre>
+</li>
+<li><p class="first">Populate words:</p>
+<pre class="literal-block">
+v1 = [ abcd | abcd | abcd | abcd | efgh | efgh | efgh | efgh ] -- packed word
+</pre>
+</li>
+<li><p class="first">Multiply <tt class="docutils literal">v1</tt> by 4 with <tt class="docutils literal">psllw</tt> (safe, because <span class="math">9999 &sdot; 4 &lt 2<sup>16</sup> &minus; 1</span>):</p>
+<pre class="literal-block">
+v2 = [ 4*abcd | 4*abcd | 4*abcd | 4*abcd | 4*efgh | 4*efgh | 4*efgh | 4*efgh ]
+</pre>
+</li>
+<li><p class="first">Divide by <span class="math">10<sup>3</sup></span>, <span class="math">10<sup>2</sup></span>, <span class="math">10<sup>1</sup></span>, and <span class="math">10<sup>0</sup></span>
+(single <tt class="docutils literal">pmulhuw</tt>):</p>
+<pre class="literal-block">
+v3 = [ a * 2^(7 + 2) | ab * 2^(3 + 2) | abc * 2^(1 + 2) | 2*abcd | &lt;likewise digits efgh&gt; ]
+</pre>
+</li>
+<li><p class="first">Shift right by 9, 5, 3 and 1 bits each 4-words group (single <tt class="docutils literal">pmulhuw</tt>,
+see subsection below):</p>
+<pre class="literal-block">
+v4 = [    a |   ab |  abc | abcd |    e |   ef |  efg | efgh ]
+</pre>
+</li>
+<li><p class="first">Calculate modulo:</p>
+<pre class="literal-block">
+v5 = packed_qword(v4) &gt;&gt; 16
+
+v6 = packed_word(v5) * 10 =
+   = [    0 |   a0 |  ab0 | abc0 |    0 |   e0 |  ef0 | efg0 ]
+
+v7 = v4 - v6 =
+   = [    a |    b |    c |    d |    e |    f |    g |    h ]
+</pre>
+</li>
+<li><p class="first">Pack words to bytes (<tt class="docutils literal">packuswb</tt>), convert to ASCII and remove
+leading zeros.</p>
+</li>
+</ol>
+<p>Ad 3. With <tt class="docutils literal">pmuluhw</tt> we cannot divide by 1, the minimum is 2.  Because
+<tt class="docutils literal">pmulhuw</tt> is invoked two times (for divide and shift), we have to multiply
+input by 4, to finally get the <tt class="docutils literal">abcd</tt> &amp; <tt class="docutils literal">efgh</tt> after step 5.</p>
+</div>
+<div class="section" id="real-word-requirements-limitations">
+<h1>Real-word requirements &amp; limitations</h1>
+<ol class="arabic simple">
+<li>Signed numbers conversion requires to put a sign char in the front of string.
+This have to be done with CPU (scalar) instructions.</li>
+<li>Vectorized code generate 8 or 16 digits at single run. The longest
+32-bit number has 10 decimal digits, and 64-bit &mdash; 20 digits, thus 2 or 4
+digits are not converted in SSE code. Using SSE code to obtain them
+wouldn't be wise decision.</li>
+</ol>
+</div>
+<div class="section" id="implementation">
+<h1>Implementation</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/sse-utoa">Sample program</a> provides following functions:</p>
+<ul class="simple">
+<li><tt class="docutils literal">utoa64_sse</tt> &mdash; algortihm 1: described here;</li>
+<li><tt class="docutils literal">utoa32_sse</tt> &mdash; algorithm 1: implementation for 32-bit numbers;</li>
+<li><tt class="docutils literal">utoa32_sse_2</tt> &mdash; algorithm 2</li>
+<li><tt class="docutils literal">utoa32</tt> &amp; <tt class="docutils literal">uta64</tt> &mdash; plain C implementations; faster than
+<tt class="docutils literal"><span class="pre">sprintf(&quot;%d&quot;,</span> &amp;x)</tt>.</li>
+</ul>
+<p>Please read the source header to find how to compile.  Program can be used
+to measure speed of the selected procedure and to print results, thus allow
+to verify correctness.</p>
+</div>
+<div class="section" id="tests-results">
+<h1>Tests results</h1>
+<p>The <strong>best times</strong> are considered. For larger number speedup is around 3
+times, while for short numbers time is comparable to the plain C code, and
+for very short numbers is much worse.</p>
+<div class="section" id="core2-duo-e8200-2gz">
+<h2>Core2 Duo E8200 (2Gz)</h2>
+<p>Tests were run on my Linux box with Core2 Duo E8200 (2GHz); gcc 4.6.1
+(<tt class="docutils literal"><span class="pre">-O3</span></tt> flag) was used to compile the program.</p>
+<div class="section" id="algorithm-1-utoa32-sse">
+<h3>Algorithm 1 &mdash; utoa32_sse</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="39%" />
+<col width="19%" />
+<col width="13%" />
+<col width="15%" />
+<col width="15%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">number range</th>
+<th class="head">iterations</th>
+<th class="head">C [s]</th>
+<th class="head">SSE [s]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 99</td>
+<td>1_000_000</td>
+<td>0.492</td>
+<td>0.880</td>
+<td>56%</td>
+</tr>
+<tr><td>0 .. 9999</td>
+<td>10_000</td>
+<td>1.076</td>
+<td>0.884</td>
+<td>122%</td>
+</tr>
+<tr><td>0 .. 9999_9999</td>
+<td>1</td>
+<td>2.480</td>
+<td>0.872</td>
+<td>284%</td>
+</tr>
+<tr><td>1000_0000 .. 9999_9999</td>
+<td>1</td>
+<td>2.276</td>
+<td>0.784</td>
+<td>290%</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="algorithm-2-utoa32-sse-2">
+<h3>Algorithm 2 &mdash; utoa32_sse_2</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="39%" />
+<col width="19%" />
+<col width="13%" />
+<col width="15%" />
+<col width="15%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">number range</th>
+<th class="head">iterations</th>
+<th class="head">C [s]</th>
+<th class="head">SSE [s]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 99</td>
+<td>1_000_000</td>
+<td>0.492</td>
+<td>0.808</td>
+<td>61%</td>
+</tr>
+<tr><td>0 .. 9999</td>
+<td>10_000</td>
+<td>1.076</td>
+<td>0.812</td>
+<td>132%</td>
+</tr>
+<tr><td>0 .. 9999_9999</td>
+<td>1</td>
+<td>2.480</td>
+<td>0.728</td>
+<td>340%</td>
+</tr>
+<tr><td>1000_0000 .. 9999_9999</td>
+<td>1</td>
+<td>2.276</td>
+<td>0.812</td>
+<td>280%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="westmere-i5-m540-2-53ghz">
+<h2>Westmere i5 M540 &#64; 2.53GHz</h2>
+<p>Compilation with GCC 7.3.0.</p>
+<div class="section" id="algorithm-1-utoa32-sse-1">
+<h3>Algorithm 1 &mdash; utoa32_sse</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="38%" />
+<col width="19%" />
+<col width="13%" />
+<col width="16%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">number range</th>
+<th class="head">iterations</th>
+<th class="head">C [ms]</th>
+<th class="head">SSE [ms]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 99</td>
+<td>100_000</td>
+<td>62</td>
+<td>98</td>
+<td>0.62</td>
+</tr>
+<tr><td>0 .. 9999</td>
+<td>1_000</td>
+<td>106</td>
+<td>98</td>
+<td>1.08</td>
+</tr>
+<tr><td>0 .. 9999_9999</td>
+<td>1</td>
+<td>2393</td>
+<td>881</td>
+<td>2.71</td>
+</tr>
+<tr><td>1000_0000 .. 9999_9999</td>
+<td>1</td>
+<td>2197</td>
+<td>881</td>
+<td>2.49</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="algorithm-2-utoa32-sse-2-1">
+<h3>Algorithm 2 &mdash; utoa32_sse_2</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="38%" />
+<col width="19%" />
+<col width="13%" />
+<col width="16%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">number range</th>
+<th class="head">iterations</th>
+<th class="head">C [ms]</th>
+<th class="head">SSE [ms]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 99</td>
+<td>100_000</td>
+<td>62</td>
+<td>78</td>
+<td>0.79</td>
+</tr>
+<tr><td>0 .. 9999</td>
+<td>1_000</td>
+<td>106</td>
+<td>76</td>
+<td>1.34</td>
+</tr>
+<tr><td>0 .. 9999_9999</td>
+<td>1</td>
+<td>2393</td>
+<td>783</td>
+<td>3.05</td>
+</tr>
+<tr><td>1000_0000 .. 9999_9999</td>
+<td>1</td>
+<td>2197</td>
+<td>704</td>
+<td>3.12</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="core-i7-6700-cpu-3-40ghz">
+<h2>Core i7-6700 CPU &#64; 3.40GHz</h2>
+<p>Compilation with GCC 7.3.0.</p>
+<div class="section" id="algorithm-1-utoa32-sse-2">
+<h3>Algorithm 1 &mdash; utoa32_sse</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="38%" />
+<col width="19%" />
+<col width="13%" />
+<col width="16%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">number range</th>
+<th class="head">iterations</th>
+<th class="head">C [ms]</th>
+<th class="head">SSE [ms]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 99</td>
+<td>100_000</td>
+<td>31</td>
+<td>154</td>
+<td>0.20</td>
+</tr>
+<tr><td>0 .. 9999</td>
+<td>1_000</td>
+<td>51</td>
+<td>155</td>
+<td>0.33</td>
+</tr>
+<tr><td>0 .. 9999_9999</td>
+<td>1</td>
+<td>1077</td>
+<td>1389</td>
+<td>0.78</td>
+</tr>
+<tr><td>1000_0000 .. 9999_9999</td>
+<td>1</td>
+<td>986</td>
+<td>1533</td>
+<td>0.64</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="algorithm-2-utoa32-sse-2-2">
+<h3>Algorithm 2 &mdash; utoa32_sse_2</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="38%" />
+<col width="19%" />
+<col width="13%" />
+<col width="16%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">number range</th>
+<th class="head">iterations</th>
+<th class="head">C [ms]</th>
+<th class="head">SSE [ms]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0 .. 99</td>
+<td>100_000</td>
+<td>31</td>
+<td>123</td>
+<td>0.25</td>
+</tr>
+<tr><td>0 .. 9999</td>
+<td>1_000</td>
+<td>51</td>
+<td>122</td>
+<td>0.42</td>
+</tr>
+<tr><td>0 .. 9999_9999</td>
+<td>1</td>
+<td>1077</td>
+<td>1221</td>
+<td>0.88</td>
+</tr>
+<tr><td>1000_0000 .. 9999_9999</td>
+<td>1</td>
+<td>986</td>
+<td>1099</td>
+<td>0.90</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<p><a class="reference external" href="https://github.com/miloyip">Milo Yip</a> compared different <a class="reference external" href="https://github.com/miloyip/itoa-benchmark">itoa</a> and <a class="reference external" href="https://github.com/miloyip/dtoa-benchmark">dtoa</a> implementations on Core i7,
+including the algorithm 2 which use SSE2 instructions.</p>
+<p>Results for itoa are interesting: SSE2 version is not as good as it seemed to
+be. Tricky branchlut algorithm is only 10% slower, moreover is perfectly
+portable. One obvious drawback of this method is using lookup-table - in real
+environment where is a big pressure on cache, memory access could be a
+bottleneck.</p>
+</div>
+<div class="section" id="changelog">
+<h1>Changelog</h1>
+<ul class="simple">
+<li>2011-11-06</li>
+<li>2013-11-24 - minor updates</li>
+<li>2011-11-06 - <tt class="docutils literal">utoa32_sse_2</tt></li>
+<li>2011-10-15 - <tt class="docutils literal">utoa64_sse</tt></li>
+<li>2011-10-09 - initial results</li>
+<li>2011-10-08 - optimization</li>
+<li>2011-10-07 - first <tt class="docutils literal">utoa32_sse</tt> version</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2011-10-21-sse-itoa.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:07 GMT -->
+</html>

@@ -1,0 +1,1226 @@
+<!DOCTYPE html><html lang="zh">
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter11.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:54 GMT -->
+<head>
+        <title>11 Real Time Load Balancing &#xB7; Linux Process Schedule</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content>
+        <meta name="generator" content="GitBook 3.1.1">
+        <meta name="author" content="Ezio Zhang">
+        
+        
+    
+    <link rel="stylesheet" href="gitbook/style.css">
+
+    
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-comment/plugin.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-highlight/website.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-search/search.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-fontsettings/website.css">
+                
+            
+        
+
+    
+
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+
+        
+    
+    
+    <meta name="HandheldFriendly" content="true">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="gitbook/images/apple-touch-icon-precomposed-152.png">
+    <link rel="shortcut icon" href="https://gstatic.gitbook.com/images/b1c4c86ca817a71628d2debe73be9a64.ico" type="image/x-icon">
+
+    
+    <link rel="next" href="chapter12.html">
+    
+    
+    <link rel="prev" href="chapter10.html">
+    
+
+    
+<style>
+    .book .book-summary .book-search,
+    .book .book-summary ul.summary {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        bottom: auto;
+    }
+    .book-summary {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        display: flex;
+        flex-direction: column;
+        -webkit-box-orient: vertical;
+        -webkit-box-direction: normal;
+        overflow-y: auto;
+    }
+    .book-summary > nav {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overflow-y: overlay;
+    }
+    .gl-wrapper {
+        margin: 0;
+        display: block;
+        padding: 0;
+        position: relative;
+        line-height: 15px;
+        background: #fafafa;
+    }
+    .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        background: -moz-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        top: -24px;
+        width: 100%;
+        height: 24px;
+        content: "";
+        display: block;
+        position: absolute;
+        background: linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+    }
+    .book.color-theme-1 .gl-wrapper {
+        background: #121212;
+    }
+    .book.color-theme-1 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: -moz-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+    }
+    .book.color-theme-2 .gl-wrapper {
+        background: #2e3243;
+    }
+    .book.color-theme-2 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: -moz-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+    }
+    .gl-wrapper .gitbook-link {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        color: #9DAAB6;
+        margin: 16px;
+        display: flex;
+        padding: 0;
+        align-items: center;
+        margin-left: 32px;
+        padding-top: 8px;
+        padding-left: 16px;
+        border-radius: 3px;
+        padding-right: 16px;
+        padding-bottom: 8px;
+        text-decoration: none;
+        background-color: #E6ECF1;
+        -webkit-box-align: center;
+    }
+    .gl-wrapper .tm-logo {
+        margin: 0;
+        display: block;
+        padding: 0;
+        font-size: 40px;
+    }
+    .gl-wrapper .tm-content {
+        flex: 1;
+        margin: 0;
+        display: block;
+        padding: 0;
+        padding-left: 16px;
+    }
+    .gl-wrapper .tm-content .container {
+        margin: 0;
+        display: block;
+        padding: 0;
+    }
+    .gl-wrapper .tm-content .tm-container .tm-text {
+        font-size: 12px;
+        font-family: "Roboto", sans-serif;
+        font-weight: 400;
+        line-height: 1.625;
+    }
+</style></head>
+    <body>
+        
+<div class="book">
+    <div class="book-summary">
+        
+            
+<div id="book-search-input" role="search">
+    <input type="text" placeholder="Type to search">
+</div>
+
+            
+                <nav role="navigation">
+                
+
+
+<ul class="summary">
+    
+    
+    
+        
+        <li>
+            <a href="https://www.gitbook.com/book/oska874/process-scheduling-in-linux" target="_blank" class="custom-link">Linux Process Schedule</a>
+        </li>
+    
+    
+
+    
+    <li class="divider"></li>
+    
+
+    
+        
+        
+    
+        <li class="chapter " data-level="1.1" data-path="./">
+            
+                <a href="index.html">
+            
+                    
+                    Introduction
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.2" data-path="chapter1.html">
+            
+                <a href="chapter1.html">
+            
+                    
+                    1 Process Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.3" data-path="chapter2.html">
+            
+                <a href="chapter2.html">
+            
+                    
+                    2 Task Classification
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.4" data-path="chapter3.html">
+            
+                <a href="chapter3.html">
+            
+                    
+                    3 Scheduling Classes
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.5" data-path="chapter4.html">
+            
+                <a href="chapter4.html">
+            
+                    
+                    4 Main Runqueue
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.6" data-path="chapter5.html">
+            
+                <a href="chapter5.html">
+            
+                    
+                    5 Scheduler Skeleton
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.7" data-path="chapter6.html">
+            
+                <a href="chapter6.html">
+            
+                    
+                    6 Short Scheduling Algorithm History
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.8" data-path="chapter7.html">
+            
+                <a href="chapter7.html">
+            
+                    
+                    7 Completely Fair Scheduler (CFS)
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.9" data-path="chapter8.html">
+            
+                <a href="chapter8.html">
+            
+                    
+                    8 CFS Implementation Details
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.10" data-path="chapter9.html">
+            
+                <a href="chapter9.html">
+            
+                    
+                    9 Soft Real-Time Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.11" data-path="chapter10.html">
+            
+                <a href="chapter10.html">
+            
+                    
+                    10 Load Balancing on SMP Systems
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter active" data-level="1.12" data-path="chapter11.html">
+            
+                <a href="chapter11.html">
+            
+                    
+                    11 Real Time Load Balancing
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.13" data-path="chapter12.html">
+            
+                <a href="chapter12.html">
+            
+                    
+                    12. Resources
+            
+                </a>
+            
+
+            
+        </li>
+    
+
+    
+
+    <li class="divider"></li>
+
+    
+</ul>
+
+
+                </nav>
+            
+        
+    
+<div class="gl-wrapper">
+    <a class="gitbook-link" href="https://www.gitbook.com/?utm_source=public_site_legacy&amp;utm_medium=referral&amp;utm_campaign=trademark&amp;utm_term=oska874&amp;utm_content=powered_by" target="blank">
+        <div class="tm-logo">
+            <svg preserveAspectRatio="xMidYMid meet" height="1em" width="1em" fill="currentColor" viewBox="0 0 1067 769" xmlns="http://www.w3.org/2000/svg" stroke="none" class="icon-7f6730be--text-3f89f380"><g><path d="M480.026 640.677c17.205 0 31.2 13.997 31.2 31.194s-13.995 31.193-31.2 31.193c-17.197 0-31.193-13.996-31.193-31.193 0-17.197 13.996-31.194 31.193-31.194m489.93-193.226c-17.203 0-31.2-13.998-31.2-31.195 0-17.204 13.997-31.2 31.2-31.2 17.198 0 31.194 13.996 31.194 31.2 0 17.197-13.996 31.195-31.193 31.195m0-127.804c-53.269 0-96.609 43.34-96.609 96.609 0 10.373 1.723 20.702 5.123 30.741L559.328 616.879c-18.132-26.128-47.521-41.617-79.302-41.617-36.821 0-70.391 21.065-86.63 54.003L106.68 478.109c-30.288-15.927-52.965-65.817-50.56-111.223 1.248-23.687 9.438-42.071 21.897-49.17 7.916-4.493 17.436-4.099 27.526 1.188l1.916 1.01c75.96 40.022 324.6 170.981 335.063 175.844 16.157 7.47 25.14 10.5 52.659-2.547l513.958-267.3c7.53-2.844 16.315-10.062 16.315-21.023 0-15.205-15.72-21.199-15.765-21.199-29.218-14.018-74.163-35.054-117.987-55.57C798.033 84.26 691.861 34.547 645.23 10.132c-40.253-21.072-72.655-3.311-78.432.282l-11.227 5.555C345.727 119.743 64.898 258.826 48.911 268.553 20.278 285.973 2.547 320.679.252 363.768c-3.586 68.304 31.261 139.506 81.069 165.634l303.172 156.354c6.83 47.306 47.55 82.725 95.532 82.725 52.78 0 95.808-42.546 96.603-95.14L910.541 492.38c16.93 13.233 37.92 20.486 59.416 20.486 53.268 0 96.61-43.341 96.61-96.61s-43.342-96.61-96.61-96.61" fill-rule="evenodd"/></g></svg>
+        </div>
+        <div class="tm-content">
+            <div class="tm-container">
+                <span class="tm-text">
+                    Powered by <b>GitBook</b>
+                </span>
+            </div>
+        </div>
+    </a>
+</div></div>
+
+    <div class="book-body">
+        
+            <div class="body-inner">
+                
+                    
+
+<div class="book-header" role="navigation">
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href=".html">11 Real Time Load Balancing</a>
+    </h1>
+</div>
+
+
+
+
+                    <div class="page-wrapper" tabindex="-1" role="main">
+                        <div class="page-inner">
+                            
+<div id="book-search-results">
+    <div class="search-noresults">
+    
+                                <section class="normal markdown-section">
+                                
+                                <h1 id="11-real-time-load-balancing">11. Real Time Load Balancing</h1>
+<p>The active and idle balancing implementation in the CFS class makes sure that only CFS tasks are affected. Real time tasks are handled by the real time scheduler. It applies push and pull operations for overloaded RT queues considering the following cases:</p>
+<ul>
+<li><ol>
+<li>A task wakes up and needs to be scheduled: This scenario is handled by the select_task_rq() implementation of the RT algorithm.</li>
+</ol>
+</li>
+<li><ol>
+<li>A lower prio task wakes up on a runqueue with a higher prio task running: a push operation is applied for the lower prio task.</li>
+</ol>
+</li>
+<li><ol>
+<li>A high prio task wakes up on a runqueue with a lower prio task running and pre-empts it: also a push operation is applied for the lower prio task.</li>
+</ol>
+</li>
+<li><ol>
+<li>Priorities change on a runqueue because a task lowers its prio and thereby causes a previously lower-prio task to have the higher prio: A pull operation will look for higher prio tasks to pull to this runqueue.</li>
+</ol>
+</li>
+</ul>
+<p>The design goal the real time load balancing pursues is that of a system-wide strict real-time priority scheduling. That means, the real time scheduler needs to make sure that the N highest-priority RT tasks are running at any given point in time, where N is the number of CPUs.</p>
+<h2 id="111-root-domains-and-cpu-priorities">11.1. Root Domains and CPU Priorities</h2>
+<p>The given design goal requires the scheduler to get a quick and efficient overview of all runqueues in the system to make scheduling decisions. This leads to scalability issues with a growing number of CPUs. Therefore, the notion of a root domain was introduced which partitions CPUs into subsets 
+that are used by a process or a group of processes. All real-time scheduling decisions are made only within the scope of a root domain.</p>
+<p>Another concept that was introduced to deal with the given design goal are CPU priorities. CPU priorities mirror the priority of the highest priority RT task in a root domain. A two-dimensional bitmap is used to manage the CPU priorities. One dimension for the different priorities and one for the CPUs in that priority. CPU priorities are implemented in /kernel/sched_cpupri.c and /kernel/sched_cpupri.h.</p>
+<p>A root_domain struct has a bit array for overloaded CPUs it contains and a cpupri struct with a bitmap of CPU priorities. A CPU counts as overloaded with RT task if it has more than one runnable RT task in its runqueue.</p>
+<pre><code>/*
+ * We add the notion of a root-domain which will be used to define per-domain
+ * variables. Each exclusive cpuset essentially defines an island domain by
+ * fully partitioning the member cpus from any other cpuset. Whenever a new
+ * exclusive cpuset is created, we also create and attach a new root-domain
+ * object.
+ *
+ */
+struct root_domain {
+    atomic_t refcount;
+    atomic_t rto_count;
+    struct rcu_head rcu;
+    cpumask_var_t span;
+    cpumask_var_t online;
+    /*
+     * The &quot;RT overload&quot; flag: it gets set if a CPU has more than
+     * one runnable RT task.
+     */
+    cpumask_var_t rto_mask;
+    struct cpupri cpupri;
+};
+struct cpupri_vec {
+    raw_spinlock_t lock;
+    int count;
+    cpumask_var_t mask;
+};
+struct cpupri {
+    struct cpupri_vec pri_to_cpu[CPUPRI_NR_PRIORITIES];
+    long pri_active[CPUPRI_NR_PRI_WORDS];
+    int cpu_to_pri[NR_CPUS];
+};
+</code></pre><p>With the cpupri bitmask above properly maintained, the function cpupri_find() can be used to quickly find a low priority CPU to push a higher priority task to. If a priority level is non-empty and lower than the priority of the task being pushed, the lowest_mask is set to the mask corresponding to the priority level selected. This mask is then used by the push algorithm to compute the best CPU to which to push the task, based on affinity, topology and cache characteristics.</p>
+<pre><code>/**
+ * cpupri_find - find the best (lowest-pri) CPU in the system
+ * @cp: The cpupri context
+ * @p: The task
+ * @lowest_mask: A mask to fill in with selected CPUs (or NULL)
+ *
+ * Note: This function returns the recommended CPUs as calculated during the
+ * current invocation. By the time the call returns, the CPUs may have in
+ * fact changed priorities any number of times. While not ideal, it is not
+ * an issue of correctness since the normal rebalancer logic will correct
+ * any discrepancies created by racing against the uncertainty of the current
+ * priority configuration.
+ *
+ * Returns: (int)bool - CPUs were found
+ */
+int cpupri_find(struct cpupri *cp, struct task_struct *p,
+                struct cpumask *lowest_mask)
+{
+    int idx = 0;
+    int task_pri = convert_prio(p-&gt;prio);
+    for_each_cpupri_active(cp-&gt; pri_active
+
+                           , idx)
+
+    {
+        struct cpupri_vec *vec = &amp;cp-&gt;pri_to_cpu[idx];
+        if (idx &gt;= task_pri)
+            break;
+        if (cpumask_any_and(&amp;p-&gt;cpus_allowed, vec-&gt;mask) &gt;= nr_cpu_ids)
+            continue;
+        if (lowest_mask) {
+            cpumask_and(lowest_mask, &amp;p-&gt;cpus_allowed, vec-&gt;mask);
+            /*
+             * We have to ensure that we have at least one bit
+             * still set in the array, since the map could have
+             * been concurrently emptied between the first and
+             * second reads of vec-&gt;mask. If we hit this
+             * condition, simply act as though we never hit this
+             * priority level and continue on.
+             */
+            if (cpumask_any(lowest_mask) &gt;= nr_cpu_ids)
+                continue;
+        }
+        return 1;
+
+    }
+    return 0;
+
+}
+</code></pre><p>The function electing a final cpu to push a task to from the lowest mask is called find_lowest_rq(). It is implemented in kernel/sched_rt.c. If cpupri_find() returns a mask with possible CPU targets, find_lowest_rq() would first look if the CPU is among them that last executed the task to be pushed. This CPU is most likely to have the hottest cache and therefore the best choice.</p>
+<p>If not, find_lowest_rq() walks up the scheduling domain hierarchy to find a CPU that is logically closest to the hot cache data of the current CPU and also in the lowest prio map. </p>
+<p>If this search also does not return any usable results, just any of the CPUs in the mask is selected and returned.</p>
+<pre><code>static int find_lowest_rq(struct task_struct *task)
+{
+    struct sched_domain *sd;
+    struct cpumask *lowest_mask = __get_cpu_var(local_cpu_mask);
+    int this_cpu = smp_processor_id();
+    int cpu = task_cpu(task);
+    /* Make sure the mask is initialized first */
+    if (unlikely(!lowest_mask))
+        return -1;
+    if (task-&gt;rt.nr_cpus_allowed == 1)
+        return -1; /* No other targets possible */
+    if (!cpupri_find(&amp;task_rq(task)-&gt;rd-&gt;cpupri, task, lowest_mask))
+        return -1; /* No targets found */
+    /*
+     * At this point we have built a mask of cpus representing the
+     * lowest priority tasks in the system. Now we want to elect
+     * the best one based on our affinity and topology.
+     *
+     * We prioritize the last cpu that the task executed on since
+     * it is most likely cache-hot in that location.
+     */
+    if (cpumask_test_cpu(cpu, lowest_mask))
+        return cpu;
+    /*
+     * Otherwise, we consult the sched_domains span maps to figure
+     * out which cpu is logically closest to our hot cache data.
+     */
+    if (!cpumask_test_cpu(this_cpu, lowest_mask))
+        this_cpu = -1; /* Skip this_cpu opt if not among lowest */
+    rcu_read_lock();
+    for_each_domain(cpu, sd) {
+        if (sd-&gt;flags &amp; SD_WAKE_AFFINE) {
+            int best_cpu;
+            /*
+             * &quot;this_cpu&quot; is cheaper to preempt than a
+             * remote processor.
+             */
+            if (this_cpu != -1 &amp;&amp;
+                cpumask_test_cpu(this_cpu, sched_domain_span(sd))) {
+                rcu_read_unlock();
+                return this_cpu;
+            }
+            best_cpu = cpumask_first_and(lowest_mask,
+                                         sched_domain_span(sd));
+            if (best_cpu &lt; nr_cpu_ids) {
+                rcu_read_unlock();
+                return best_cpu;
+            }
+        }
+    }
+    rcu_read_unlock();
+    /*
+     * And finally, if there were no matches within the domains
+     * just give the caller *something* to work with from the compatible
+     * locations.
+     */
+    if (this_cpu != -1)
+        return this_cpu;
+    cpu = cpumask_any(lowest_mask);
+    if (cpu &lt; nr_cpu_ids)
+        return cpu;
+    return -1;
+
+}
+</code></pre><h2 id="112-push-operation">11.2 Push Operation</h2>
+<p>The task push operation in the RT scheduler is invoked after the scheduler skeleton scheduled a new task on the current CPU. The scheduling class hook post_schedule() is called which is currently only implemented by the RT scheduling class. Internally, it calls push_rt_task() for all tasks on the current CPU&apos;s runqueue.</p>
+<p>This function looks if the runqueue is overloaded and, if so, tries to move non running RT tasks to another applicable CPU until moving a task fails. If a task was moved, a future call to schedule() is invoked by setting the need_resched flag. </p>
+<p>It uses find_lock_lowest_rq() which internally calls find_lowest_rq() but additionally locks the queue if found.</p>
+<pre><code>/*
+ * If the current CPU has more than one RT task, see if the non
+ * running task can migrate over to a CPU that is running a task
+ * of lesser priority.
+ */
+static int push_rt_task(struct rq *rq)
+{
+    struct task_struct *next_task;
+    struct rq *lowest_rq;
+    if (!rq-&gt;rt.overloaded)
+        return 0;
+    next_task = pick_next_pushable_task(rq);
+    if (!next_task)
+        return 0;
+retry:
+    if (unlikely(next_task == rq-&gt;curr)) {
+        WARN_ON(1);
+        return 0;
+    }
+    /*
+     * It&apos;s possible that the next_task slipped in of
+     * higher priority than current. If that&apos;s the case
+     * just reschedule current.
+     */
+    if (unlikely(next_task-&gt;prio &lt; rq-&gt;curr-&gt;prio)) {
+        resched_task(rq-&gt;curr);
+        return 0;
+    }
+    /* We might release rq lock */
+    get_task_struct(next_task);
+    /* find_lock_lowest_rq locks the rq if found */
+    lowest_rq = find_lock_lowest_rq(next_task, rq);
+    if (!lowest_rq) {
+        struct task_struct *task;
+        /*
+         * find lock_lowest_rq releases rq-&gt;lock
+         * so it is possible that next_task has migrated.
+         *
+         * We need to make sure that the task is still on the same
+         * run-queue and is also still the next task eligible for
+         * pushing.
+         */
+        task = pick_next_pushable_task(rq);
+        if (task_cpu(next_task) == rq-&gt;cpu &amp;&amp; task == next_task) {
+            /*
+             * If we get here, the task hasn&apos;t moved at all, but
+             * it has failed to push. We will not try again,
+             * since the other cpus will pull from us when they
+             * are ready.
+             */
+            dequeue_pushable_task(rq, next_task);
+            goto out;
+        }
+        if (!task)
+            /* No more tasks, just exit */
+            goto out;
+        /*
+         * Something has shifted, try again.
+         */
+        put_task_struct(next_task);
+        next_task = task;
+        goto retry;
+    }
+    deactivate_task(rq, next_task, 0);
+    set_task_cpu(next_task, lowest_rq-&gt;cpu);
+    activate_task(lowest_rq, next_task, 0);
+    resched_task(lowest_rq-&gt;curr);
+    double_unlock_balance(rq, lowest_rq);
+out:
+    put_task_struct(next_task);
+    return 1;
+}
+</code></pre><h2 id="113-pull-operation">11.3 Pull Operation</h2>
+<p>The pull operation is called by the pre_schedule() hook. It is currently also only implemented by the RT class and invoked at the beginning of the schedule() function. It will check if the highest priority of the tasks in the current CPU&apos;s runqueue is smaller than the priority of the task than ran last. If that is the case, it will call pull_rt_task() to pull another RT task with a higher priority than the to-be-scheduled task from a different CPU.</p>
+<pre><code>static void pre_schedule_rt(struct rq *rq, struct task_struct *prev)
+{
+    /* Try to pull RT tasks here if we lower this rq&apos;s prio */
+    if (rq-&gt;rt.highest_prio.curr &gt; prev-&gt;prio)
+        pull_rt_task(rq);
+}
+</code></pre><p>pull_rt_task() will go through each CPU of the same root domain as the current CPU. It looks for tasks that are the next highest priority task on the potential source CPU to pull them over to the current CPU. If a task is found, it is pulled over. Schedule() is not invoked since it is about to be executed anyway.</p>
+<pre><code>static int pull_rt_task(struct rq *this_rq)
+{
+    int this_cpu = this_rq-&gt;cpu, ret = 0, cpu;
+    struct task_struct *p;
+    struct rq *src_rq;
+    if (likely(!rt_overloaded(this_rq)))
+        return 0;
+    for_each_cpu(cpu, this_rq-&gt;rd-&gt;rto_mask) {
+        if (this_cpu == cpu)
+            continue;
+        src_rq = cpu_rq(cpu);
+        /*
+         * Don&apos;t bother taking the src_rq-&gt;lock if the next highest
+         * task is known to be lower-priority than our current task.
+         * This may look racy, but if this value is about to go
+         * logically higher, the src_rq will push this task away.
+         * And if its going logically lower, we do not care
+         */
+        if (src_rq-&gt;rt.highest_prio.next &gt;=
+            this_rq-&gt;rt.highest_prio.curr)
+            continue;
+        /*
+         * We can potentially drop this_rq&apos;s lock in
+         * double_lock_balance, and another CPU could
+         * alter this_rq
+         */
+        double_lock_balance(this_rq, src_rq);
+        /*
+         * Are there still pullable RT tasks?
+         */
+        if (src_rq-&gt;rt.rt_nr_running &lt;= 1)
+            goto skip;
+        p = pick_next_highest_task_rt(src_rq, this_cpu);
+        /*
+         * Do we have an RT task that preempts
+         * the to-be-scheduled task?
+         */
+        if (p &amp;&amp; (p-&gt;prio &lt; this_rq-&gt;rt.highest_prio.curr)) {
+            WARN_ON(p == src_rq-&gt;curr);
+            WARN_ON(!p-&gt;on_rq);
+            /*
+             * There&apos;s a chance that p is higher in priority
+             * than what&apos;s currently running on its cpu.
+             * This is just that p is wakeing up and hasn&apos;t
+             * had a chance to schedule. We only pull
+             * p if it is lower in priority than the
+             * current task on the run queue
+             */
+            if (p-&gt;prio &lt; src_rq-&gt;curr-&gt;prio)
+                goto skip;
+            ret = 1;
+            deactivate_task(src_rq, p, 0);
+            set_task_cpu(p, this_cpu);
+            activate_task(this_rq, p, 0);
+            /*
+             * We continue with the search, just in
+             * case there&apos;s an even higher prio task
+             * in another runqueue. (low likelihood
+             * but possible)
+             */
+        }
+
+skip:
+
+        double_unlock_balance(this_rq, src_rq);
+
+    }
+    return ret;
+
+}
+</code></pre><h2 id="114-select-a-runqueue-for-a-waking-task">11.4 Select a Runqueue for a Waking Task</h2>
+<p>As described in the load balancing chapter for CFS tasks, the select_task_rq() scheduling class hook is called as soon as a task wakes up again or for the first time. Apart from the additional push and pull operations, this hook is also implemented by the RT scheduler.</p>
+<p>If the currently running task on this CPU&apos;s runqueue is a RT task, if its priority is higher and if we can move the task to be woken up, then try to find another runqueue we can wake the task up on. If not, wake it up on the same CPU and let the RT scheduler do the rest.</p>
+<p>This function also uses find_lowest_rq() to find a CPU applicable for the task.</p>
+<pre><code>static int select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
+{
+    struct task_struct *curr;
+    struct rq *rq;
+    int cpu;
+    if (sd_flag != SD_BALANCE_WAKE)
+        return smp_processor_id();
+    cpu = task_cpu(p);
+    rq = cpu_rq(cpu);
+    rcu_read_lock();
+    curr = ACCESS_ONCE(rq-&gt;curr); /* unlocked access */
+    if (curr &amp;&amp; unlikely(rt_task(curr)) &amp;&amp;
+        (curr-&gt;rt.nr_cpus_allowed &lt; 2 ||
+         curr-&gt;prio &lt;= p-&gt;prio) &amp;&amp;
+        (p-&gt;rt.nr_cpus_allowed &gt; 1)) {
+        int target = find_lowest_rq(p);
+        if (target != -1)
+            cpu = target;
+    }
+    rcu_read_unlock();
+    return cpu;
+}
+</code></pre><hr>
+<h1 id="11-&#x5B9E;&#x65F6;&#x8D1F;&#x8F7D;&#x5747;&#x8861;">11. &#x5B9E;&#x65F6;&#x8D1F;&#x8F7D;&#x5747;&#x8861;</h1>
+<p>CFS &#x8C03;&#x5EA6;&#x7C7B;&#x4E2D;&#x5B9E;&#x73B0;&#x7684;&#x79EF;&#x6781;&#x5E73;&#x8861;&#x548C;&#x7A7A;&#x95F2;&#x5E73;&#x8861;&#x80FD;&#x786E;&#x4FDD;&#x53EA;&#x6709; CFS &#x4EFB;&#x52A1;&#x53D7;&#x5F71;&#x54CD;&#x3002;&#x5B9E;&#x65F6;&#x4EFB;&#x52A1;&#x7684;&#x8D1F;&#x8F7D;&#x5747;&#x8861;&#x662F;&#x7531;&#x5B9E;&#x65F6;&#x8C03;&#x5EA6;&#x5668;&#x5904;&#x7406;&#x7684;&#x3002;&#x5728;&#x8D85;&#x8F7D;&#x7684; RT &#x961F;&#x5217;&#x4E0A;&#x6267;&#x884C;&#x62C9;&#x53D6;&#x548C;&#x63A8;&#x9001;&#x64CD;&#x4F5C;&#x65F6;&#x8981;&#x8003;&#x8651;&#x4E0B;&#x9762;&#x51E0;&#x79CD;&#x60C5;&#x51B5;&#xFF1A;</p>
+<ul>
+<li><ol>
+<li>&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x5524;&#x9192;&#x548C;&#x9700;&#x8981;&#x88AB;&#x8C03;&#x5EA6;&#xFF1A; &#x8FD9;&#x79CD;&#x573A;&#x666F;&#x4E0B;&#x662F;&#x7531;&#x5B9E;&#x73B0; RT &#x8C03;&#x5EA6;&#x7B97;&#x6CD5;&#x7684;&#x51FD;&#x6570; <code>select_task_rq()</code> &#x5904;&#x7406;&#x7684;&#x3002;</li>
+</ol>
+</li>
+<li><ol>
+<li>&#x961F;&#x5217;&#x4E2D;&#x6709;&#x4E00;&#x4E2A;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x5728;&#x8FD0;&#x884C;&#xFF0C;&#x7136;&#x540E;&#x4E00;&#x4E2A;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x88AB;&#x5524;&#x9192;&#x4E86;&#xFF1A; &#x4F1A;&#x5BF9;&#x8FD9;&#x4E2A;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x6267;&#x884C;&#x63A8;&#x9001;&#x64CD;&#x4F5C;&#x3002;</li>
+</ol>
+</li>
+<li><ol>
+<li>&#x961F;&#x5217;&#x4E2D;&#x6709;&#x4E00;&#x4E2A;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x5728;&#x8FD0;&#x884C;&#xFF0C;&#x7136;&#x540E;&#x4E00;&#x4E2A;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x88AB;&#x5524;&#x9192;&#x4E86;&#xFF1A;&#x540C;&#x6837;&#x4E5F;&#x5BF9;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x6267;&#x884C;&#x63A8;&#x9001;&#x64CD;&#x4F5C;&#x3002;</li>
+</ol>
+</li>
+<li><ol>
+<li>&#x8FD0;&#x884C;&#x961F;&#x91CC;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x53D1;&#x751F;&#x53D8;&#x5316;&#xFF0C;&#x56E0;&#x4E3A;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x964D;&#x4F4E;&#x4E86;&#x81EA;&#x5DF1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#xFF0C;&#x4ECE;&#x800C;&#x4E4B;&#x524D;&#x4E00;&#x4E2A;&#x66F4;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x53D8;&#x6210;&#x76F8;&#x5BF9;&#x9AD8;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#xFF1A;&#x4F1A;&#x6267;&#x884C;&#x63A8;&#x9001;&#x64CD;&#x4F5C;&#x6765;&#x5BFB;&#x627E;&#x4E00;&#x4E2A;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4EFB;&#x52A1;&#x5E76;&#x63A8;&#x9001;&#x5230;&#x8FD9;&#x4E2A;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x3002;</li>
+</ol>
+</li>
+</ul>
+<p>&#x5B9E;&#x65F6;&#x8D1F;&#x8F7D;&#x5747;&#x8861;&#x8FD9;&#x79CD;&#x8BBE;&#x8BA1;&#x8FFD;&#x6C42;&#x7684;&#x76EE;&#x6807;&#x662F;&#x5728;&#x6574;&#x4E2A;&#x7CFB;&#x7EDF;&#x4E2D;&#x4E25;&#x683C;&#x7684;&#x6267;&#x884C;&#x5B9E;&#x65F6;&#x4F18;&#x5148;&#x7EA7;&#x8C03;&#x5EA6;&#x3002;&#x8FD9;&#x4E5F;&#x5C31;&#x610F;&#x5473;&#x7740;&#x5B9E;&#x65F6;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#x5668;&#x9700;&#x8981;&#x786E;&#x4FDD; N &#x4E2A;&#x6700;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x7684; RT &#x4EFB;&#x52A1;&#x80FD;&#x591F;&#x5728;&#x4EFB;&#x4F55;&#x65F6;&#x95F4;&#x70B9;&#x90FD;&#x80FD;&#x53CA;&#x65F6;&#x8FD0;&#x884C;&#xFF0C;&#x5176;&#x4E2D; N &#x662F; CPU &#x7684;&#x4E2A;&#x6570;&#x3002;</p>
+<h2 id="111-&#x6839;&#x57DF;&#x548C;-cpu-&#x4F18;&#x5148;&#x7EA7;">11.1. &#x6839;&#x57DF;&#x548C; CPU &#x4F18;&#x5148;&#x7EA7;</h2>
+<p>&#x7ED9;&#x5B9A;&#x7684;&#x8BBE;&#x8BA1;&#x76EE;&#x6807;&#x8981;&#x6C42;&#x8C03;&#x5EA6;&#x5668;&#x80FD;&#x5FEB;&#x901F;&#x4E14;&#x6709;&#x6548;&#x7684;&#x83B7;&#x53D6;&#x4E00;&#x4E2A;&#x5173;&#x4E8E;&#x7CFB;&#x7EDF;&#x4E2D;&#x6240;&#x6709;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x7684;&#x7EFC;&#x8FF0;&#xFF0C;&#x4EE5;&#x6B64;&#x6765;&#x505A;&#x51FA;&#x8C03;&#x5EA6;&#x51B3;&#x7B56;&#x3002;&#x8FD9;&#x5C31;&#x5F15;&#x51FA;&#x4E86;&#x968F;&#x7740; CPU &#x4E2A;&#x6570;&#x589E;&#x800C;&#x52A0;&#x9020;&#x6210;&#x7684;&#x6269;&#x5BB9;&#x95EE;&#x9898;&#x3002;&#x56E0;&#x6B64;&#x5F15;&#x5165;&#x4E86;&#x6839;&#x57DF;&#x8FD9;&#x4E2A;&#x6982;&#x5FF5;&#xFF0C;&#x5B83;&#x5C31;&#x662F;&#x628A;&#x591A;&#x4E2A; CPU &#x5212;&#x5206;&#x6210;&#x51E0;&#x4E2A;&#x5B50;&#x96C6;&#xFF0C;&#x6BCF;&#x4E2A;&#x5B50;&#x96C6;&#x5305;&#x62EC;&#x4E00;&#x4E2A;&#x6216;&#x4E00;&#x7EC4;&#x5904;&#x7406;&#x5668;&#x3002;&#x6240;&#x6709;&#x7684;&#x5B9E;&#x65F6;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#x51B3;&#x7B56;&#x90FD;&#x662F;&#x5728;&#x5355;&#x4E2A;&#x6839;&#x57DF;&#x7684;&#x8303;&#x56F4;&#x751F;&#x6548;&#x7684;&#x3002;</p>
+<p>&#x53E6;&#x4E00;&#x4E2A;&#x4E3A;&#x4E86;&#x5904;&#x7406;&#x7ED9;&#x5B9A;&#x7684;&#x8BBE;&#x8BA1;&#x76EE;&#x6807;&#x800C;&#x5F15;&#x5165;&#x7684;&#x6982;&#x5FF5;&#x662F; CPU &#x4F18;&#x5148;&#x7EA7;&#x3002;CPU &#x4F18;&#x5148;&#x7EA7;&#x53CD;&#x6620;&#x7684;&#x662F;&#x6839;&#x57DF;&#x4E2D;&#x6700;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x7684; RT &#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x3002;&#x662F;&#x53E6;&#x4E00;&#x4E2A;&#x7EF4;&#x5EA6;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#xFF0C;&#x548C;&#x5904;&#x4E8E;&#x8FD9;&#x4E2A;&#x4F18;&#x5148;&#x7EA7;&#x7684;&#x4E00;&#x4E2A; CPU&#x3002;CPU &#x4F18;&#x5148;&#x7EA7;&#x7684;&#x5B9E;&#x73B0;&#x5728; <code>/kernel/sched_cpupri.c</code> &#x548C; <code>/kernel/sched_cpupri.h</code> &#x4E2D;&#x3002;</p>
+<p>&#x6BCF;&#x4E2A; <code>root_domain</code> &#x7ED3;&#x6784;&#x4F53;&#x90FD;&#x6709;&#x4E00;&#x4E2A;&#x4F4D;&#x6570;&#x7EC4;&#xFF08;bit array&#xFF09;&#x8BB0;&#x5F55;&#x5B83;&#x5BF9;&#x5E94;&#x7684;&#x6839;&#x57DF;&#x4E2D;&#x6709;&#x591A;&#x5C11;&#x8D85;&#x8F7D;&#x7684; CPU &#xFF0C; <code>cpupri</code> &#x7ED3;&#x6784;&#x4F53;&#x542B;&#x6709;&#x4E00;&#x4E2A; CPU &#x4F18;&#x5148;&#x7EA7;&#x4F4D;&#x56FE;&#xFF08;bitmap&#xFF09;&#x3002;&#x5982;&#x679C;&#x4E00;&#x4E2A; CPU &#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E0A;&#x6709;&#x4E0D;&#x6B62;&#x4E00;&#x4E2A;&#x53EF;&#x8FD0;&#x884C;&#x7684; RT &#x4EFB;&#x52A1;&#x5219;&#x5B83;&#x88AB;&#x8BA4;&#x4E3A;&#x662F;&#x8D85;&#x8F7D;&#x7684;&#x3002;</p>
+<pre><code>/*
+ * We add the notion of a root-domain which will be used to define per-domain
+ * variables. Each exclusive cpuset essentially defines an island domain by
+ * fully partitioning the member cpus from any other cpuset. Whenever a new
+ * exclusive cpuset is created, we also create and attach a new root-domain
+ * object.
+ *
+ */
+struct root_domain {
+    atomic_t refcount;
+    atomic_t rto_count;
+    struct rcu_head rcu;
+    cpumask_var_t span;
+    cpumask_var_t online;
+    /*
+     * The &quot;RT overload&quot; flag: it gets set if a CPU has more than
+     * one runnable RT task.
+     */
+    cpumask_var_t rto_mask;
+    struct cpupri cpupri;
+};
+struct cpupri_vec {
+    raw_spinlock_t lock;
+    int count;
+    cpumask_var_t mask;
+};
+struct cpupri {
+    struct cpupri_vec pri_to_cpu[CPUPRI_NR_PRIORITIES];
+    long pri_active[CPUPRI_NR_PRI_WORDS];
+    int cpu_to_pri[NR_CPUS];
+};
+</code></pre><p>&#x51FD;&#x6570; <code>cpupri_find()</code> &#x53EF;&#x4EE5;&#x901A;&#x8FC7;&#x4E0A;&#x9762;&#x63D0;&#x5230;&#x7684; <code>cpupri</code> &#x7684;&#x4F4D;&#x56FE;&#x5FEB;&#x901F;&#x7684;&#x627E;&#x51FA;&#x4E00;&#x4E2A;&#x53EF;&#x4EE5;&#x5C06;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x63A8;&#x9001;&#x8FC7;&#x53BB;&#x7684;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x7684; CPU &#x3002;&#x5982;&#x679C;&#x4E00;&#x4E2A;&#x4F18;&#x5148;&#x7EA7;&#x7B49;&#x7EA7;&#x975E;&#x7A7A;&#xFF0C;&#x800C;&#x4E14;&#x6BD4;&#x8FD9;&#x4E2A;&#x88AB;&#x63A8;&#x9001;&#x7684;&#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x8FD8;&#x8981;&#x4F4E;&#xFF0C;&#x5219;&#x6807;&#x5FD7; <code>lowest_mask</code> &#x4F1A;&#x8BBE;&#x7F6E;&#x5DF2;&#x7ECF;&#x9009;&#x62E9;&#x4E86;&#x7684;&#x7B49;&#x7EA7;&#x5BF9;&#x5E94;&#x7684;&#x63A9;&#x7801;&#x3002;&#x8FD9;&#x4E2A;&#x63A9;&#x7801;&#x662F;&#x88AB;&#x63A8;&#x9001;&#x7B97;&#x6CD5;&#x7528;&#x6765;&#x5BFB;&#x627E;&#x6700;&#x5408;&#x9002;&#x63A8;&#x9001;&#x4EFB;&#x52A1;&#x7684; CPU&#xFF0C;&#x7B97;&#x6CD5;&#x662F;&#x57FA;&#x4E8E;&#x4EB2;&#x548C;&#x6027;&#xFF0C;&#x62D3;&#x6251;&#x7ED3;&#x6784;&#x548C;&#x7F13;&#x5B58;&#x7279;&#x6027;&#x8FDB;&#x884C;&#x8BA1;&#x7B97;&#x7684;&#x3002;</p>
+<pre><code>/**
+ * cpupri_find - find the best (lowest-pri) CPU in the system
+ * @cp: The cpupri context
+ * @p: The task
+ * @lowest_mask: A mask to fill in with selected CPUs (or NULL)
+ *
+ * Note: This function returns the recommended CPUs as calculated during the
+ * current invocation. By the time the call returns, the CPUs may have in
+ * fact changed priorities any number of times. While not ideal, it is not
+ * an issue of correctness since the normal rebalancer logic will correct
+ * any discrepancies created by racing against the uncertainty of the current
+ * priority configuration.
+ *
+ * Returns: (int)bool - CPUs were found
+ */
+int cpupri_find(struct cpupri *cp, struct task_struct *p,
+                struct cpumask *lowest_mask)
+{
+    int idx = 0;
+    int task_pri = convert_prio(p-&gt;prio);
+    for_each_cpupri_active(cp-&gt; pri_active, idx)
+    {
+        struct cpupri_vec *vec = &amp;cp-&gt;pri_to_cpu[idx];
+        if (idx &gt;= task_pri)
+            break;
+        if (cpumask_any_and(&amp;p-&gt;cpus_allowed, vec-&gt;mask) &gt;= nr_cpu_ids)
+            continue;
+        if (lowest_mask) {
+            cpumask_and(lowest_mask, &amp;p-&gt;cpus_allowed, vec-&gt;mask);
+            /*
+             * We have to ensure that we have at least one bit
+             * still set in the array, since the map could have
+             * been concurrently emptied between the first and
+             * second reads of vec-&gt;mask. If we hit this
+             * condition, simply act as though we never hit this
+             * priority level and continue on.
+             */
+            if (cpumask_any(lowest_mask) &gt;= nr_cpu_ids)
+                continue;
+        }
+        return 1;
+
+    }
+    return 0;
+
+}
+</code></pre><p><code>find_lowest_rq()</code> &#x662F;&#x7528;&#x6765;&#x6311;&#x9009;&#x51FA;&#x6700;&#x7EC8;&#x8981;&#x88AB;&#x63A8;&#x9001;&#x4EFB;&#x52A1;&#x7684;&#x5904;&#x7406;&#x5668;&#x7684;&#x51FD;&#x6570;&#xFF0C;&#x800C;&#x8FD9;&#x4E2A;&#x4EFB;&#x52A1;&#x5BF9;&#x5E94;&#x7684;&#x662F;&#x6700;&#x4F4E;&#x7684;&#x63A9;&#x7801;&#x3002;&#x5B83;&#x7684;&#x5B9E;&#x73B0;&#x4F4D;&#x4E8E; <code>kernel/sched_rt.c</code> &#x3002;&#x5982;&#x679C; <code>cpupri_find()</code> &#x8FD4;&#x56DE;&#x4E00;&#x4E2A;&#x5305;&#x542B;&#x53EF;&#x80FD;&#x7684;&#x76EE;&#x6807; CPU &#x7684;&#x63A9;&#x7801;&#xFF0C;<code>find_lowest_rq()</code> &#x5C06;&#x4F1A;&#x9996;&#x5148;&#x68C0;&#x67E5;&#x8FD9;&#x4E2A; CPU &#x662F;&#x5426;&#x5C5E;&#x4E8E;&#x63A8;&#x9001;&#x4E0A;&#x6B21;&#x6267;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x7684;&#x76EE;&#x6807; CPU &#x3002;&#x8FD9;&#x4E2A; CPU &#x901A;&#x5E38;&#x6709;&#x6700;&#x70ED;&#x95E8;&#x7684;&#x7F13;&#x5B58;&#xFF08;hottest cache&#xFF09;&#xFF0C;&#x56E0;&#x6B64;&#x4E5F;&#x662F;&#x6700;&#x4F73;&#x9009;&#x62E9;&#x3002;</p>
+<p>&#x5982;&#x679C;&#x4E0D;&#x662F;&#x7684;&#x8BDD;&#xFF0C;<code>find_lowest_rq()</code> &#x4F1A;&#x904D;&#x5386;&#x6574;&#x4E2A;&#x8C03;&#x5EA6;&#x57DF;&#x5C42;&#x7EA7;&#x6765;&#x627E;&#x51FA;&#x4E00;&#x4E2A;&#x903B;&#x8F91;&#x4E0A;&#x6700;&#x63A5;&#x8FD1;&#x5F53;&#x524D; CPU &#x7684;&#x70ED;&#x95E8;&#x7F13;&#x5B58;&#x6570;&#x636E;&#xFF0C;&#x540C;&#x65F6;&#x4E5F;&#x4F4D;&#x4E8E;&#x6700;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x6620;&#x5C04;&#x4E2D;&#x7684; CPU&#x3002;</p>
+<p>&#x5982;&#x679C;&#x8FD9;&#x6B21;&#x641C;&#x7D22;&#x540C;&#x6837;&#x6CA1;&#x6709;&#x8FD4;&#x56DE;&#x4EFB;&#x4F55;&#x53EF;&#x7528;&#x7ED3;&#x679C;&#xFF0C;&#x90A3;&#x4E48;&#x5C31;&#x8FD4;&#x56DE;&#x63A9;&#x7801;&#x5BF9;&#x5E94;&#x7684;&#x4EFB;&#x610F;&#x4E00;&#x4E2A; CPU &#x3002;</p>
+<pre><code>static int find_lowest_rq(struct task_struct *task)
+{
+    struct sched_domain *sd;
+    struct cpumask *lowest_mask = __get_cpu_var(local_cpu_mask);
+    int this_cpu = smp_processor_id();
+    int cpu = task_cpu(task);
+    /* Make sure the mask is initialized first */
+    if (unlikely(!lowest_mask))
+        return -1;
+    if (task-&gt;rt.nr_cpus_allowed == 1)
+        return -1; /* No other targets possible */
+    if (!cpupri_find(&amp;task_rq(task)-&gt;rd-&gt;cpupri, task, lowest_mask))
+        return -1; /* No targets found */
+    /*
+     * At this point we have built a mask of cpus representing the
+     * lowest priority tasks in the system. Now we want to elect
+     * the best one based on our affinity and topology.
+     *
+     * We prioritize the last cpu that the task executed on since
+     * it is most likely cache-hot in that location.
+     */
+    if (cpumask_test_cpu(cpu, lowest_mask))
+        return cpu;
+    /*
+     * Otherwise, we consult the sched_domains span maps to figure
+     * out which cpu is logically closest to our hot cache data.
+     */
+    if (!cpumask_test_cpu(this_cpu, lowest_mask))
+        this_cpu = -1; /* Skip this_cpu opt if not among lowest */
+    rcu_read_lock();
+    for_each_domain(cpu, sd) {
+        if (sd-&gt;flags &amp; SD_WAKE_AFFINE) {
+            int best_cpu;
+            /*
+             * &quot;this_cpu&quot; is cheaper to preempt than a
+             * remote processor.
+             */
+            if (this_cpu != -1 &amp;&amp;
+                cpumask_test_cpu(this_cpu, sched_domain_span(sd))) {
+                rcu_read_unlock();
+                return this_cpu;
+            }
+            best_cpu = cpumask_first_and(lowest_mask,
+                                         sched_domain_span(sd));
+            if (best_cpu &lt; nr_cpu_ids) {
+                rcu_read_unlock();
+                return best_cpu;
+            }
+        }
+    }
+    rcu_read_unlock();
+    /*
+     * And finally, if there were no matches within the domains
+     * just give the caller *something* to work with from the compatible
+     * locations.
+     */
+    if (this_cpu != -1)
+        return this_cpu;
+    cpu = cpumask_any(lowest_mask);
+    if (cpu &lt; nr_cpu_ids)
+        return cpu;
+    return -1;
+
+}
+</code></pre><h2 id="112-&#x63A8;&#x9001;&#x64CD;&#x4F5C;">11.2. &#x63A8;&#x9001;&#x64CD;&#x4F5C;</h2>
+<p>RT &#x8C03;&#x5EA6;&#x5668;&#x4E2D;&#x7684;&#x4EFB;&#x52A1;&#x63A8;&#x9001;&#x64CD;&#x4F5C;&#x662F;&#x5728;&#x8C03;&#x5EA6;&#x6846;&#x67B6;&#x8C03;&#x5EA6;&#x65B0;&#x4EFB;&#x52A1;&#x5230;&#x5F53;&#x524D; CPU &#x65F6;&#x6267;&#x884C;&#x7684;&#x3002;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50; <code>post_schedule()</code> &#x4F1A;&#x88AB;&#x8C03;&#x7528;&#xFF0C;&#x76EE;&#x524D;&#x5B83;&#x53EA;&#x5728; RT &#x8C03;&#x5EA6;&#x7C7B;&#x4E2D;&#x5B9E;&#x73B0;&#x4E86;&#x3002;&#x5728;&#x51FD;&#x6570;&#x5185;&#x90E8;&#xFF0C;&#x5B83;&#x4F1A;&#x4E3A;&#x5F53;&#x524D; CPU &#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x6240;&#x6709;&#x7684;&#x4EFB;&#x52A1;&#x8C03;&#x7528; <code>push_rt_task()</code> &#x3002;</p>
+<p>&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x4F1A;&#x68C0;&#x67E5;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x662F;&#x5426;&#x8D85;&#x8F7D;&#xFF0C;&#x5982;&#x679C;&#x8D85;&#x8F7D;&#x4E86;&#x5C31;&#x5C1D;&#x8BD5;&#x5C06;&#x4E0D;&#x662F;&#x6B63;&#x5728;&#x8FD0;&#x884C;&#x7684; RT &#x4EFB;&#x52A1;&#x8FC1;&#x79FB;&#x5230;&#x53E6;&#x4E00;&#x4E2A;&#x53EF;&#x7528;&#x7684; CPU &#x76F4;&#x5230;&#x8FC1;&#x79FB;&#x5931;&#x8D25;&#x3002;&#x5982;&#x679C;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x88AB;&#x8FC1;&#x79FB;&#x4E86;&#xFF0C;&#x5219;&#x4E4B;&#x540E;&#x90FD;&#x4F1A;&#x901A;&#x8FC7;&#x8BBE;&#x7F6E;&#x6807;&#x5FD7; <code>need_resched</code> &#x6765;&#x8C03;&#x7528; <code>schedule()</code>&#x3002;</p>
+<p>&#x5185;&#x6838;&#x4F1A;&#x4F7F;&#x7528;&#x5185;&#x90E8;&#x8C03;&#x7528;&#x4E86; <code>find_lowest_rq()</code> &#x7684; <code>find_lock_lowest_rq()</code> &#xFF0C;&#x4F46;&#x662F;&#x5982;&#x679C;&#x53D1;&#x73B0;&#x4E86;&#x961F;&#x5217;&#x5C31;&#x4F1A;&#x5BF9;&#x8FD9;&#x4E2A;&#x961F;&#x5217;&#x52A0;&#x9501;&#x3002;</p>
+<pre><code>/*
+ * If the current CPU has more than one RT task, see if the non
+ * running task can migrate over to a CPU that is running a task
+ * of lesser priority.
+ */
+static int push_rt_task(struct rq *rq)
+{
+    struct task_struct *next_task;
+    struct rq *lowest_rq;
+    if (!rq-&gt;rt.overloaded)
+        return 0;
+    next_task = pick_next_pushable_task(rq);
+    if (!next_task)
+        return 0;
+retry:
+    if (unlikely(next_task == rq-&gt;curr)) {
+        WARN_ON(1);
+        return 0;
+    }
+    /*
+     * It&apos;s possible that the next_task slipped in of
+     * higher priority than current. If that&apos;s the case
+     * just reschedule current.
+     */
+    if (unlikely(next_task-&gt;prio &lt; rq-&gt;curr-&gt;prio)) {
+        resched_task(rq-&gt;curr);
+        return 0;
+    }
+    /* We might release rq lock */
+    get_task_struct(next_task);
+    /* find_lock_lowest_rq locks the rq if found */
+    lowest_rq = find_lock_lowest_rq(next_task, rq);
+    if (!lowest_rq) {
+        struct task_struct *task;
+        /*
+         * find lock_lowest_rq releases rq-&gt;lock
+         * so it is possible that next_task has migrated.
+         *
+         * We need to make sure that the task is still on the same
+         * run-queue and is also still the next task eligible for
+         * pushing.
+         */
+        task = pick_next_pushable_task(rq);
+        if (task_cpu(next_task) == rq-&gt;cpu &amp;&amp; task == next_task) {
+            /*
+             * If we get here, the task hasn&apos;t moved at all, but
+             * it has failed to push. We will not try again,
+             * since the other cpus will pull from us when they
+             * are ready.
+             */
+            dequeue_pushable_task(rq, next_task);
+            goto out;
+        }
+        if (!task)
+            /* No more tasks, just exit */
+            goto out;
+        /*
+         * Something has shifted, try again.
+         */
+        put_task_struct(next_task);
+        next_task = task;
+        goto retry;
+    }
+    deactivate_task(rq, next_task, 0);
+    set_task_cpu(next_task, lowest_rq-&gt;cpu);
+    activate_task(lowest_rq, next_task, 0);
+    resched_task(lowest_rq-&gt;curr);
+    double_unlock_balance(rq, lowest_rq);
+out:
+    put_task_struct(next_task);
+    return 1;
+}
+</code></pre><h2 id="113-&#x62C9;&#x53D6;&#x64CD;&#x4F5C;">11.3. &#x62C9;&#x53D6;&#x64CD;&#x4F5C;</h2>
+<p>&#x62C9;&#x53D6;&#x64CD;&#x4F5C;&#x662F;&#x901A;&#x8FC7;&#x8C03;&#x7528;&#x94A9;&#x5B50; <code>pre_schedule()</code> &#x6267;&#x884C;&#x7684;&#x3002;&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x76EE;&#x524D;&#x4E5F;&#x53EA;&#x662F;&#x5728; RT &#x8C03;&#x5EA6;&#x7C7B;&#x91CC;&#x9762;&#x5B9E;&#x73B0;&#x4E86;&#xFF0C;&#x5E76;&#x4E14;&#x5728;&#x51FD;&#x6570; <code>schedule()</code> &#x7684;&#x5F00;&#x59CB;&#x88AB;&#x8C03;&#x7528;&#x3002;&#x5B83;&#x4F1A;&#x53BB;&#x68C0;&#x67E5;&#x5F53;&#x524D; CPU &#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x7684;&#x4EFB;&#x52A1;&#x7684;&#x6700;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x662F;&#x5426;&#x5C0F;&#x4E8E;&#x4E0A;&#x6B21;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x3002;&#x5982;&#x679C;&#x662F;&#x7684;&#x8BDD;&#xFF0C;&#x5185;&#x6838;&#x5C31;&#x4F1A;&#x8C03;&#x7528; <code>pull_rt_task()</code> &#x4ECE;&#x53E6;&#x4E00;&#x4E2A; CPU &#x4E0A;&#x62C9;&#x53D6;&#x4E00;&#x4E2A;&#x6BD4;&#xFF08;&#x5F53;&#x524D; CPU &#x4E0A;&#xFF09;&#x5C06;&#x88AB;&#x8C03;&#x5EA6;&#x7684;&#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x9AD8;&#x7684;&#x4EFB;&#x52A1;&#x3002;</p>
+<pre><code>static void pre_schedule_rt(struct rq *rq, struct task_struct *prev)
+{
+    /* Try to pull RT tasks here if we lower this rq&apos;s prio */
+    if (rq-&gt;rt.highest_prio.curr &gt; prev-&gt;prio)
+        pull_rt_task(rq);
+}
+</code></pre><p><code>pull_rt_task()</code> &#x4F1A;&#x68C0;&#x67E5;&#x548C;&#x5F53;&#x524D; CPU &#x5904;&#x4E8E;&#x540C;&#x4E00;&#x4E2A;&#x6839;&#x57DF;&#x7684;&#x6240;&#x6709; CPU&#x3002;&#x5B83;&#x4F1A;&#x5728;&#x6F5C;&#x5728;&#x7684;&#x6E90; CPU &#x4E0A;&#x7684;&#x5BFB;&#x627E;&#x7B2C;&#x4E8C;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#xFF0C;&#x7136;&#x540E;&#x62C9;&#x53D6;&#x5230;&#x5F53;&#x524D;&#x7684; CPU&#x3002;&#x5982;&#x679C;&#x627E;&#x5230;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x5C31;&#x62C9;&#x8FC7;&#x6765;&#x3002; &#x56E0;&#x4E3A; <code>Schedule()</code> &#x4F1A;&#x5728;&#x5F88;&#x591A;&#x60C5;&#x51B5;&#x4E0B;&#x88AB;&#x6267;&#x884C;&#xFF0C;&#x6240;&#x4EE5;&#x6B64;&#x5904;&#x6CA1;&#x6709;&#x8C03;&#x7528;&#x3002;</p>
+<pre><code>static int pull_rt_task(struct rq *this_rq)
+{
+    int this_cpu = this_rq-&gt;cpu, ret = 0, cpu;
+    struct task_struct *p;
+    struct rq *src_rq;
+    if (likely(!rt_overloaded(this_rq)))
+        return 0;
+    for_each_cpu(cpu, this_rq-&gt;rd-&gt;rto_mask) {
+        if (this_cpu == cpu)
+            continue;
+        src_rq = cpu_rq(cpu);
+        /*
+         * Don&apos;t bother taking the src_rq-&gt;lock if the next highest
+         * task is known to be lower-priority than our current task.
+         * This may look racy, but if this value is about to go
+         * logically higher, the src_rq will push this task away.
+         * And if its going logically lower, we do not care
+         */
+        if (src_rq-&gt;rt.highest_prio.next &gt;=
+            this_rq-&gt;rt.highest_prio.curr)
+            continue;
+        /*
+         * We can potentially drop this_rq&apos;s lock in
+         * double_lock_balance, and another CPU could
+         * alter this_rq
+         */
+        double_lock_balance(this_rq, src_rq);
+        /*
+         * Are there still pullable RT tasks?
+         */
+        if (src_rq-&gt;rt.rt_nr_running &lt;= 1)
+            goto skip;
+        p = pick_next_highest_task_rt(src_rq, this_cpu);
+        /*
+         * Do we have an RT task that preempts
+         * the to-be-scheduled task?
+         */
+        if (p &amp;&amp; (p-&gt;prio &lt; this_rq-&gt;rt.highest_prio.curr)) {
+            WARN_ON(p == src_rq-&gt;curr);
+            WARN_ON(!p-&gt;on_rq);
+            /*
+             * There&apos;s a chance that p is higher in priority
+             * than what&apos;s currently running on its cpu.
+             * This is just that p is wakeing up and hasn&apos;t
+             * had a chance to schedule. We only pull
+             * p if it is lower in priority than the
+             * current task on the run queue
+             */
+            if (p-&gt;prio &lt; src_rq-&gt;curr-&gt;prio)
+                goto skip;
+            ret = 1;
+            deactivate_task(src_rq, p, 0);
+            set_task_cpu(p, this_cpu);
+            activate_task(this_rq, p, 0);
+            /*
+             * We continue with the search, just in
+             * case there&apos;s an even higher prio task
+             * in another runqueue. (low likelihood
+             * but possible)
+             */
+        }
+
+skip:
+
+        double_unlock_balance(this_rq, src_rq);
+
+    }
+    return ret;
+
+}
+</code></pre><h2 id="114-&#x4E3A;&#x5524;&#x9192;&#x7684;&#x4EFB;&#x52A1;&#x6311;&#x9009;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x961F;&#x5217;">11.4. &#x4E3A;&#x5524;&#x9192;&#x7684;&#x4EFB;&#x52A1;&#x6311;&#x9009;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x961F;&#x5217;</h2>
+<p>&#x5982;&#x4E4B;&#x524D;&#x5728;&#x4ECB;&#x7ECD; CFS &#x4EFB;&#x52A1;&#x8D1F;&#x8F7D;&#x5747;&#x8861;&#x7684;&#x7AE0;&#x8282;&#x4E2D;&#x63CF;&#x8FF0;&#x7684;&#xFF0C;&#x4E00;&#x65E6;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x518D;&#x6B21;&#x88AB;&#x5524;&#x9192;&#x6216;&#x8005;&#x662F;&#x9996;&#x6B21;&#x88AB;&#x521B;&#x5EFA;&#x5185;&#x6838;&#x5C31;&#x4F1A;&#x7ACB;&#x5373;&#x8C03;&#x7528; <code>select_task_rq()</code>&#x3002;&#x9664;&#x4E86;&#x989D;&#x5916;&#x7684;&#x63A8;&#x9001;&#x548C;&#x62C9;&#x53D6;&#x64CD;&#x4F5C;&#xFF0C;&#x8FD9;&#x4E2A;&#x94A9;&#x5B50;&#x51FD;&#x6570;&#x4E5F;&#x5728; RT &#x8C03;&#x5EA6;&#x5668;&#x4E2D;&#x5B9E;&#x73B0;&#x4E86;&#x3002;</p>
+<p>&#x5982;&#x679C;&#x5F53;&#x524D; CPU &#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x6B63;&#x5728;&#x8FD0;&#x884C;&#x7684;&#x662F; RT &#x4EFB;&#x52A1;&#xFF0C;&#x52A0;&#x5165;&#x4ED6;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x66F4;&#x9AD8;&#xFF0C;&#x5E76;&#x4E14;&#x6211;&#x4EEC;&#x53EF;&#x4EE5;&#x79FB;&#x52A8;&#x4E00;&#x4E2A;&#x5C06;&#x8981;&#x88AB;&#x5524;&#x9192;&#x7684;&#x4EFB;&#x52A1;&#xFF0C;&#x7136;&#x540E;&#x5C1D;&#x8BD5;&#x5BFB;&#x627E;&#x53E6;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x53EF;&#x4EE5;&#x5B89;&#x7F6E;&#x6211;&#x4EEC;&#x5524;&#x9192;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x5982;&#x679C;&#x4E0D;&#x662F;&#x7684;&#x8BDD;&#xFF0C;&#x5C31;&#x5728;&#x540C;&#x4E00;&#x4E2A; CPU &#x4E0A;&#x5524;&#x9192;&#x4EFB;&#x52A1;&#xFF0C;&#x7136;&#x540E;&#x8BA9;&#x8C03;&#x5EA6;&#x5668;&#x5B8C;&#x6210;&#x5269;&#x4F59;&#x7684;&#x5DE5;&#x4F5C;&#x3002;</p>
+<p>&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x540C;&#x65F6;&#x4E5F;&#x4F7F;&#x7528; <code>find_lowest_rq()</code> &#x5BFB;&#x627E;&#x4E00;&#x4E2A;&#x9002;&#x5408;&#x8FD9;&#x4E2A;&#x4EFB;&#x52A1;&#x7684; CPU&#x3002;</p>
+<pre><code>static int select_task_rq_rt(struct task_struct *p, int sd_flag, int flags)
+{
+    struct task_struct *curr;
+    struct rq *rq;
+    int cpu;
+    if (sd_flag != SD_BALANCE_WAKE)
+        return smp_processor_id();
+    cpu = task_cpu(p);
+    rq = cpu_rq(cpu);
+    rcu_read_lock();
+    curr = ACCESS_ONCE(rq-&gt;curr); /* unlocked access */
+    if (curr &amp;&amp; unlikely(rt_task(curr)) &amp;&amp;
+        (curr-&gt;rt.nr_cpus_allowed &lt; 2 ||
+         curr-&gt;prio &lt;= p-&gt;prio) &amp;&amp;
+        (p-&gt;rt.nr_cpus_allowed &gt; 1)) {
+        int target = find_lowest_rq(p);
+        if (target != -1)
+            cpu = target;
+    }
+    rcu_read_unlock();
+    return cpu;
+}
+</code></pre>
+                                
+                                </section>
+                            
+    </div>
+    <div class="search-results">
+        <div class="has-results">
+            
+            <h1 class="search-results-title"><span class="search-results-count"></span> results matching &quot;<span class="search-query"></span>&quot;</h1>
+            <ul class="search-results-list"></ul>
+            
+        </div>
+        <div class="no-results">
+            
+            <h1 class="search-results-title">No results matching &quot;<span class="search-query"></span>&quot;</h1>
+            
+        </div>
+    </div>
+</div>
+
+                        </div>
+                    </div>
+                
+            </div>
+
+            
+                
+                <a href="chapter10.html" class="navigation navigation-prev " aria-label="Previous page: 10 Load Balancing on SMP Systems">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+                
+                
+                <a href="chapter12.html" class="navigation navigation-next " aria-label="Next page: 12. Resources">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+                
+            
+        
+    </div>
+
+    <script>
+        var gitbook = gitbook || [];
+        gitbook.push(function() {
+            gitbook.page.hasChanged({"page":{"title":"11 Real Time Load Balancing","level":"1.12","depth":1,"next":{"title":"12. Resources","level":"1.13","depth":1,"path":"chapter12.md","ref":"chapter12.md","articles":[]},"previous":{"title":"10 Load Balancing on SMP Systems","level":"1.11","depth":1,"path":"chapter10.md","ref":"chapter10.md","articles":[]},"dir":"ltr"},"config":{"plugins":["comment"],"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"pluginsConfig":{"comment":{"highlightCommented":true},"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"theme":"default","author":"Ezio Zhang","pdf":{"pageNumbers":true,"fontSize":16,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"variables":{},"title":"Linux Process Schedule","language":"zh","links":{"sidebar":{"Linux Process Schedule":"https://www.gitbook.com/book/oska874/process-scheduling-in-linux"},"gitbook":true},"gitbook":"*","description":"tittle : Process Scheduling in Linux\r\n\r\nauthor : Volker Seeker – University of Edinburgh\r\n\r\ntype : technology translation\r\n\r\ninterpret : Ezio"},"file":{"path":"chapter11.md","mtime":"2016-08-11T15:51:40.000Z","type":"markdown"},"gitbook":{"version":"3.1.1","time":"2016-08-12T02:04:09.535Z"},"basePath":".","book":{"language":""}});
+        });
+    </script>
+</div>
+
+        
+    <script src="gitbook/gitbook.js"></script>
+    <script src="gitbook/theme.js"></script>
+    
+        
+        <script src="gitbook/gitbook-plugin-comment/plugin.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search-engine.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-sharing/buttons.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+        
+    
+
+    
+
+
+</body>
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter11.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:54 GMT -->
+</html>

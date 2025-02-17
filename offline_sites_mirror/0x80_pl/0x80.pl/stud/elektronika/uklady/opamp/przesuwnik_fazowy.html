@@ -1,0 +1,32 @@
+Przesuwnik fazowy
+* "Wzmacniacz operacyjny.pdf", str. 24
+* Wojciech Mu³a 16.10.2005
+
+* uk³ad
+* - wej¶cie: 1 0
+* - wyj¶cie: 2 0
+X	4 3 5 6 2	ua741
+Vdd	5 0		DC 10V
+Vcc	6 0		DC -10V
+.include ua741.model
+
+* R1a=R1b
+R1a	1 3		10k
+R1b	3 2		10k
+
+* R i C decyduj± o przesuniêciu
+C	1 4	100nF
+R	4 0	1k
+
+* sygna³ wej¶ciowy f=1k
+Vin	1 0	SIN(0V 1V 1kHz)
+
+
+* analiza
+.options nopage
+.tran 5us 5ms
+
+* wykresy: wej¶cie, wyj¶cie
+.plot tran v(1) v(2)
+
+.end

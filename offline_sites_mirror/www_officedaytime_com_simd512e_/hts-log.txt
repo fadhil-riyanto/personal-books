@@ -1,0 +1,14 @@
+HTTrack3.49-5 launched on Sun, 16 Feb 2025 23:24:17 at https://www.officedaytime.com/simd512e/
+(httrack https://www.officedaytime.com/simd512e/ )
+
+Information, Warnings and Errors reported for this mirror:
+note:	the hts-log.txt file, and hts-cache folder, may contain sensitive information,
+	such as username/password authentication for websites mirrored in this project
+	do not share these files/folders if you want these information to remain private
+
+23:49:56	Warning: 	Retry after error -4 (No data (connection closed)) at link https://www.officedaytime.com/simd512e/simdimg/vpscatterdd_2.png?v=21 (from https://www.officedaytime.com/simd512e/simdimg/si.php?f=vpscatterdd)
+23:49:56	Warning: 	Retry after error -4 (No data (connection closed)) at link https://www.officedaytime.com/simd512e/simdimg/ternlog_dword_128.png?v=1 (from https://www.officedaytime.com/simd512e/simdimg/ternlog.php?f=vpternlogd)
+23:49:58	Warning: 	Retry after error -4 (No data (connection closed)) at link https://www.officedaytime.com/simd512e/simdimg/ternlog_dword_128.png?v=1 (from https://www.officedaytime.com/simd512e/simdimg/ternlog.php?f=vpternlogd)
+
+HTTrack Website Copier/3.49-5 mirror complete in 25 minutes 42 seconds : 1359 links scanned, 1355 files written (15063552 bytes overall) [13862959 bytes received at 8990 bytes/sec], 2246914 bytes transferred using HTTP compression in 602 files, ratio 28%, 60.8 requests per connection
+(No errors, 3 warnings, 0 messages)

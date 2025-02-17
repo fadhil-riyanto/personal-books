@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/cmp.php?f=VCMPNEQ_OSPD by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:36 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/cmp.php?f=VCMPNEQ_OSPD" />
+<link rel="alternate" hreflang="en" href="cmpfa2a.html?f=VCMPNEQ_OSPD" />
+    <title>vcmpneq_ospd</title>
+</head>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+
+<h2>VCMPNEQ_OSPD - CoMPare Not EQual Ordered Signal Packed Double<br /></h2>
+VCMPNEQ_OSPD<span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br>
+<span class="intr">__m128d _mm_cmp_pd(__m128d a, __m128d b, _CMP_NEQ_OS)</span><br><div style="height: 2px;"></div><img src="binop_qword_2.png" /><br />
+<span style="padding-left: 110px">For each double, if (1) != (2) set 1, else  set 0,  to all bits of the corresponding double of (3).</span><br />
+<div style="height: 30px"></div>
+VCMPNEQ_OSPD<span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br>
+<span class="intr">__m256d _mm256_cmp_pd(__m256d a, __m256d b, _CMP_NEQ_OS)</span><br><div style="height: 2px;"></div><img src="binop_qword_3.png" /><br />
+<span style="padding-left: 110px">For each double, if (1) != (2) set 1, else  set 0,  to all bits of the corresponding double of (3).</span><br />
+<div style="height: 30px"></div>
+VCMPNEQ_OSPD<span class="operand"> k1{k2}, xmm2, xmm3/m128/m64bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__mmask8 _mm_cmp_pd_mask(__m128d a, __m128d b, _CMP_NEQ_OS)</span><br><span class="intr">__mmask8 _mm_mask_cmp_pd_mask(__mmask8 k2, __m128d a, __m128d b, _CMP_NEQ_OS)</span><br><div style="height: 2px;"></div><img src="cmp_qword_1.png" /><br />
+<div style="padding-left: 110px">For each double, if (1) != (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VCMPNEQ_OSPD<span class="operand"> k1{k2}, ymm2, ymm3/m256/m64bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__mmask8 _mm256_cmp_pd_mask(__m256d a, __m256d b, _CMP_NEQ_OS)</span><br><span class="intr">__mmask8 _mm256_mask_cmp_pd_mask(__mmask8 k2, __m256d a, __m256d b, _CMP_NEQ_OS)</span><br><div style="height: 2px;"></div><img src="cmp_qword_2.png" /><br />
+<div style="padding-left: 110px">For each double, if (1) != (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VCMPNEQ_OSPD<span class="operand"> k1{k2}, zmm2, zmm3/m512/m64bcst{sae}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br>
+<span class="intr">__mmask8 _mm512_cmp_pd_mask(__m512d a, __m512d b, _CMP_NEQ_OS)</span><br><span class="intr">__mmask8 _mm512_mask_cmp_pd_mask(__mmask8 k2, __m512d a, __m512d b, _CMP_NEQ_OS)</span><br><span class="intr">__mmask8 _mm512_cmp_round_pd_mask(__m512d a, __m512d b, _CMP_NEQ_OS, int sae)</span><br><span class="intr">__mmask8 _mm512_mask_cmp_round_pd_mask(__mmask8 k2, __m512d a, __m512d b, _CMP_NEQ_OS, int sae)</span><br><div style="height: 2px;"></div><img src="cmp_qword_3.png" /><br />
+<div style="padding-left: 110px">For each double, if (1) != (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+This instruction is:<br>Ordered - If either or both of source operands is NaN, condition unmet.<br>Signaling - Exception on QNaN<br><a href="cmpimm1a86.html?f=CMPPD" target="_blank">VCMPPD instrucion</a> imm8 value = 1Ch<br><hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=VCMPNEQ_OSPD" target="_blank">Feedback</a>
+
+
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/cmp.php?f=VCMPNEQ_OSPD by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:36 GMT -->
+</html>

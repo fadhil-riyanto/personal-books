@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2008-06-15-fptricks.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:25 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Floating point tricks</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="floating-point-tricks">
+<h1 class="title">Floating point tricks</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2008-06-15</td>
+</tr>
+</tbody>
+</table>
+<p>Floating point numbers store at most 23 (32-bit <tt class="docutils literal">float</tt>) or 52 (64-bit
+<tt class="docutils literal">double</tt>) bits of mantissa; the most significant bit is always set (if
+number is normalized), thus 24 or 53 bits are known, but MSB bit isn't
+stored.</p>
+<p><strong>Note</strong>: methods presented here produce correct results only if
+certain conditions are met &mdash; they are not general, don't work
+for NaNs, denormalized numbers, etc.</p>
+<div class="section" id="converting-float-to-int">
+<h1>Converting float to int</h1>
+<p>Few years ago I've developed a method that do not need any floating-point
+operations &mdash; <a class="reference external" href="../articles/snippets.html#konwersja-float-na-int">description</a> is written in Polish, but sample code
+should be easy to understand.  In short words mantissa is completed with
+the implicit bit 23 (or 52) and treated as a natural number.  Then this number
+is shifted left or right to place the dot position at 0 &mdash; the shift amount
+depends on the exponent value.</p>
+<p>Another method uses floating point operations and is limited to
+positive number less than <span class="math">2<sup>23</sup></span> (float) (and <span class="math">2<sup>52</sup></span>
+for doubles).</p>
+<p>When value <span class="math">2<sup>23</sup></span> is added to another float, then just 23
+most significant bits are stored &mdash; the fraction bits are shifted out.</p>
+<p>Let see an example, number 7.25 (111.01) has following floating point
+representation:</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌─┬────────┬───────────────────────┐
+│0│10000001│<span style="color: blue; font-weight: bold">1101</span>0000000000000000000│
+└─┴────────┴───────────────────────┘
+ S exp+127    normalized mantissa</pre></div><p>After adding <span class="math">2<sup>23</sup></span>:</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌─┬────────┬───────────────────────┐
+│0│10010110│00000000000000000000<span style="color: blue; font-weight: bold">111</span>│
+└─┴────────┴───────────────────────┘
+ S exp+127    normalized mantissa</pre></div><p>Mantissa field <strong>treated as natural number</strong> contains an integer part of number.</p>
+<p>Because addition is used, then the result is rounded or truncated, depending
+on the current FPU's rounding settings.  When bare bit shift is used instead of
+addition (as in the method mentioned earlier), then the number is always truncated.</p>
+<p><strong>Note</strong>: this method could be used to get fixed point, just smaller value
+is needed: <span class="math">2<sup>23 &minus; <i>fraction</i><i>bits</i></sup></span>, but this also limit the maximum value
+of float.</p>
+<p>Implementation from sample program <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/floating-point/float2int.c">float2int.c</a>:</p>
+<pre class="literal-block">
+void convert_simple() {
+        double C = (1ll &lt;&lt; 52);
+        union {
+                double  val;
+                int64_t bin;
+        } tmp;
+
+        int i;
+        for (i=0; i &lt; SIZE; i++) {
+                tmp.val  = in[i] + C;
+                tmp.bin  = tmp.bin &amp; 0x000fffffffffffffll;
+                out_2[i] = tmp.bin;
+        }
+}
+</pre>
+<p>However this method is slower than ordinal FPU instructions, i.e.:</p>
+<pre class="literal-block">
+fldl    (%eax)
+fistpl  (%ebx)  (or fisttpl (%ebx) on CPU with SSSE3)
+</pre>
+</div>
+<div class="section" id="float-rounding">
+<h1>Float rounding</h1>
+<p>Very similar method could be used to perform float rounding.  First value <span class="math">2<sup>23</sup></span>
+is added, resulting in fraction bits lost, then same value is subtracted.</p>
+<p>There is FPU instruction <tt class="docutils literal">FRNDINT</tt> that does the job, but is very slow:</p>
+<pre class="literal-block">
+fldl    (%eax)
+frndint
+fstpl   (%ebx)
+</pre>
+<p>Faster is another FPU code:</p>
+<pre class="literal-block">
+fldl    (%eax)  ; load fp
+fistpl  tmp     ; convert to 64-bit int
+fildl   tmp     ; convert int back to float
+fstpl   (%ebx)  ; save rounded fp
+</pre>
+<p>But the trick beats both FPU methods.  Sample program <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/floating-point/round2.c">round2.c</a> has been
+compiled with following options:</p>
+<pre class="literal-block">
+gcc -march=core2 -O3 -Wall -pedantic -std=c99 round.c -o test
+</pre>
+<p>Then program was run on C2D E8200 &#64; 2.6GHz:</p>
+<pre class="literal-block">
+$ time ./test 0 10000
+stdlib, iterations = 10000, size = 65536
+
+real    0m13.344s
+user    0m13.333s
+sys     0m0.000s
+
+$ time ./test 1 10000
+FPU FRNDINT, iterations = 10000, size = 65536
+
+real    0m15.748s
+user    0m15.733s
+sys     0m0.000s
+
+$ time ./test 2 10000
+FPU FISTP/FILD, iterations = 10000, size = 65536
+
+real    0m1.280s
+user    0m1.276s
+sys     0m0.004s
+
+$ time ./test 3 10000
+simple method (C impl.), iterations = 10000, size = 65536
+
+real    0m0.456s
+user    0m0.452s
+sys     0m0.000s
+</pre>
+</div>
+<div class="section" id="sse-converting-64-bit-to-double-21-06-2008">
+<h1>SSE: converting 64-bit to double [21.06.2008]</h1>
+<p>On Intel forum user <strong>pvercello</strong> asked about SSE-assisted conversion of
+signed int 64-bit (less than <span class="math">2<sup>52</sup></span>) to double.  I have proposed a simple
+algorithm to convert unsigned ints, that use trick similar to these presented
+above. Then <strong>pvercello</strong> shown better approach, that need fewer operations.
+Finally I found a simple, branch-less way to do a singed conversion,
+unfortunately slower than FPU conversion.</p>
+<p>Below is unsigned int to float algorithm outline.  Please follow the discussion
+to find details about signed conversion.  The idea is based on the same property
+of floats that is use in float -&gt; int conversion.</p>
+<ol class="arabic">
+<li><p class="first">Assure, that the number is less than <span class="math">2<sup>52</sup></span> (or <span class="math">2<sup>23</sup></span> for
+floats):</p>
+<pre class="literal-block">
+if (x &lt; (1ll &lt;&lt; 52))
+        return ERANGE;
+</pre>
+</li>
+<li><p class="first">Set the exponent of floating point number to 52 &mdash; value of such double
+is <span class="math">2<sup>52</sup> + <i>x</i></span>:</p>
+<pre class="literal-block">
+uint64_t x_double = (1ll &lt;&lt; 52) | x; // bitwise or
+</pre>
+</li>
+<li><p class="first">Last step is to subtract floating point value <span class="math">2<sup>52</sup></span>:</p>
+<pre class="literal-block">
+double X = (*(double*)&amp;x_double) - (double)(1ll &lt;&lt; 52);
+</pre>
+</li>
+</ol>
+<p>Sample program <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/floating-point/convert_int52_double.c">convert_int52_double.c</a> is available.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2008-06-15-fptricks.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:25 GMT -->
+</html>

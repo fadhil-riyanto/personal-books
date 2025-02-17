@@ -1,0 +1,387 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-12-parsing-decimal-numbers-part-1-swar.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Parsing decimal numbers &mdash; part 1: SWAR</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="parsing-decimal-numbers-part-1-swar">
+<h1 class="title">Parsing decimal numbers &mdash; part 1: SWAR</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-10-12</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#swar" id="toc-entry-2">SWAR</a><ul>
+<li><a class="reference internal" href="#improvement-1" id="toc-entry-3">Improvement 1</a><ul>
+<li><a class="reference internal" href="#algorithm" id="toc-entry-4">Algorithm</a></li>
+<li><a class="reference internal" href="#sample-implementation" id="toc-entry-5">Sample implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#improvement-2" id="toc-entry-6">Improvement 2</a><ul>
+<li><a class="reference internal" href="#sample-implementation-1" id="toc-entry-7">Sample implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#improvement-3" id="toc-entry-8">Improvement 3</a><ul>
+<li><a class="reference internal" href="#sample-implementation-2" id="toc-entry-9">Sample implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#comparison" id="toc-entry-10">Comparison</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-11">Sample code</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-12">See also</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Naive parsing of unsigned decimal numbers can be coded as:</p>
+<pre class="literal-block">
+uint32_t parse(char* s) {
+
+    uint32_t result = 0;
+
+    while (*s) {
+        const uint8_t digit = *s++;
+
+        result = result * 10 + (digit - '0');
+    }
+
+    return result;
+}
+</pre>
+<p>The procedure <tt class="docutils literal">parse</tt> does not check validity of a string nor
+check for overflow &mdash; these problems won't be discussed in
+this text.</p>
+<p>Processing single letter require just 3 operations:</p>
+<ul class="simple">
+<li>subtract,</li>
+<li>addition,</li>
+<li>multiplication by 10.</li>
+</ul>
+<p>On x86 multiplication by 10 is cheap; multiplication
+<tt class="docutils literal">x * 10</tt> is equivalent to <tt class="docutils literal">x &lt;&lt; 3 + x &lt;&lt; 1</tt>. Shift
+by 8 is coded with <tt class="docutils literal">LEA</tt> (it's executed by addressing
+unit, not ALU), and shift by 1 is simple addition
+or another <tt class="docutils literal">LEA</tt>.</p>
+</div>
+<div class="section" id="swar">
+<h1>SWAR</h1>
+<p>In SWAR version we'll process 4 letters at once. For shorter
+strings naive fallback have to be used or proper mask
+applied on dword.</p>
+<p>The common phase of all SWAR versions is converting ASCII to
+digit values, this is simple subtraction.</p>
+<ol class="arabic">
+<li><p class="first">input &mdash; 4 ASCII letters:</p>
+<pre class="literal-block">
+x  = packed_byte(| '1' | '2' | '7' | '0' |)
+</pre>
+</li>
+<li><p class="first">subtract vector of '0':</p>
+<pre class="literal-block">
+x' = packed_byte(| '1' | '2' | '7' | '0' |)
+   - packed_byte(| '0' | '0' | '0' | '0' |)
+   = packed_byte(|  1  |  2  |  7  |  0  |)
+</pre>
+</li>
+</ol>
+<div class="section" id="improvement-1">
+<h2>Improvement 1</h2>
+<p>Suppose we have just two digits <tt class="docutils literal">x</tt> and <tt class="docutils literal">y</tt> stored in separate
+bytes:</p>
+<pre class="literal-block">
+w  = packed_byte(|  0  |  0  |  x  |  y  |)
+</pre>
+<p>Value of <tt class="docutils literal">w</tt> is <tt class="docutils literal">256*x + y</tt>, but we want to get <tt class="docutils literal">10*y + x</tt>.
+By multiplication <tt class="docutils literal">w</tt> by 2561 we get this value in the higher
+byte. Magic? No, 2561 = 256 * 10 + 1, and:</p>
+<ul class="simple">
+<li>1 &mdash; keeps <tt class="docutils literal">x</tt> on the original position;</li>
+<li>2560 &mdash; moves <tt class="docutils literal">y</tt> <strong>multiplied by 10</strong> on the second byte;</li>
+<li>adds them together.</li>
+</ul>
+<p>Proof:
+<span class="math">(256 &sdot; <i>x</i> + <i>y</i>) &sdot; (1 + 10256) = (256 &sdot; <i>x</i> + <i>y</i>) + (655360 &sdot; <i>x</i> + 256 &sdot; 10 &sdot; <i>y</i>)</span>.
+Now reject components less than 256 and greater than 65535:
+<span class="math">(<i>x</i> &sdot; 256) + (<i>y</i> &sdot; 2560) = 256 &sdot; (10 &sdot; <i>y</i> + <i>x</i>)</span>.</p>
+<p>Full expression:</p>
+<pre class="literal-block">
+v = ((w * 2561) &gt;&gt; 8) &amp; 0xff
+</pre>
+<p>The same trick could be used to join 2-digit values <tt class="docutils literal">ab</tt> &amp; <tt class="docutils literal">cd</tt>
+stored on 1st and 3rd byte:</p>
+<pre class="literal-block">
+Z  = packed_byte(|   0  |  ab  |   0  |  cd  |)
+</pre>
+<p>The &quot;magic&quot; multiplier is 6553601, result is <tt class="docutils literal">100*cd + ab</tt>
+saved in the higher word.</p>
+<div class="section" id="algorithm">
+<h3>Algorithm</h3>
+<ol class="arabic">
+<li><p class="first">input &mdash; 4 digits:</p>
+<pre class="literal-block">
+t1  = packed_byte(|      d       |      c       |      b       |      a       |)
+</pre>
+</li>
+<li><p class="first">form two words suitable to make 2-digits values:</p>
+<pre class="literal-block">
+t2a = packed_byte(|      0       |      0       |      b       |      a       |)
+t2b = packed_byte(|      0       |      0       |      d       |      c       |)
+</pre>
+</li>
+<li><p class="first">form 2-digits values by multiplication <tt class="docutils literal">t2{a,b}</tt> by 2561:</p>
+<pre class="literal-block">
+t3a = packed_byte(|      ?       |      ?       |  10*a + b    |      ?       |)
+t3b = packed_byte(|      ?       |      ?       |  10*c + d    |      ?       |)
+</pre>
+</li>
+<li><p class="first">prepare dword from <tt class="docutils literal">t3{a,b}</tt> to get 4-digits value:</p>
+<pre class="literal-block">
+t4  = packed_byte(|      0       |  10*a + b    |      0       |  10*c + d    |)
+</pre>
+</li>
+<li><p class="first">form 4-digit value by multiplication <tt class="docutils literal">t3</tt> by 6553601:</p>
+<pre class="literal-block">
+t5  = packed_word(| 1000*c + 100* d + 10*a + b  |              ?              |)
+</pre>
+</li>
+<li><p class="first">extract higher word from <tt class="docutils literal">t5</tt>.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="sample-implementation">
+<h3>Sample implementation</h3>
+<pre class="literal-block">
+#define packed32(b) (uint8_t(b) * 0x01010101)
+
+uint32_t parse1(char* s) {
+
+    const uint32_t input = *reinterpret_cast&lt;uint32_t*&gt;(s);
+
+    const uint32_t t1 = input - packed32('0');
+
+    const uint32_t t2a = t &amp; 0xffff;
+    const uint32_t t2b = t &gt;&gt; 16;
+
+    const uint32_t t3a = ((t2a * (2561)) &gt;&gt; 8) &amp; 0xff;
+    const uint32_t t3b = ((t2b * (2561)) &gt;&gt; 8) &amp; 0xff;
+
+    const uint32_t t4  = t3a | (t3b &lt;&lt; 16);
+
+    return (word * (6553601) &gt;&gt; 16);
+}
+</pre>
+</div>
+</div>
+<div class="section" id="improvement-2">
+<h2>Improvement 2</h2>
+<p>Another approach to making 2-digit values:</p>
+<ol class="arabic">
+<li><p class="first">input &mdash; 4 digits:</p>
+<pre class="literal-block">
+t1 = |      d      |      c      |      b      |      a      |
+</pre>
+</li>
+<li><p class="first">mask 1st and 3rd digit:</p>
+<pre class="literal-block">
+t2 = |      d      |      0      |      b      |      0      |
+</pre>
+</li>
+<li><p class="first">move one digit left and multiply by 10:</p>
+<pre class="literal-block">
+t3 = |      0      |      d*10   |      0      |      b*10   |
+</pre>
+<p>This can be done without multiplication. We calculate <tt class="docutils literal">(x * 10) &gt;&gt; 8</tt>,
+multiplication is replaced by shifts <tt class="docutils literal">((x &lt;&lt; 3) + (x &lt;&lt; 1)) &gt;&gt; 8</tt>, after
+simplify shifts: <tt class="docutils literal">(x &gt;&gt; <span class="pre">(8-3))</span></tt> + <tt class="docutils literal">(x &gt;&gt; <span class="pre">(8-1))</span></tt>.</p>
+</li>
+<li><p class="first">add <tt class="docutils literal">t1</tt> and <tt class="docutils literal">t3</tt>:</p>
+<pre class="literal-block">
+t4 = |      d      |  c + d*10   |      b      |  a + b*10   |
+</pre>
+</li>
+<li><p class="first">mask 1st &amp; 3rd digits again:</p>
+<pre class="literal-block">
+t5 = |      0      |  c + d*10   |      0      |  a + b*10   |
+</pre>
+</li>
+<li><p class="first">convert <tt class="docutils literal">t5</tt> to 4-digits value.</p>
+</li>
+</ol>
+<div class="section" id="sample-implementation-1">
+<h3>Sample implementation</h3>
+<pre class="literal-block">
+uint32_t parse2(char* s) {
+
+    const uint32_t input = bswap(*reinterpret_cast&lt;uint32_t*&gt;(s));
+
+    const uint32_t t1 = input - packed32('0');
+    const uint32_t t2  = t1 &amp; 0xff00ff00;
+    const uint32_t t3  = (t2 &gt;&gt; (8-1)) + (t2 &gt;&gt; (8-3));
+    const uint32_t t4  = t1 + t3;
+    const uint32_t t5  = t4 &amp; 0x00ff00ff;
+
+    // reversed order, so multiplier is diffrent
+    return (t5 * (100 + 65536)) &gt;&gt; 16;
+}
+</pre>
+</div>
+</div>
+<div class="section" id="improvement-3">
+<h2>Improvement 3</h2>
+<p>Another approach to making 2-digit values:</p>
+<ol class="arabic">
+<li><p class="first">input &mdash; 4 digits:</p>
+<pre class="literal-block">
+t1 = |      d      |      c      |      b      |      a      |
+</pre>
+</li>
+<li><p class="first">multiply by 10:</p>
+<pre class="literal-block">
+t2 = |      d*10   |      c*10   |      b*10   |      a*10   |
+</pre>
+</li>
+<li><p class="first">move digits one position right (shift dword right by 8 bits):</p>
+<pre class="literal-block">
+t3 = |      0      |      d*10   |      c*10   |      b*10   |
+</pre>
+</li>
+<li><p class="first">add <tt class="docutils literal">t2</tt> and <tt class="docutils literal">t3</tt>:</p>
+<pre class="literal-block">
+t4 = |      d*10   |  c + d*10   |  b + c*10   |  a + b*10   |
+</pre>
+</li>
+<li><p class="first">mask unneeded bytes 1 and 3:</p>
+<pre class="literal-block">
+t5 = |      0      |  c + d*10   |      0      |  a + b*10   |
+</pre>
+</li>
+</ol>
+<p>Now word <tt class="docutils literal">t5</tt> could be converted as in the version 2.</p>
+<div class="section" id="sample-implementation-2">
+<h3>Sample implementation</h3>
+<pre class="literal-block">
+uint32_t parse3(char* s) {
+
+    const uint32_t input = bswap(*reinterpret_cast&lt;uint32_t*&gt;(s));
+
+    const uint32_t t1 = input - packed32('0');
+    const uint32_t t2 = (t1 * 10) &gt;&gt; 8;
+
+    const uint32_t t3 = t1 + t2;
+    const uint32_t t4 = t3 &amp; 0x00ff00ff;
+
+    return (t4 * (100 + 65536)) &gt;&gt; 16;
+}
+</pre>
+</div>
+</div>
+<div class="section" id="comparison">
+<h2>Comparison</h2>
+<p>Number of operations required to convert 4 ASCII digits.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="21%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+<col width="20%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">operation</th>
+<th class="head">naive</th>
+<th class="head">version 1</th>
+<th class="head">version 2</th>
+<th class="head">version 3</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>bswap</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>bit-or</td>
+<td>&nbsp;</td>
+<td>1</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr><td>bit-and</td>
+<td>&nbsp;</td>
+<td>3</td>
+<td>2</td>
+<td>1</td>
+</tr>
+<tr><td>shift</td>
+<td>&nbsp;</td>
+<td>5</td>
+<td>3</td>
+<td>2</td>
+</tr>
+<tr><td>add</td>
+<td>4</td>
+<td>&nbsp;</td>
+<td>2</td>
+<td>1</td>
+</tr>
+<tr><td>sub</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>mult</td>
+<td>&nbsp;</td>
+<td>3</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>mult-by-10</td>
+<td>4</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>1</td>
+</tr>
+<tr><td><strong>total</strong></td>
+<td>9</td>
+<td>13</td>
+<td>10</td>
+<td><strong>6</strong></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample code is available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/conv_from_dec">gitub</a>.</p>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2014-10-15-parsing-decimal-numbers-part-2-sse.html">Parsing decimal numbers &mdash; part 2: SSE</a></li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-12-parsing-decimal-numbers-part-1-swar.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

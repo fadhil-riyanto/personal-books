@@ -1,0 +1,30 @@
+Przyk³adowy filtr pasmowy zbudowany na bazie wzmacniacza operacyjnego
+* "Wzmacniacz operacyjny.pdf", str. 28
+* Wojciech Mu³a, 16.10.2005
+
+* uk³ad:
+* - wej¶cie: 1 0
+* - wyj¶cie: 2 0
+* fd = 1/(2pi R2 C2)
+R2	4 2	2k
+C2	4 2	100n
+
+* fg = 1/(2pi R1 C1)
+R1	3 4	1k
+C1	1 3	10n
+
+X	0 4 10 11 2	ua741
+Vdd	10 0		DC +10V
+Vcc	11 0		DC -10V
+.include ua741.model
+
+* sygna³ wej¶ciowy
+Vin	1 0		DC 0 AC 1
+
+
+* analiza
+.AC DEC 10 1 100kHz
+* wykresy czêstotliwo¶ciowe: wzmocnienie, przesuniêcie fazowe
+.plot AC Vdb(2) Vp(2)
+
+.end

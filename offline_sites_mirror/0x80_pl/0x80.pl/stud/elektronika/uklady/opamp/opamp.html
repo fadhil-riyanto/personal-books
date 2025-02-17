@@ -1,0 +1,13 @@
+* Uproszczony model wzmacniacza operacyjnego oparty na liniowym ¼ródle
+* napiêciowym sterowanym napiêciem.
+
+.subckt opamp 1 2 3
+*             | | |
+*             | | wyj¶cie
+*             | wej¶cie odwracaj±ce
+*             wej¶cie nieodwracaj±ce
+
+Rwe	1 2		10G
+E	0 10 1 2	100k
+Rwy	10 3		100
+.ends opamp

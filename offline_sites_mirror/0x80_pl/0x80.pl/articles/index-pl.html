@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/index-pl.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Programowanie</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="programowanie">
+<h1 class="title">Programowanie</h1>
+
+<p><a class="reference external" href="../index-2.html">Strona domowa</a>, zobacz też <a class="reference external" href="../notesen.html">artykuły w języku angielskim</a>.</p>
+<div class="contents topic" id="dzialy">
+<p class="topic-title">Działy</p>
+<ul class="simple">
+<li><a class="reference internal" href="#grafika-komputerowa" id="toc-entry-1">Grafika komputerowa</a></li>
+<li><a class="reference internal" href="#asembler-x86-fpu-mmx-sse-sse2-sse3-ssse3-sse4" id="toc-entry-2">Asembler x86 (FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4)</a></li>
+<li><a class="reference internal" href="#liczby-zmiennoprzecinkowe-floating-point" id="toc-entry-3">Liczby zmiennoprzecinkowe (floating-point)</a></li>
+<li><a class="reference internal" href="#niskopoziomowe" id="toc-entry-4">Niskopoziomowe</a></li>
+<li><a class="reference internal" href="#inne" id="toc-entry-5">Inne</a></li>
+</ul>
+</div>
+<div class="section" id="grafika-komputerowa">
+<h1>Grafika komputerowa</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="bresenham.html">Algorytm Bresenhama</a> [2007-02-04]</dt>
+<dd>W 1962 roku pan Bresenham zaproponował całkowitoliczbowy algorytm
+rasteryzacji, który &mdash; z większymi lub mniejszymi
+modyfikacjami &mdash; jest stosowany do dziś. Ten tekst przedstawia
+algorytm oraz jego aplikacje: rasteryzację odcinka, okręgu oraz elipsy.</dd>
+<dt><a class="reference external" href="point_in_polygon.html">Określenie, czy punkt leży wewnątrz wielokąta</a> [2007-02-21]</dt>
+<dd>Algorytm dla dowolnych wielokątów oraz efektywny dla trójkątów.</dd>
+<dt><a class="reference external" href="elarc-aabb.html">AABB obróconego łuku eliptycznego</a> [2007-03-25]</dt>
+<dd>AABB, czyli pudełko otaczające równoległe do osi układu współrzędnych.</dd>
+</dl>
+<p><a class="reference external" href="bezier-approx.html">Aproksymacja łamaną krzywej Beziera 3. stopnia</a> [2007-02-07]</p>
+<p><a class="reference external" href="bezier-cross.html">Punkty przecięcia dwóch krzywych Beziera 3. stopnia</a> [2007-02-15]</p>
+<p><a class="reference external" href="bezier-flat.html">Stwierdzenie, czy krzywa Beziera 3. stopnia jest płaska</a> [2007-01-31]</p>
+<p><a class="reference external" href="refine-polyline.html">Upraszczanie łamanej aproksymującej wykres funkcji</a> [2007-02-26]</p>
+<dl class="docutils">
+<dt><a class="reference external" href="pixconv.html">Konwersje pikseli RGB</a> [2008-06-02]</dt>
+<dd>Konwersje pomiędzy różnymi formatami pikseli [C, asembler (MMX)].</dd>
+<dt><a class="reference external" href="pixconv_rgb24_grayscale.html">Konwersje pikseli 24/32bpp z/na grayscale</a> [2008-04-30]</dt>
+<dd>Różne sposoby konwersji obrazów true-color na odcienie szarości.</dd>
+<dt><a class="reference external" href="saturated_add.html">Dodawanie z nasyceniem</a> [2007-06-29]</dt>
+<dd>Szybkie sposoby dodawania pikseli [asembler (x86,MMX)].</dd>
+<dt><a class="reference external" href="bilinear.html">Filtrowanie bilinearne</a> [2003-12-14]</dt>
+<dd>Filtrowanie obrazów bitmapowych przy przekształceniach,
+czyli &bdquo;pikselizacji mówimy nie&rdquo;.</dd>
+<dt><a class="reference external" href="blur.html">Rozmycie obrazów</a> [2016-03-07]</dt>
+<dd>Szybki algorytm [wersja w C oraz asemblerze (x86, MMX)].</dd>
+<dt><a class="reference external" href="crossfad.html">Miksowanie obrazów</a> [2005-07-17]</dt>
+<dd>Płynne przejście obrazów.</dd>
+<dt><a class="reference external" href="aver.html">Obliczanie średniej arytmetycznej</a></dt>
+<dd>(Jako uzupełnienie dla przypadków miksowania ze wsp. 0,5)</dd>
+<dt><a class="reference external" href="fillpolygon.html">Wypełnianie wielokątów</a> [2005-07-18]</dt>
+<dd>Wypełnianie dowolnych wielokątów (przykładowy kod w Pythonie).</dd>
+<dt><a class="reference external" href="filltri.html">Wypełnianie trójkątów</a> [2007-03-05]</dt>
+<dd>Wypełnianie trójkątów i czworokątów wypukłych.</dd>
+<dt><a class="reference external" href="gouaraud.html">Cieniowanie Gouarauda</a> [2002-08-09]</dt>
+<dd>Zastosowanie rozkazów MMX przy cieniowaniu Gouarauda.</dd>
+<dt>Odbicie obrazu</dt>
+<dd><a class="reference external" href="flipx.html">w pionie</a> [2002-03-03] oraz <a class="reference external" href="flipy.html">poziomie</a> [2002-02-06]</dd>
+<dt><a class="reference external" href="gfx2ascii.html">Konwersja cz/b obrazka na ASCII</a> [2002-03-04]</dt>
+<dd>Opis algorytmu użytego w programie <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/bmp2ascii">bmp2ascii.cc</a>,
+który działa na <strong>konsoli</strong> linuksowej.</dd>
+<dt>Skalowanie obrazu</dt>
+<dd>Proste i z filtrowaniem: <a class="reference external" href="scale2x.html">200%</a> [2008-04-30] oraz
+<a class="reference external" href="scalehalf.html">50%</a></dd>
+<dt><a class="reference external" href="v_scroll.html">Efektywny scroll obrazu</a> [2002-03-09]</dt>
+<dd>Szybki scroll obrazu, czyli lista cykliczna dla każdego.</dd>
+</dl>
+</div>
+<div class="section" id="asembler-x86-fpu-mmx-sse-sse2-sse3-ssse3-sse4">
+<h1>Asembler x86 (FPU, MMX, SSE, SSE2, SSE3, SSSE3, SSE4)</h1>
+<p><a class="reference external" href="avx-riscop.html">AVX: rozkazy trójargumentowe</a> [2008-04-29]</p>
+<p><a class="reference external" href="sse4-substring-locatepl.html">SSE4: MPSADBW &mdash; pomoc w wyszukiwaniu wzorców</a> [2008-04-13]</p>
+<dl class="docutils">
+<dt><a class="reference external" href="sse4-string-instr.html">SSE4: instrukcje działające na łańcuchach</a> [2008-04-26]</dt>
+<dd>Omówienie nowych rozkazów <tt class="docutils literal">PCMPxSTRx</tt> oraz kilka przykładowych
+funkcji.</dd>
+</dl>
+<p><a class="reference external" href="sse4-colorkey.html">SSE4: colorkey</a> [2008-05-03]</p>
+<p><a class="reference external" href="sse4-new-instr.html">SSE4 &mdash; nowe rozkazy</a> [2007-09-04]</p>
+<p><a class="reference external" href="sse4-pteststrlen.html">SSE4: PTEST &amp; strlen</a> [2007-09-08]</p>
+<dl class="docutils">
+<dt><a class="reference external" href="sse4-dppsdotprod.html">SSE4: DPPS &mdash; iloczyn skalarny</a> [2007-09-13]</dt>
+<dd>Iloczyn skalarany realizowanym jednym rozkazem, mnożenie
+macierzy &mdash; banalne.</dd>
+<dt><a class="reference external" href="sse3-haddpsdotprod.html">SSE3: HADDPS &mdash; iloczyn skalarny</a> [2007-09-14]</dt>
+<dd>Wydajne równoległe wyznaczenie czterech iloczynów skalarnych</dd>
+<dt><a class="reference external" href="snippets.html">Snippets</a> [2007-04-30]</dt>
+<dd>Dwadzieścia cztery programiki asemblerowe, które mogą być
+przydatne w każdym programie.</dd>
+</dl>
+<p><a class="reference external" href="sse-bitblock-transpose.html">SSE: Transpozycja bloku bitów</a> [2008-04-28]</p>
+<p><a class="reference external" href="string.h.asm.html">Operacje na łańcuchach ASCII-Z w asemblerze</a> [2007-08-09]</p>
+<dl class="docutils">
+<dt><a class="reference external" href="mmx_snippets.html">MMX&amp;SSE snippets</a> [2002-10-28]</dt>
+<dd>Różnorodne problemy (i problemiki) rozwiązane z użyciem
+rozkazów SIMD.</dd>
+<dt><a class="reference external" href="mmx_amd.html">Rozszerzenia MMX firm AMD i Cyrix</a> [2007-08-08]</dt>
+<dd>Interesujące rozszerzenia MMX konkurentów Intela.</dd>
+</dl>
+<p><a class="reference external" href="mmx_mpeg.html">Zastosowanie rozkazów SIMD w kompensacji ruchu</a> [2007-09-06]</p>
+<dl class="docutils">
+<dt><a class="reference external" href="sse.html">SSE/SSE2 - przykłady zastosowań</a> [2007-09-15]</dt>
+<dd>Osiem przykładów: iloczyn skalarny, iloczyn wektorowy, normalizacja
+wektora, obrót punktu 2d, mnożenie liczb zespolonych, mnożenie macierzy
+przez wektor, transpozycja macierzy.</dd>
+<dt><a class="reference external" href="sse_det4x4.html">Obliczenie wyznacznika macierzy 4x4 przy użyciu rozkazów SSE2</a> [2003-05-21]</dt>
+<dd>Właściwie to równoczesne liczenie wyznaczników dwóch macierzy</dd>
+</dl>
+</div>
+<div class="section" id="liczby-zmiennoprzecinkowe-floating-point">
+<h1>Liczby zmiennoprzecinkowe (floating-point)</h1>
+<blockquote class="epigraph">
+<p>Liczby zmiennoprzecinkowe nigdy nie są niczemu równe.</p>
+<p class="attribution">&mdash;Gotar</p>
+</blockquote>
+<dl class="docutils">
+<dt><a class="reference external" href="fp_compare.html">Porównywanie liczb floating point</a> [2002-10-23]</dt>
+<dd>Porównywanie liczby floating point przy użyciu operacji całkowitoliczbowych.</dd>
+<dt><a class="reference external" href="float2string.html">Wyświetlanie liczb zmiennoprzecinkowych</a> [<a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/print_float">źródła</a>] [2003-12-12]</dt>
+<dd>Algorytm, przedyskutowany kiedyś na liście <a class="reference external" href="mailto:asm&#64;hydepark.pl">asm&#64;hydepark.pl</a> (niestety,
+lista już nie istnieje, jak zresztą cała strona hydepark).</dd>
+</dl>
+</div>
+<div class="section" id="niskopoziomowe">
+<h1>Niskopoziomowe</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="linux_smc.html">Kod samomodyfikujący się</a> (Linux) [2008-07-13]</dt>
+<dd>Testowane z jądrem 2.4 oraz 2.6.</dd>
+<dt><a class="reference external" href="ring0.html">Ring0 pod Windowsowym DPMI</a> (Windows 9x) [2002-04-16]</dt>
+<dd>Artykuł pokazuje jak można przejść na ring0, wykorzystując
+(idiotyczny) błąd w win9x (<em>asmcorner</em>).</dd>
+<dt><a class="reference external" href="extend.html">Rozszerzanie zakresu liczb</a></dt>
+<dd>Rozszerzenia zakresu liczb ze znakiem i bez znaku, czyli
+<tt class="docutils literal">movzx</tt>/<tt class="docutils literal">movsx</tt> od kuchni.</dd>
+<dt><a class="reference external" href="string_to_number.html">Konwersja napisów na wartość liczbową</a> [2002-10-27]</dt>
+<dd>Czyli jak działa <tt class="docutils literal">strtol</tt></dd>
+<dt><a class="reference external" href="num2ascii.html">Wyświetlanie liczb</a> [2008-04-30]</dt>
+<dd>Czyli jak działa <tt class="docutils literal"><span class="pre">printf(&quot;%d&quot;,</span> x)</tt></dd>
+<dt><a class="reference external" href="radixsort.html">Sortowanie pozycyjne</a> [2002-03-09]</dt>
+<dd>Zmodyfikowana wersja algorytmu, wymagająca mniej przesłań.</dd>
+<dt><a class="reference external" href="terminals.html">Tryb kanoniczny terminala</a> (Linux) [2002-12-19]</dt>
+<dd>W trybie kanonicznym terminal nie buforuje linii i  dane wejściowe
+są dostępne na poziomie bajtów, czyli tak samo jak w DOS.</dd>
+</dl>
+</div>
+<div class="section" id="inne">
+<h1>Inne</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="tree_layout/index.html">Automatyczne rysowanie dowolnych drzew</a></dt>
+<dd>Przedstawione niżej metody służą do automatycznego rozmieszczania
+elementów graficznych reprezentujących węzły w drzewiastych
+strukturach danych.</dd>
+<dt><a class="reference external" href="http://pl.wikibooks.org/wiki/POSIX_Threads">POSIX threads</a> [2010-03-21]</dt>
+<dd>Opis biblioteki pthreads istnieje w serwisie Wikibooks od marca 2010 roku.
+Umieszczam tutaj wstępną wersję w PDF oraz źródła LaTeX-owe (bez programów
+w C).</dd>
+</dl>
+<dl class="docutils">
+<dt><a class="reference external" href="tkinter_notes.html">Tkinter &mdash; notatki</a></dt>
+<dd>Różne notatki nt słabo udokumentowanych cech Tkintera</dd>
+<dt><a class="reference external" href="dos_wildcards.html">Znaki wieloznaczne DOS (wildcards)</a> [2002-03-08]</dt>
+<dd>Artykuł omawia procedurę porównującą łańcuch ze wzorcem
+w którym użyto znaków wieloznacznych (ang. wildcards)
+znanych z DOS-a, gdzie <tt class="docutils literal">?</tt> zastępuje pojedynczy
+znak, natomiast <tt class="docutils literal">*</tt> ciąg znaków.</dd>
+<dt><a class="reference external" href="huffman.html">Statyczne kodowanie Huffmana</a> [2003-11-30]</dt>
+<dd>Metoda kompresji z którą każdy, ale to absolutnie każdy się zetknął.
+Że choćby wspomnę o formacie JPEG.  Zobacz też
+<a class="reference external" href="http://pl.wikipedia.org/wiki/Kodowanie_Huffmana">artykuł na Wikipedii</a> (w którym maczałem
+klawiaturę).</dd>
+<dt><a class="reference external" href="string_h.html">Implementacje funkcji ze string.h</a> [2005-10-13]</dt>
+<dd>Moje stare wprawki w programowaniu w języku C.</dd>
+<dt><a class="reference external" href="streambuf.html">Zaawansowane użycie streambuf (C++)</a> [2002-07-12]</dt>
+<dd>Staroć, nieaktualne. P.T. studenci UWr napisali na swoim forum, że
+coś nie działają opisane tutaj manipulatory.  Całkiem możliwe,
+eksperymenty robiłem dobre 4 lata temu (wtedy też powstał ten artykuł),
+w międzyczasie C++ poszedł &bdquo;do przodu&rdquo; &mdash; cokolwiek to znaczy
+w odniesieniu do tego języka.</dd>
+<dt><a class="reference external" href="log2.html">Oszacowanie log2</a> [2003-12-14]</dt>
+<dd>Może się przydać do jakiegoś LOD-a (Level of Detail)</dd>
+</dl>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/index-pl.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:43 GMT -->
+</html>

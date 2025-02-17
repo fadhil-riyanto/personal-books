@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binopv5.php?f=vrangepd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/binopv5.php?f=vrangepd" />
+<link rel="alternate" hreflang="en" href="binopv50720.html?f=vrangepd" />
+<title>vrangepd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VRANGEPD - RANGE Packed Double<br /></h2>
+VRANGEPD<span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+DQ+VL<br />
+<span class="intr">__m128i _mm_range_pd(__m128i a, __m128i b, int imm8)</span><br />
+<span class="intr">__m128i _mm_mask_range_pd(__m128i s, __mmask8 k, __m128i a, __m128i b, int imm8)</span><br />
+<span class="intr">__m128i _mm_maskz_range_pd(__mmask8 k, __m128i a, __m128i b, int imm8)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_2.png" /><br />
+<div style="padding-left: 110px">For each double, select either (1) or (2) as specified in imm8. Modify the sign of the selected value as specified in imm8 and set the result to (3)</div>
+<div style="height: 30px"></div>
+VRANGEPD<span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+DQ+VL<br />
+<span class="intr">__m256i _mm256_range_pd(__m256i a, __m256i b, int imm8)</span><br />
+<span class="intr">__m256i _mm256_mask_range_pd(__m256i s, __mmask8 k, __m256i a, __m256i b, int imm8)</span><br />
+<span class="intr">__m256i _mm256_maskz_range_pd(__mmask8 k, __m256i a, __m256i b, int imm8)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_3.png" /><br />
+<div style="padding-left: 110px">For each double, select either (1) or (2) as specified in imm8. Modify the sign of the selected value as specified in imm8 and set the result to (3)</div>
+<div style="height: 30px"></div>
+VRANGEPD<span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m64bcst{sae}, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+DQ<br />
+<span class="intr">__m512i _mm512_range_pd(__m512i a, __m512i b, int imm8)</span><br />
+<span class="intr">__m512i _mm512_mask_range_pd(__m512i s, __mmask8 k, __m512i a, __m512i b, int imm8)</span><br />
+<span class="intr">__m512i _mm512_maskz_range_pd(__mmask8 k, __m512i a, __m512i b, int imm8)</span><br />
+<span class="intr">__m512i _mm512_range_round_pd(__m512i a, __m512i b, int imm8, int sae, imm8)</span><br />
+<span class="intr">__m512i _mm512_mask_range_round_pd(__m512i s, __mmask8 k, __m512i a, __m512i b, int imm8, int sae)</span><br />
+<span class="intr">__m512i _mm512_maskz_range_round_pd(__mmask8 k, __m512i a, __m512i b, int imm8, int sae)</span><br />
+<div style="height: 2px;"></div><img src="binop_qword_4.png" /><br />
+<div style="padding-left: 110px">For each double, select either (1) or (2) as specified in imm8. Modify the sign of the selected value as specified in imm8 and set the result to (3)</div>
+<div style="height: 30px"></div>
+
+<p>imm8</p>
+<table>
+	<tr>
+		<th>bit</th>
+		<th></th>
+	</tr>
+	<tr>
+		<th>1:0</th>
+		<td>
+			Which one to select?<br>
+			00: the smaller one<br>
+			01: the larger one<br>
+			10: the one that has the smaller absolute value<br>
+			11: the one that has the larger absolute value<br>
+		</td>
+	</tr>
+	<tr>
+		<th>3:2</th>
+		<td>
+			Sign operation<br>
+			00: copy the sign of (1)<br>
+			01: leave the selected one's sign as is<br>
+			10: set positive<br>
+			11: set negative<br>
+		</td>
+	</tr>
+	<tr>
+		<th>7:4</th>
+		<td>
+			must be 0.
+		</td>
+	</tr>
+</table>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vrangepd" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binopv5.php?f=vrangepd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+</html>

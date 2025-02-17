@@ -1,0 +1,747 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2015-03-22-avx512-ternary-functions.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512: ternary functions evaluation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512-ternary-functions-evaluation">
+<h1 class="title">AVX512: ternary functions evaluation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2015-03-22</td>
+</tr>
+<tr class="updates field"><th class="docinfo-name">Updates:</th><td class="field-body">2020-01-11</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#bit-select-function" id="toc-entry-2">Bit select function</a></li>
+<li><a class="reference internal" href="#other-examples" id="toc-entry-3">Other examples</a><ul>
+<li><a class="reference internal" href="#artificial-function" id="toc-entry-4">Artificial function</a></li>
+<li><a class="reference internal" href="#or-and-xor-all" id="toc-entry-5">OR/AND/XOR all</a></li>
+<li><a class="reference internal" href="#exactly-one-bit-is-set" id="toc-entry-6">Exactly one bit is set</a></li>
+<li><a class="reference internal" href="#exactly-two-bits-are-set" id="toc-entry-7">Exactly two bits are set</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#real-world-examples" id="toc-entry-8">Real-world examples</a><ul>
+<li><a class="reference internal" href="#md5-sha-1-and-sha-2-hashing" id="toc-entry-9">MD5, SHA-1 and SHA-2 hashing</a></li>
+<li><a class="reference internal" href="#carry-save-adder" id="toc-entry-10">Carry-save adder</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-11">See also</a></li>
+<li><a class="reference internal" href="#changes" id="toc-entry-12">Changes</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Intel's version of SIMD offers following 2-argument (binary) boolean
+functions: <strong>and</strong>, <strong>or</strong>, <strong>xor</strong>, <strong>and not</strong>. There isn't a single
+argument <strong>not</strong>, this function can be expressed with <tt class="docutils literal">xor reg, ones</tt>,
+however it requires additional, pre-set register.</p>
+<p><strong>AVX512F</strong> will come with a very interesting instruction called
+<tt class="docutils literal">vpternlog</tt>. There are two variants of the instruction operating on
+a packed 32-bit (<tt class="docutils literal">vpternlogd</tt>) or a 64-bit vector (<tt class="docutils literal">vpternlogq</tt>),
+however they do exactly the same thing &mdash; evaluate a 3-argument
+(<em>ternary</em>) boolean function on each bit of arguments, the function
+is given as a truth table.</p>
+<p>The pattern of a truth table:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" rowspan="2">result</th>
+</tr>
+<tr><th class="head">A</th>
+<th class="head">B</th>
+<th class="head">C</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>a</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>b</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>c</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>d</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>e</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>f</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>g</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>h</td>
+</tr>
+</tbody>
+</table>
+<p>A programmer supplies only the result column, i.e. defines values of bits
+<strong>a</strong> through <strong>h</strong>, this is a single 8-bit value.</p>
+<p>Depending on function complexity, a single <tt class="docutils literal">vpternlog</tt> instruction can
+replace from one up to <strong>eight</strong> SIMD instructions.</p>
+<p>According to <a class="reference external" href="https://www.agner.org/optimize/#manuals">Agner Fog's documentation</a> on SkylakeX <tt class="docutils literal">vpternlog</tt> has
+1 cycle latency and 0,5 cycle reciprocal throughput (there are two execution
+units able to handle the instruction). It's pretty fast, though.</p>
+<p>Ternary logic function is available as the intrinsic function
+<tt class="docutils literal">_mm512_ternarylogic_epi32(a, b, c, imm8)</tt>, where the argument <tt class="docutils literal">a</tt>
+carries most significant bits, and <tt class="docutils literal">c</tt> least significant bits.</p>
+</div>
+<div class="section" id="bit-select-function">
+<h1>Bit select function</h1>
+<p>A ternary function may be seen as a select function, i.e. the most
+significant bit <strong>A</strong> select one of binary functions of B and C. The
+function for A=0 is described by bits a..d, the function
+for A=1 by bits e..h.</p>
+<p>As <a class="reference external" href="https://twitter.com/solardiz/status/773253523362476032">&#64;solardiz</a> <a class="reference external" href="https://twitter.com/solardiz/status/773497516109230081">noted</a> this function is available in OpenCL as
+<a class="reference external" href="https://www.khronos.org/registry/cl/sdk/1.0/docs/man/xhtml/bitselect.html">bitselect()</a>, AMD <a class="reference external" href="http://en.wikipedia.org/wiki/XOP_instruction_set">XOP</a> has instruction
+<tt class="docutils literal">VPCMOV</tt>, <a class="reference external" href="http://en.wikipedia.org/wiki/AltiVec">AltiVec</a> has <tt class="docutils literal">VSEL</tt>, <a class="reference external" href="http://en.wikipedia.org/wiki/ARM_architecture_family#Advanced_SIMD_(NEON)">NEON</a>
+has <tt class="docutils literal">VBSL</tt>, also several GPUs support such instruction.</p>
+<p>Example <strong>A ? B : C</strong>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" rowspan="2">result</th>
+</tr>
+<tr><th class="head">A</th>
+<th class="head">B</th>
+<th class="head">C</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td colspan="3">constant</td>
+<td>0xca</td>
+</tr>
+</tbody>
+</table>
+<p>The assembly code using binary functions:</p>
+<pre class="literal-block">
+; A - xmm0 and result
+; B - xmm1
+; C - xmm2
+
+pand     xmm1, xmm0
+pandn    xmm0, xmm2
+por      xmm0, xmm1
+</pre>
+</div>
+<div class="section" id="other-examples">
+<h1>Other examples</h1>
+<div class="section" id="artificial-function">
+<h2>Artificial function</h2>
+<p>Let see for example function <strong>(A or not B) and C</strong>. The truth table:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" rowspan="2">result</th>
+</tr>
+<tr><th class="head">A</th>
+<th class="head">B</th>
+<th class="head">C</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<p>To express the function using standard SSE instructions we need three
+operations:</p>
+<pre class="literal-block">
+; A - xmm0 and result
+; B - xmm1
+; C - xmm2
+
+pcmpeqb  xmm4, xmm4     // constant, could exist earlier
+pxor     xmm0, xmm4     // A1 := not A
+por      xmm0, xmm1     // AB := A or B1
+pand     xmm0, xmm2     // result := AB and C
+</pre>
+<p>With AVX512 it would be very simple:</p>
+<pre class="literal-block">
+; a - zmm0 and result
+; b - zmm1
+; c - zmm2
+
+vpternlog zmm0, zmm1, zmm2, 0xa2 // 0xa2 = 0b10100010
+</pre>
+</div>
+<div class="section" id="or-and-xor-all">
+<h2>OR/AND/XOR all</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="11%" />
+<col width="11%" />
+<col width="11%" />
+<col width="22%" />
+<col width="22%" />
+<col width="22%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" rowspan="2">OR</th>
+<th class="head" rowspan="2">AND</th>
+<th class="head" rowspan="2">XOR</th>
+</tr>
+<tr><th class="head">A</th>
+<th class="head">B</th>
+<th class="head">C</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td colspan="3">constant</td>
+<td>0xfe</td>
+<td>0x80</td>
+<td>0x96</td>
+</tr>
+</tbody>
+</table>
+<p>The assembly code of <strong>or all</strong> using binary functions:</p>
+<pre class="literal-block">
+; A - xmm0 and result
+; B - xmm1
+; C - xmm2
+
+por      xmm0, xmm1
+por      xmm0, xmm2
+</pre>
+</div>
+<div class="section" id="exactly-one-bit-is-set">
+<h2>Exactly one bit is set</h2>
+<p>Function is true when only one bit is set.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" rowspan="2">result</th>
+</tr>
+<tr><th class="head">C</th>
+<th class="head">B</th>
+<th class="head">A</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td colspan="3">constant</td>
+<td>0x16</td>
+</tr>
+</tbody>
+</table>
+<p>The C code using binary functions:</p>
+<pre class="literal-block">
+// t1 = ~(A | B) &amp; C
+__m512i t1 = _mm512i_andnot_si512(_mm512_or_si512(A, B), C);
+
+// t2 = ~C &amp; (A ^ B)
+__m512i t2 = _mm512i_andnot_si512(C, _mm512_xor_si512(A, B));
+
+__m512i result = _mm512_or_si512(t1, t2);
+</pre>
+<p>The procedure uses five instructions.</p>
+</div>
+<div class="section" id="exactly-two-bits-are-set">
+<h2>Exactly two bits are set</h2>
+<p>Function is true exactly two bits are set.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="18%" />
+<col width="18%" />
+<col width="18%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" rowspan="2">result</th>
+</tr>
+<tr><th class="head">C</th>
+<th class="head">B</th>
+<th class="head">A</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td colspan="3">constant</td>
+<td>0x68</td>
+</tr>
+</tbody>
+</table>
+<p>The C code using binary functions:</p>
+<pre class="literal-block">
+// t1 = ~C &amp; (A &amp; B)
+__m512i t1 = _mm512i_andnot_si512(C, _mm512_and_si512(A, B));
+
+// t2 = C &amp; (A ^ B)
+__m512i t2 = _mm512i_and_si512(C, _mm512_xor_si512(A, B));
+
+__m512i result = _mm512_or_si512(t1, t2);
+</pre>
+<p>The procedure uses five instructions.</p>
+</div>
+</div>
+<div class="section" id="real-world-examples">
+<h1>Real-world examples</h1>
+<div class="section" id="md5-sha-1-and-sha-2-hashing">
+<h2>MD5, SHA-1 and SHA-2 hashing</h2>
+<p>Popular hashing algorithms use several three-argument logic functions in
+their main loops. Although the functions might seem complicated, they
+are expressed with single <tt class="docutils literal">vpternlog</tt> instruction.</p>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/MD5">MD5</a> hashing defines four state changing functions
+(the order of variables from the most significant bit: <tt class="docutils literal">x</tt>, <tt class="docutils literal">y</tt>, <tt class="docutils literal">z</tt>).</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="64%" />
+<col width="36%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">expression</th>
+<th class="head"><tt class="docutils literal">vpternlogd</tt> const</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>(x and y) or (not x and z)</td>
+<td><tt class="docutils literal">0xca</tt></td>
+</tr>
+<tr><td>(x and z) or (y and not z)</td>
+<td><tt class="docutils literal">0xe4</tt></td>
+</tr>
+<tr><td>x xor y xor z</td>
+<td><tt class="docutils literal">0x96</tt></td>
+</tr>
+<tr><td>y xor (x or not z)</td>
+<td><tt class="docutils literal">0x39</tt></td>
+</tr>
+</tbody>
+</table>
+<p>Similarly, <a class="reference external" href="http://en.wikipedia.org/wiki/SHA-1">SHA-1</a> uses three ternary logic functions in its main loop
+(the order of variables from the most significant bit: <tt class="docutils literal">b</tt>, <tt class="docutils literal">c</tt>, <tt class="docutils literal">d</tt>).</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="64%" />
+<col width="36%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">expression</th>
+<th class="head"><tt class="docutils literal">vpternlogd</tt> const</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>(b and c) or (not b and d)</td>
+<td><tt class="docutils literal">0xca</tt></td>
+</tr>
+<tr><td>b xor c xor d</td>
+<td><tt class="docutils literal">0x96</tt></td>
+</tr>
+<tr><td>(b and c) or (b and d) or (c and d)</td>
+<td><tt class="docutils literal">0xe8</tt></td>
+</tr>
+</tbody>
+</table>
+<p>Also <a class="reference external" href="http://en.wikipedia.org/wiki/SHA-2">SHA-2</a> uses ternary logic functions in its main loop. I omitted a
+three-argument xor, which is shown above  (the order of variables from the most
+significant bit: <tt class="docutils literal">e</tt>, <tt class="docutils literal">f</tt>, <tt class="docutils literal">g</tt>; and <tt class="docutils literal">a</tt>, <tt class="docutils literal">b</tt>, <tt class="docutils literal">c</tt>).</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="64%" />
+<col width="36%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">expression</th>
+<th class="head"><tt class="docutils literal">vpternlogd</tt> const</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>(e and f) xor (not e and g)</td>
+<td><tt class="docutils literal">0xca</tt></td>
+</tr>
+<tr><td>(a and b) xor (a and c) xor (b and c)</td>
+<td><tt class="docutils literal">0xe8</tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="carry-save-adder">
+<h2>Carry-save adder</h2>
+<p>The crucial function of <a class="reference external" href="http://www.hackersdelight.org/">Harley-Seal population count algorithm</a> is
+carry-save adder. That function calculates two bits of 3-argument sum, i.e.
+the digit and the carry flag.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="13%" />
+<col width="13%" />
+<col width="13%" />
+<col width="30%" />
+<col width="30%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" colspan="3">inputs</th>
+<th class="head" colspan="2">outputs</th>
+</tr>
+<tr><th class="head">C</th>
+<th class="head">B</th>
+<th class="head">A</th>
+<th class="head">digit</th>
+<th class="head">carry</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>0</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>0</td>
+<td>1</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+</tr>
+<tr><td>1</td>
+<td>0</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>0</td>
+<td>0</td>
+<td>1</td>
+</tr>
+<tr><td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<p>The fastest implementation of above functions contains <strong>five logic</strong> instructions:</p>
+<pre class="literal-block">
+tmp   = a ^ b
+carry = (a &amp; b) | (tmp &amp; c)
+digit = tmp ^ c;
+</pre>
+<p>With help of <tt class="docutils literal">vpternlogd</tt> this <a class="reference external" href="https://github.com/WojciechMula/sse-popcount/blob/master/popcnt-avx512-harley-seal.cpp">can be calculated</a> as:</p>
+<pre class="literal-block">
+l = _mm512_ternarylogic_epi32(c, b, a, 0x96); // 1001_0110
+h = _mm512_ternarylogic_epi32(c, b, a, 0xe8); // 1110_1000
+</pre>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/ternary-logic">Ternary functions for SSE, AVX2 and XOP</a> &mdash; library which allows to
+use ternary functions in the same way as AVX512, i.e. by passing the
+function index. The best known instruction sequences are emitted.</li>
+</ul>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/ternarylogiccli">Ternary logic CLI</a> &mdash; CLI to play with <tt class="docutils literal">vpternlog</tt> constants.</li>
+</ul>
+</div>
+<div class="section" id="changes">
+<h1>Changes</h1>
+<ul class="simple">
+<li>2020-01-11 &mdash; fixes of hash function constants, mistakes spotted by <strong>Jack Lloyd</strong></li>
+<li>2018-11-05 &mdash; <strong>Mark Parker</strong> spotted several mistakes; added hashing methods,
+added latency/throughput parameters of the instruction</li>
+<li>2016-11-07 &mdash; more info about bit-select (thank you <a class="reference external" href="https://twitter.com/solardiz/">&#64;solardiz</a>!)</li>
+<li>2016-09-04 &mdash; fixed a wrong claim, some practical example.</li>
+<li>2016-03-26 &mdash; real-world example</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2015-03-22-avx512-ternary-functions.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

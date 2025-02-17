@@ -1,0 +1,879 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2023-11-20-popcount-suggestions.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Simple suggestions using popcount</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simple-suggestions-using-popcount">
+<h1 class="title">Simple suggestions using popcount</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2023-11-20</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#alternative-approach" id="toc-entry-2">Alternative approach</a><ul>
+<li><a class="reference internal" href="#example" id="toc-entry-3">Example</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#evaluation" id="toc-entry-4">Evaluation</a><ul>
+<li><a class="reference internal" href="#git-commands" id="toc-entry-5">Git commands</a></li>
+<li><a class="reference internal" href="#python-str-methods" id="toc-entry-6">Python str methods</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source" id="toc-entry-7">Source</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>One great feature that some of CLI applications and compilers recently gained is
+providing suggestions in the case of misspellings arguments or options. For
+instance, Python suggests possible method/fields names, like:</p>
+<pre class="literal-block">
+&gt;&gt;&gt; 'lower'.is_upper()
+Traceback (most recent call last):
+  File &quot;&lt;stdin&gt;&quot;, line 1, in &lt;module&gt;
+AttributeError: 'str' object has no attribute 'is_upper'. Did you mean: 'isupper'?
+</pre>
+<p>If we want to include similar feature in our program, then a quite obvious
+solution is to use <a class="reference external" href="http://en.wikipedia.org/wiki/Levenshtein_distance">Levenshtein distance</a>. Its basic implementation
+is simple and short. If we want suggestion for larger corpus, we may use
+tries to speedup matching &mdash; see: <a class="reference external" href="http://stevehanov.ca/blog/?id=114">Fast and Easy
+Levenshtein distance using a Trie</a> by <strong>Steve Hanov</strong>.</p>
+<p>Despite that, I was curious if simpler algorithm would do the job. We may assume
+that our users know what they are doing.  Their inputs will be sane, with an
+exception of minor mistakes. Like omitting a single letter, swapping two
+adjacent letters or maybe hitting a wrong key from time to time.</p>
+<p>The two additional assumptions I made: we search suggestions in small
+sets, and we use only ASCII letters (128 possible bytes).</p>
+</div>
+<div class="section" id="alternative-approach">
+<h1>Alternative approach</h1>
+<p>To estimate edit distance we use two histogram-based approaches:</p>
+<ol class="arabic simple">
+<li>byte histogram &mdash; exact histogram for each byte of a string,</li>
+<li>bit histogram &mdash; mark in a bit-set which bytes from
+a string are present.</li>
+</ol>
+<p>In the first case, histogram takes 128 bytes. Similarity is
+calculated as the sum of absolute values.</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">diff1</span><span class="p">(</span><span class="n">h1</span><span class="p">,</span> <span class="n">h2</span><span class="p">):</span><span class="w">
+</span>    <span class="n">s</span> <span class="o">=</span> <span class="mi">0</span><span class="w">
+</span>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">128</span><span class="p">):</span><span class="w">
+</span>        <span class="n">s</span> <span class="o">+=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">h1</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">h2</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="n">s</span>
+</pre>
+<p>In the second case histogram uses 128 bits = 16 bytes.
+Similarity uses <a class="reference external" href="http://en.wikipedia.org/wiki/Hamming_distance">Hamming distance</a> &mdash; it is the number
+of 1 bits in the word calculated as a XOR of two corresponding
+words from histograms.</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">diff2</span><span class="p">(</span><span class="n">h1</span><span class="p">,</span> <span class="n">h2</span><span class="p">):</span><span class="w">
+</span>    <span class="c1"># assume words are 64-bit numbers, thus we have 4-element arrays</span><span class="w">
+</span>    <span class="n">s</span> <span class="o">=</span> <span class="mi">0</span><span class="w">
+</span>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span><span class="w">
+</span>        <span class="n">d</span> <span class="o">=</span> <span class="n">h1</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">^</span> <span class="n">h2</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w">
+</span>        <span class="n">s</span> <span class="o">+=</span> <span class="n">d</span><span class="o">.</span><span class="n">bit_count</span><span class="p">()</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="n">s</span>
+</pre>
+<p>Let's assume a valid word &quot;rebase&quot; (the git command). And a misspelled
+sample is &quot;revase&quot; &mdash; the letter 'b' got replaced with the 'v'.
+The Levenshtein distance is 1.</p>
+<div class="section" id="example">
+<h2>Example</h2>
+<p>The byte histograms for the words are:</p>
+<pre class="literal-block">
+h1(&quot;rebase&quot;) = [..., 1, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, ...]
+h2(&quot;revase&quot;) = [..., 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, ...]
+                        ^                                                           ^
+</pre>
+<p>The estimated distance is 2.</p>
+<p>Bit histograms are:</p>
+<pre class="literal-block">
+h1(&quot;rebase&quot;) = [... 0000000000001100000000000010011000000000000000000000000000000000 ...]
+h2(&quot;revase&quot;) = [... 0000000001001100000000000010001000000000000000000000000000000000 ...]
+                             ^                   ^
+</pre>
+<p>The estimated distance is also 2.</p>
+</div>
+</div>
+<div class="section" id="evaluation">
+<h1>Evaluation</h1>
+<p>The two sets of words were tested:</p>
+<ul class="simple">
+<li>git commands (<tt class="docutils literal">clone</tt>, <tt class="docutils literal">init</tt>, <tt class="docutils literal">add</tt>, <tt class="docutils literal">mv</tt>, <tt class="docutils literal">restore</tt>, <tt class="docutils literal">rm</tt>,
+<tt class="docutils literal">bisect</tt>, <tt class="docutils literal">diff</tt>, <tt class="docutils literal">grep</tt>, <tt class="docutils literal">log</tt>, <tt class="docutils literal">show</tt>, <tt class="docutils literal">status</tt>, <tt class="docutils literal">branch</tt>,
+<tt class="docutils literal">commit</tt>, <tt class="docutils literal">merge</tt>, <tt class="docutils literal">rebase</tt>, <tt class="docutils literal">reset</tt>, <tt class="docutils literal">switch</tt>, <tt class="docutils literal">tag</tt>, <tt class="docutils literal">fetch</tt>,
+<tt class="docutils literal">pull</tt>, <tt class="docutils literal">push</tt>),</li>
+<li>Python's str methods (<tt class="docutils literal">capitalize</tt>, <tt class="docutils literal">casefold</tt>, <tt class="docutils literal">center</tt>, <tt class="docutils literal">count</tt>,
+<tt class="docutils literal">encode</tt>, <tt class="docutils literal">endswith</tt>, <tt class="docutils literal">expandtabs</tt>, <tt class="docutils literal">find</tt>, <tt class="docutils literal">format</tt>,
+<tt class="docutils literal">format_map</tt>, <tt class="docutils literal">index</tt>, <tt class="docutils literal">isalnum</tt>, <tt class="docutils literal">isalpha</tt>, <tt class="docutils literal">isascii</tt>,
+<tt class="docutils literal">isdecimal</tt>, <tt class="docutils literal">isdigit</tt>, <tt class="docutils literal">isidentifier</tt>, <tt class="docutils literal">islower</tt>, <tt class="docutils literal">isnumeric</tt>,
+<tt class="docutils literal">isprintable</tt>, <tt class="docutils literal">isspace</tt>, <tt class="docutils literal">istitle</tt>, <tt class="docutils literal">isupper</tt>, <tt class="docutils literal">join</tt>, <tt class="docutils literal">ljust</tt>,
+<tt class="docutils literal">lower</tt>, <tt class="docutils literal">lstrip</tt>, <tt class="docutils literal">maketrans</tt>, <tt class="docutils literal">partition</tt>, <tt class="docutils literal">removeprefix</tt>,
+<tt class="docutils literal">removesuffix</tt>, <tt class="docutils literal">replace</tt>, <tt class="docutils literal">rfind</tt>, <tt class="docutils literal">rindex</tt>, <tt class="docutils literal">rjust</tt>,
+<tt class="docutils literal">rpartition</tt>, <tt class="docutils literal">rsplit</tt>, <tt class="docutils literal">rstrip</tt>, <tt class="docutils literal">split</tt>, <tt class="docutils literal">splitlines</tt>,
+<tt class="docutils literal">startswith</tt>, <tt class="docutils literal">strip</tt>, <tt class="docutils literal">swapcase</tt>, <tt class="docutils literal">title</tt>, <tt class="docutils literal">translate</tt>, <tt class="docutils literal">upper</tt>,
+<tt class="docutils literal">zfill</tt>).</li>
+</ul>
+<p>Each word was taken and got modified in the following ways:</p>
+<ul class="simple">
+<li>remove i-th character,</li>
+<li>replace i-th with an ASCII letters,</li>
+<li>swap i-th and j-th characters,</li>
+<li>insert at i-th position an ASCII letter.</li>
+</ul>
+<p>A <strong>hit</strong> is defined as a suggestion that yields the original word.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="24%" />
+<col width="24%" />
+<col width="27%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head" colspan="3">average hits</th>
+</tr>
+<tr><th class="head">set</th>
+<th class="head">Levenshtein</th>
+<th class="head">Byte histogram</th>
+<th class="head">Bit histogram</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>git commands</td>
+<td>99.64%</td>
+<td>98.05%</td>
+<td>96.14%</td>
+</tr>
+<tr><td>str methods</td>
+<td>98.84%</td>
+<td>95.32%</td>
+<td>90.02%</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="git-commands">
+<h2>Git commands</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="19%" />
+<col width="10%" />
+<col width="11%" />
+<col width="13%" />
+<col width="11%" />
+<col width="13%" />
+<col width="11%" />
+<col width="13%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">word</th>
+<th class="head" rowspan="2">cases</th>
+<th class="head" colspan="2">Levenshtein</th>
+<th class="head" colspan="2">Byte histogram</th>
+<th class="head" colspan="2">Bit histogram</th>
+</tr>
+<tr><th class="head">misses</th>
+<th class="head">hits</th>
+<th class="head">misses</th>
+<th class="head">hits</th>
+<th class="head">misses</th>
+<th class="head">hits</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>clone</td>
+<td>301</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>init</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>add</td>
+<td>188</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>98.94%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>mv</td>
+<td>133</td>
+<td>1</td>
+<td>99.25%</td>
+<td>4</td>
+<td>96.99%</td>
+<td>4</td>
+<td>100.00%</td>
+</tr>
+<tr><td>restore</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>26</td>
+<td>93.78%</td>
+<td>26</td>
+<td>100.00%</td>
+</tr>
+<tr><td>rm</td>
+<td>133</td>
+<td>5</td>
+<td>96.24%</td>
+<td>33</td>
+<td>75.19%</td>
+<td>33</td>
+<td>76.69%</td>
+</tr>
+<tr><td>bisect</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>diff</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>3</td>
+<td>98.77%</td>
+<td>3</td>
+<td>100.00%</td>
+</tr>
+<tr><td>grep</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>3</td>
+<td>98.77%</td>
+<td>3</td>
+<td>97.95%</td>
+</tr>
+<tr><td>log</td>
+<td>188</td>
+<td>0</td>
+<td>100.00%</td>
+<td>4</td>
+<td>97.87%</td>
+<td>4</td>
+<td>97.87%</td>
+</tr>
+<tr><td>show</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>status</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>99.44%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>branch</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>commit</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>99.44%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>merge</td>
+<td>301</td>
+<td>1</td>
+<td>99.67%</td>
+<td>62</td>
+<td>79.40%</td>
+<td>62</td>
+<td>99.00%</td>
+</tr>
+<tr><td>rebase</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>4</td>
+<td>98.89%</td>
+<td>4</td>
+<td>99.44%</td>
+</tr>
+<tr><td>reset</td>
+<td>301</td>
+<td>1</td>
+<td>99.67%</td>
+<td>24</td>
+<td>92.03%</td>
+<td>24</td>
+<td>94.35%</td>
+</tr>
+<tr><td>switch</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>9</td>
+<td>97.49%</td>
+<td>9</td>
+<td>97.49%</td>
+</tr>
+<tr><td>tag</td>
+<td>188</td>
+<td>3</td>
+<td>98.40%</td>
+<td>12</td>
+<td>93.62%</td>
+<td>12</td>
+<td>96.81%</td>
+</tr>
+<tr><td>fetch</td>
+<td>301</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>pull</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>4</td>
+<td>98.36%</td>
+<td>4</td>
+<td>100.00%</td>
+</tr>
+<tr><td>push</td>
+<td>244</td>
+<td>3</td>
+<td>98.77%</td>
+<td>10</td>
+<td>95.90%</td>
+<td>10</td>
+<td>97.54%</td>
+</tr>
+<tr><td colspan="2">&nbsp;</td>
+<td colspan="2">average:  99.64%</td>
+<td colspan="2">average:  98.05%</td>
+<td colspan="2">average:  96.14%</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="python-str-methods">
+<h2>Python str methods</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="19%" />
+<col width="10%" />
+<col width="11%" />
+<col width="13%" />
+<col width="11%" />
+<col width="13%" />
+<col width="11%" />
+<col width="13%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">word</th>
+<th class="head" rowspan="2">cases</th>
+<th class="head" colspan="2">Levenshtein</th>
+<th class="head" colspan="2">Byte histogram</th>
+<th class="head" colspan="2">Bit histogram</th>
+</tr>
+<tr><th class="head">misses</th>
+<th class="head">hits</th>
+<th class="head">misses</th>
+<th class="head">hits</th>
+<th class="head">misses</th>
+<th class="head">hits</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>capitalize</td>
+<td>601</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>casefold</td>
+<td>478</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>center</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>count</td>
+<td>301</td>
+<td>0</td>
+<td>100.00%</td>
+<td>4</td>
+<td>98.67%</td>
+<td>4</td>
+<td>100.00%</td>
+</tr>
+<tr><td>encode</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>3</td>
+<td>99.16%</td>
+<td>3</td>
+<td>99.44%</td>
+</tr>
+<tr><td>endswith</td>
+<td>478</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>expandtabs</td>
+<td>601</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>find</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>3</td>
+<td>98.77%</td>
+<td>3</td>
+<td>98.77%</td>
+</tr>
+<tr><td>format</td>
+<td>359</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>format_map</td>
+<td>601</td>
+<td>0</td>
+<td>100.00%</td>
+<td>53</td>
+<td>91.18%</td>
+<td>53</td>
+<td>100.00%</td>
+</tr>
+<tr><td>index</td>
+<td>301</td>
+<td>0</td>
+<td>100.00%</td>
+<td>6</td>
+<td>98.01%</td>
+<td>6</td>
+<td>99.34%</td>
+</tr>
+<tr><td>isalnum</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isalpha</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>1</td>
+<td>99.76%</td>
+<td>1</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isascii</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>3</td>
+<td>99.28%</td>
+<td>3</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isdecimal</td>
+<td>539</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>99.63%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isdigit</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isidentifier</td>
+<td>728</td>
+<td>0</td>
+<td>100.00%</td>
+<td>4</td>
+<td>99.45%</td>
+<td>4</td>
+<td>100.00%</td>
+</tr>
+<tr><td>islower</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isnumeric</td>
+<td>539</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isprintable</td>
+<td>664</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isspace</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>54</td>
+<td>87.08%</td>
+<td>54</td>
+<td>99.04%</td>
+</tr>
+<tr><td>istitle</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>31</td>
+<td>92.58%</td>
+<td>31</td>
+<td>100.00%</td>
+</tr>
+<tr><td>isupper</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>6</td>
+<td>98.56%</td>
+<td>6</td>
+<td>100.00%</td>
+</tr>
+<tr><td>join</td>
+<td>244</td>
+<td>0</td>
+<td>100.00%</td>
+<td>4</td>
+<td>98.36%</td>
+<td>4</td>
+<td>98.36%</td>
+</tr>
+<tr><td>ljust</td>
+<td>301</td>
+<td>0</td>
+<td>100.00%</td>
+<td>6</td>
+<td>98.01%</td>
+<td>6</td>
+<td>100.00%</td>
+</tr>
+<tr><td>lower</td>
+<td>301</td>
+<td>2</td>
+<td>99.34%</td>
+<td>22</td>
+<td>92.69%</td>
+<td>22</td>
+<td>92.69%</td>
+</tr>
+<tr><td>lstrip</td>
+<td>359</td>
+<td>3</td>
+<td>99.16%</td>
+<td>60</td>
+<td>83.29%</td>
+<td>60</td>
+<td>85.24%</td>
+</tr>
+<tr><td>maketrans</td>
+<td>539</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>99.63%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>partition</td>
+<td>539</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+<td>0</td>
+<td>100.00%</td>
+</tr>
+<tr><td>removeprefix</td>
+<td>728</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>99.73%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>removesuffix</td>
+<td>728</td>
+<td>0</td>
+<td>100.00%</td>
+<td>2</td>
+<td>99.73%</td>
+<td>2</td>
+<td>100.00%</td>
+</tr>
+<tr><td>replace</td>
+<td>418</td>
+<td>0</td>
+<td>100.00%</td>
+<td>6</td>
+<td>98.56%</td>
+<td>6</td>
+<td>100.00%</td>
+</tr>
+<tr><td>rfind</td>
+<td>301</td>
+<td>33</td>
+<td>89.04%</td>
+<td>30</td>
+<td>90.03%</td>
+<td>30</td>
+<td>90.03%</td>
+</tr>
+<tr><td>rindex</td>
+<td>359</td>
+<td>34</td>
+<td>90.53%</td>
+<td>31</td>
+<td>91.36%</td>
+<td>31</td>
+<td>91.92%</td>
+</tr>
+<tr><td>rjust</td>
+<td>301</td>
+<td>33</td>
+<td>89.04%</td>
+<td>37</td>
+<td>87.71%</td>
+<td>37</td>
+<td>87.71%</td>
+</tr>
+<tr><td>rpartition</td>
+<td>601</td>
+<td>37</td>
+<td>93.84%</td>
+<td>601</td>
+<td>0.00%</td>
+<td>601</td>
+<td>91.01%</td>
+</tr>
+<tr><td>rsplit</td>
+<td>359</td>
+<td>4</td>
+<td>98.89%</td>
+<td>359</td>
+<td>0.00%</td>
+<td>359</td>
+<td>0.00%</td>
+</tr>
+<tr><td>rstrip</td>
+<td>359</td>
+<td>34</td>
+<td>90.53%</td>
+<td>27</td>
+<td>92.48%</td>
+<td>27</td>
+<td>81.89%</td>
+</tr>
+<tr><td>split</td>
+<td>301</td>
+<td>29</td>
+<td>90.37%</td>
+<td>74</td>
+<td>75.42%</td>
+<td>74</td>
+<td>96.68%</td>
+</tr>
+<tr><td>splitlines</td>
+<td>601</td>
+<td>0</td>
+<td>100.00%</td>
+<td>77</td>
+<td>87.19%</td>
+<td>77</td>
+<td>100.00%</td>
+</tr>
+<tr><td>startswith</td>
+<td>601</td>
+<td>0</td>
+<td>100.00%</td>
+<td>3</td>
+<td>99.50%</td>
+<td>3</td>
+<td>100.00%</td>
+</tr>
+<tr><td>strip</td>
+<td>301</td>
+<td>31</td>
+<td>89.70%</td>
+<td>301</td>
+<td>0.00%</td>
+<td>301</td>
+<td>85.05%</td>
+</tr>
+<tr><td>swapcase</td>
+<td>478</td>
+<td>0</td>
+<td>100.00%</td>
+<td>42</td>
+<td>91.21%</td>
+<td>42</td>
+<td>99.37%</td>
+</tr>
+<tr><td>title</td>
+<td>301</td>
+<td>3</td>
+<td>99.00%</td>
+<td>12</td>
+<td>96.01%</td>
+<td>12</td>
+<td>92.03%</td>
+</tr>
+<tr><td>translate</td>
+<td>539</td>
+<td>0</td>
+<td>100.00%</td>
+<td>7</td>
+<td>98.70%</td>
+<td>7</td>
+<td>98.89%</td>
+</tr>
+<tr><td>upper</td>
+<td>301</td>
+<td>2</td>
+<td>99.34%</td>
+<td>25</td>
+<td>91.69%</td>
+<td>25</td>
+<td>92.69%</td>
+</tr>
+<tr><td>zfill</td>
+<td>301</td>
+<td>0</td>
+<td>100.00%</td>
+<td>8</td>
+<td>97.34%</td>
+<td>8</td>
+<td>100.00%</td>
+</tr>
+<tr><td colspan="2">&nbsp;</td>
+<td colspan="2">average:  98.84%</td>
+<td colspan="2">average:  95.32%</td>
+<td colspan="2">average:  90.02%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="source">
+<h1>Source</h1>
+<p>All programs are available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/suggestions">Github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2023-11-20-popcount-suggestions.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+</html>

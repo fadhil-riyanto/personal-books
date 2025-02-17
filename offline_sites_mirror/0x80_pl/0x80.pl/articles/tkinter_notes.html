@@ -1,0 +1,802 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/tkinter_notes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:37 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Tkinter &mdash; notatki</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="tkinter-notatki">
+<h1 class="title">Tkinter &mdash; notatki</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">1.12.2006</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">6.12.2006</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#znaczenie-event-state" id="toc-entry-1">Znaczenie <tt class="docutils literal">event.state</tt></a></li>
+<li><a class="reference internal" href="#funkcje-tcl-owe" id="toc-entry-2">Funkcje TCL-owe</a></li>
+<li><a class="reference internal" href="#obiekt-canvas" id="toc-entry-3">Obiekt Canvas</a><ul>
+<li><a class="reference internal" href="#tagorid-indeks-najblizszego-wierzcholka-ksztalt-strzalek" id="toc-entry-4">tagOrId, indeks najbliższego wierzchołka, kształt strzałek</a></li>
+<li><a class="reference internal" href="#indeks-najblizszego-wierzcholka" id="toc-entry-5">Indeks najbliższego wierzchołka</a></li>
+<li><a class="reference internal" href="#ksztalt-strzalek" id="toc-entry-6">Kształt strzałek</a></li>
+<li><a class="reference internal" href="#edycja-lamanych-i-wielokatow" id="toc-entry-7">Edycja łamanych i wielokątów</a></li>
+<li><a class="reference internal" href="#metody-tag-raise-top-tag-lower-bottom" id="toc-entry-8">Metody <tt class="docutils literal">tag_raise_top</tt>, <tt class="docutils literal">tag_lower_bottom</tt></a></li>
+<li><a class="reference internal" href="#rzeczywisty-rozmiar-odwzorowane-okno" id="toc-entry-9">Rzeczywisty rozmiar, odwzorowane okno</a></li>
+<li><a class="reference internal" href="#widok-scan-mark-scan-dragto-see" id="toc-entry-10">Widok &mdash; <tt class="docutils literal">scan_mark</tt>, <tt class="docutils literal">scan_dragto</tt>, <tt class="docutils literal">see</tt></a></li>
+<li><a class="reference internal" href="#stan-obiektow-optyczne-sprzezenie-zwrotne" id="toc-entry-11">Stan obiektów, optyczne sprzężenie zwrotne</a></li>
+<li><a class="reference internal" href="#blad-w-metodzie-itemconfigure-dla-obiektow-tekstowych" id="toc-entry-12">Błąd w metodzie <tt class="docutils literal">itemconfigure</tt> dla obiektów tekstowych</a></li>
+<li><a class="reference internal" href="#wyznaczanie-pudelka-otaczajacego-wygladzonych-obiektow" id="toc-entry-13">Wyznaczanie pudełka otaczającego wygładzonych obiektów</a><ul>
+<li><a class="reference internal" href="#pudelko-otaczajace-pojedynczej-krzywej-beziera-2-stopnia" id="toc-entry-14">Pudełko otaczające pojedynczej krzywej Beziera 2. stopnia</a></li>
+<li><a class="reference internal" href="#punkty-definiujace-poszczegolne-krzywe" id="toc-entry-15">Punkty definiujące poszczególne krzywe</a></li>
+<li><a class="reference internal" href="#implementacja" id="toc-entry-16">Implementacja</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#zadania-interakcyjne" id="toc-entry-17">Zadania interakcyjne</a><ul>
+<li><a class="reference internal" href="#problem" id="toc-entry-18">Problem</a></li>
+<li><a class="reference internal" href="#oczekiwanie-na-zdarzenia" id="toc-entry-19">Oczekiwanie na zdarzenia</a></li>
+<li><a class="reference internal" href="#filtrowanie-zdarzen" id="toc-entry-20">Filtrowanie zdarzeń</a></li>
+<li><a class="reference internal" href="#program-glowny" id="toc-entry-21">Program główny</a></li>
+<li><a class="reference internal" href="#implementacja-tkinter-events-serializer" id="toc-entry-22">Implementacja &mdash; <em>Tkinter Events Serializer</em></a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="znaczenie-event-state">
+<h1>Znaczenie <tt class="docutils literal">event.state</tt></h1>
+<p>Dla zdarzeń ButtonPress, ButtonRelease, Enter, KeyPress, KeyRelease,
+Leave, Motion pole <tt class="docutils literal">state</tt> struktury <tt class="docutils literal">Event</tt> jest liczbą.  Kolejne
+bity oznaczają:</p>
+<ul class="simple">
+<li><tt class="docutils literal">0x001</tt> &mdash; wciśnięty Shift</li>
+<li><tt class="docutils literal">0x002</tt> &mdash; aktywny CapsLock</li>
+<li><tt class="docutils literal">0x004</tt> &mdash; wciśnięty Ctrl</li>
+<li><tt class="docutils literal">0x008</tt> &mdash; wciśnięty lewy Alt</li>
+<li><tt class="docutils literal">0x010</tt> &mdash; aktywny NumLock</li>
+<li><tt class="docutils literal">0x080</tt> &mdash; wciśnięty prawy Alt</li>
+<li><tt class="docutils literal">0x100</tt> &mdash; wciśnięty klawisz myszy nr 1 (lewy)</li>
+<li><tt class="docutils literal">0x200</tt> &mdash; wciśnięty klawisz myszy nr 2 (środkowy)</li>
+<li><tt class="docutils literal">0x400</tt> &mdash; wciśnięty klawisz myszy nr 3 (prawy)</li>
+</ul>
+<p>Ma to bardzo miłą konsekwencję, ponieważ nie trzeba osobno tworzyć
+procedur obsługi zdarzeń np. dla różnych modyfikatorów, ale w jednej
+po prostu sprawdzić stan niektórych bitów tego pola.</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-eventstate.py">demo</a>  &mdash; na konsoli wyświetlają się stany klawiszy przy
+przemieszczaniu myszki</li>
+</ul>
+</div>
+<div class="section" id="funkcje-tcl-owe">
+<h1>Funkcje TCL-owe</h1>
+<p>Łączenie kodu Pythonowego z TCL-owym polega w przypadku Tkintera na
+tworzeniu specjalnych funkcji TCL-owych.  Tego rodzaju funkcje powstają
+gdy przy tworzeniu kontrolki podana zostanie opcja <tt class="docutils literal">command</tt> jak
+również przy podpinaniu funkcji metodami <tt class="docutils literal">bind</tt>, <tt class="docutils literal">tag_bind</tt> oraz
+<tt class="docutils literal">protocol</tt> (<tt class="docutils literal">wm_protocol</tt>).  Co więcej, wszystkie Tkinterowe funkcje
+zwracają właśnie nazwy TCL-owe, a nie referencje to pythonowych
+obiektów.</p>
+<p>Czy to problem?  Wyobraźmy sobie, że chcemy <strong>dodać</strong>, a nie nadpisać,
+nową funkcję do kontrolki (opcja <tt class="docutils literal">command</tt>) albo protokołu (metoda
+<tt class="docutils literal">protocol</tt>).  Należałoby odczytać uprzednio przypisaną funkcję, a w
+nowej ją wywoływać... jakoś.  Wystarczy użyć metody <tt class="docutils literal">widget.tk.call</tt> i
+jako argument podać nazwę funkcji, np. metoda <tt class="docutils literal">invoke</tt> (dostępna w
+kilku kontrolkach) może zostać zrealizowana następująco:</p>
+<pre class="literal-block">
+button.tk.call( button['command'] )
+</pre>
+<p>A takie bardziej praktyczne zastosowanie to dołączenie się do łańcucha
+funkcji obsługujących zdarzenia wysyłane przez menadżery okien:</p>
+<pre class="literal-block">
+from Tkinter import *
+
+def foo():
+        print &quot;WM_DELETE_WINDOW&quot;
+        master.tk.call(prot)
+
+master  = Tk()
+prot    = master.protocol('WM_DELETE_WINDOW')
+print prot # --&gt; '-1210926108destroy' or similar
+master.protocol('WM_DELETE_WINDOW', foo)
+
+master.mainloop()
+</pre>
+</div>
+<div class="section" id="obiekt-canvas">
+<h1>Obiekt Canvas</h1>
+<div class="section" id="tagorid-indeks-najblizszego-wierzcholka-ksztalt-strzalek">
+<h2>tagOrId, indeks najbliższego wierzchołka, kształt strzałek</h2>
+<p>W zasadzie nigdy nie spotkałem się z tą informacją w dokumentacji
+do Tkintera, ale może coś przeoczyłem.</p>
+<p>Argument większości funkcji, <tt class="docutils literal">tagOrId</tt>, wcale nie musi być
+pojedynczym tagiem &mdash; można łączyć wiele tagów i
+identyfikatorów za pomocą <strong>wyrażeń logicznych</strong>: <tt class="docutils literal">&amp;&amp;</tt> (and),
+<tt class="docutils literal">||</tt> (or), <tt class="docutils literal">!</tt> (not) oraz <tt class="docutils literal">^</tt> (xor), oraz podwyrażeń
+w nawiasach.  Na przykład:</p>
+<pre class="literal-block">
+canvas.delete('red &amp;&amp; !squere')
+</pre>
+<p>Usunie wszystkie obiekty z tagiem 'red' nie zawierające
+jednocześnie taga 'square'.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-tagorid.py">Prosty przykład</a></p>
+</div>
+<div class="section" id="indeks-najblizszego-wierzcholka">
+<h2>Indeks najbliższego wierzchołka</h2>
+<p>Tk umożliwia uzyskanie odpowiedzi, czy kursor znajduje
+się nad jakimś obiektem (ze statusem <em>normal</em>) &mdash; obiekt
+taki dostaje automatycznie tag 'current' (w Tkinterze stała
+<tt class="docutils literal">CURRENT</tt>), wówczas wystarczy użyć metody <tt class="docutils literal">find_withtag</tt>.</p>
+<p>Ale dla obiektów takich jak wielokąty i łamane może istnieć
+potrzeba dowiedzenie się, który wierzchołek leży najbliżej
+kursora.  (Wiem, taka funkcja jest trywialna, ale po co
+dublować funkcjonalność?).</p>
+<p>Umożliwia to metoda <tt class="docutils literal">index</tt> &mdash; można ją stosować dla
+wielokątów i łamanych, tj. obiektów tworzonych metodami
+<tt class="docutils literal">create_polygon</tt> i <tt class="docutils literal">create_line</tt>.  Jeśli zostaną podane
+współrzędne punktu jako <tt class="docutils literal">&quot;&#64;x,y&quot;</tt> wówczas zostanie zwrócony
+indeks najbliższego wierzchołka:</p>
+<pre class="literal-block">
+index = canvas.index(tagOrId, &quot;&#64;%f,%f&quot; % (x, y))
+</pre>
+<p><strong>Uwaga</strong>, jest to indeks w liście Tk, która jest
+&bdquo;spłaszczona&rdquo; &mdash; jeśli pamiętacie wierzchołki jako
+pary, trzeba wynik podzielić przez 2.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-pindex.py">Prosty przykład</a></p>
+</div>
+<div class="section" id="ksztalt-strzalek">
+<h2>Kształt strzałek</h2>
+<p>Kształt strzałki jest podawany w argumencie <tt class="docutils literal">arrowshape</tt>
+i jest definiowany przez trzy liczby:</p>
+<pre class="literal-block">
+canvas.create_line(arrow=BOTH, arrowshape(d1, d2, h))
+</pre>
+<img alt="img/tkinter-arrows.png" src="img/tkinter-arrows.png" />
+<p>Grot strzałki jest czworokątem &mdash; jeśli przyjąć, że odcinek
+jest poziomy i kończy się w punkcie (0,0), to kolejne
+wierzchołki mają następujące współrzędne:</p>
+<ul class="simple">
+<li><span class="math">(0, 0)</span></li>
+<li><span class="math">( &minus; <i>d</i><sub>2</sub>, <i>h</i>)</span></li>
+<li><span class="math">( &minus; <i>d</i><sub>1</sub>, 0)</span></li>
+<li><span class="math">( &minus; <i>d</i><sub>2</sub>,  &minus; <i>h</i>)</span></li>
+</ul>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-arrows.py">Prosty przykład</a></p>
+</div>
+<div class="section" id="edycja-lamanych-i-wielokatow">
+<h2>Edycja łamanych i wielokątów</h2>
+<p>W przypadku łamanych i wielokątów istnieje możliwość edycji pojedynczych
+wierzchołków istniejącego obiektu.  I w niektórych przypadkach może być
+to wygodniejsze; chociaż ja przeważnie podmieniam hurtem wszystkie
+wierzchołki metodą <tt class="docutils literal">canvas.coords</tt>.</p>
+<p>Uwaga co do indeksów: w Tkinterze te obiekty są reprezentowane jako
+lista &bdquo;spłaszczona&rdquo;, tj. <tt class="docutils literal">[x0, y0, x1, y1, <span class="pre">...]</span></tt>, a nie
+<tt class="docutils literal">[(x0,y0), (x1,y1)]</tt>.  Czyli jeśli chcemy zmienić <tt class="docutils literal">i</tt>-ty element,
+należy podawać argument <tt class="docutils literal">2*i</tt>.</p>
+<p>Jeśli podany zostanie niewłaściwy indeks (nieparzysty, spoza zakresu)
+Tkinter poradzi sobie; indeksy spoza zakresu zostaną odpowiednio
+przycięte, a nieparzyste zmniejszone o 1.</p>
+<dl class="docutils">
+<dt>Usuwanie wierzchołków</dt>
+<dd><p class="first">Służy do tego metoda <tt class="docutils literal">dchars</tt>.  Jeśli podany zostanie tylko
+jeden argument, wówczas usuwany jest pojedynczy wierzchołek.
+Jeśli podane zostaną dwa argumenty, wówczas zostaną usunięte
+wierzchołki z zakresu przez nie określonego.</p>
+<pre class="literal-block">
+line = c.create_line(...)
+c.dchars(line, index)
+c.dchars(line, index1, index2)
+c.dchars(line, index,  'end')
+</pre>
+<p class="last">Wartość 'end' jest wartością specjalna, odnosi się do zakońcowego
+indeksu (nie do ostatniego, ale ostatniego plus 1).</p>
+</dd>
+<dt>Wstawianie wierzchołków</dt>
+<dd><p class="first">Służy do tego metoda <tt class="docutils literal">insert</tt>.  Nowy wierzchołek wstawiany
+jest <strong>przed</strong> podany indeks.  Jeśli indeks ma wartość 'end'
+wówczas wierzchołek zostanie doklejony na koniec.</p>
+<pre class="last literal-block">
+line = c.create_line(...)
+c.insert(line, index, (x, y))
+c.insert(line, 'end', (x, y))
+</pre>
+</dd>
+</dl>
+<p>Zmiana współrzędnych wierzchołka</p>
+<blockquote>
+<pre class="literal-block">
+line = c.create_line(...)
+c.insert(line, index, (x, y))
+c.dchars(line, index+2)
+</pre>
+</blockquote>
+<dl class="docutils">
+<dt>Indeks najbliższego wierzchołka</dt>
+<dd><p class="first">Pisałem już o tym kilka dni temu, więc tylko przypomnę:</p>
+<pre class="last literal-block">
+line  = c.create_line(...)
+index = c.index(line, &quot;&#64;%f,%f&quot; % (x, y))
+</pre>
+</dd>
+</dl>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-vertedit.py">demo</a>:</dt>
+<dd><ul class="first last">
+<li>LBM &mdash; wstawienie nowego wierzchołka</li>
+<li>Ctrl-LBM &mdash; dodanie wierzchołka na koniec</li>
+<li>Shift-LBM &mdash; zmiana współrzędnych wierzchołka</li>
+<li>RBM &mdash; usunięcie wierzchołka</li>
+<li>Ctrl-RBM &mdash; usunięcie od bieżącego wierzchołka do końca</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</div>
+<div class="section" id="metody-tag-raise-top-tag-lower-bottom">
+<h2>Metody <tt class="docutils literal">tag_raise_top</tt>, <tt class="docutils literal">tag_lower_bottom</tt></h2>
+<p>Ku pamięci:</p>
+<pre class="literal-block">
+def tag_raise_top(canvas, tagOrId):
+        canvas.tag_raise(tagOrId, 'all')
+
+def tag_lower_bottom(canvas, tagOrId):
+        canvas.tag_lower(tagOrId, 'all')
+</pre>
+<ul>
+<li><p class="first"><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-attribs.py">demo</a>:</p>
+<blockquote>
+<ul class="simple">
+<li>LBM na jasnoszarym kwadracie &mdash; <tt class="docutils literal">tag_raise_top</tt></li>
+<li>RBM na jasnoszarym kwadracie &mdash; <tt class="docutils literal">tag_lower_bottom</tt></li>
+</ul>
+</blockquote>
+</li>
+</ul>
+</div>
+<div class="section" id="rzeczywisty-rozmiar-odwzorowane-okno">
+<h2>Rzeczywisty rozmiar, odwzorowane okno</h2>
+<p>Rzeczywisty rozmiar okna, nie tylko <tt class="docutils literal">canvas</tt>, ale każdego innego
+<strong>trzeba</strong> odczytywać za pomocą metod <tt class="docutils literal">winfo_width</tt> oraz
+<tt class="docutils literal">winfo_height</tt>; można również użyć <tt class="docutils literal">winfo_geometry</tt>, ale przeważnie
+potrzebujemy znać tylko wysokość i szerokość kontrolki, a poza tym
+akurat ta metoda zwraca łańcuch znaków, więc to niespecjalnie wygodne.</p>
+<p>Jednak w przypadku <tt class="docutils literal">canvas</tt> wysokość i szerokość nie mówią jeszcze o
+rzeczywistym widocznym obszarze.  Należy odjąć jeszcze szerokość
+obramowania (<tt class="docutils literal">borderwidth</tt>) oraz szerokość ramki wskazującej, czy
+kontrolka ma <em>focus</em>, czy nie (<tt class="docutils literal">highlightthickness</tt>):</p>
+<pre class="literal-block">
+def canvas_dimensions(canvas):
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+
+        l = int(canvas['highlightthickness'])
+        b = int(canvas['borderwidth'])
+
+        return (max(w-(l+b), 0.0),
+                max(h-(l+b), 0.0))
+</pre>
+<p>Funkcja która zwróci współrzędne wyświetlanego prostokąta
+jest bardzo podobna:</p>
+<pre class="literal-block">
+def canvas_viewport(canvas):
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+
+        l = int(canvas['highlightthickness'])
+        b = int(canvas['borderwidth'])
+
+        x1 = canvas.canvasx(l+b)
+        y1 = canvas.canvasy(l+b)
+        x2 = canvas.canvasx(w - (l+b+1))
+        y2 = canvas.canvasy(h - (l+b+1))
+
+        return x1, y1, x2, y2
+</pre>
+</div>
+<div class="section" id="widok-scan-mark-scan-dragto-see">
+<h2>Widok &mdash; <tt class="docutils literal">scan_mark</tt>, <tt class="docutils literal">scan_dragto</tt>, <tt class="docutils literal">see</tt></h2>
+<p>Metody <tt class="docutils literal">scan_mark</tt> i <tt class="docutils literal">scan_dragto</tt> są używane wspólnie i służą do
+zmiany widocznego obszaru (widoku, okna) <tt class="docutils literal">canvas</tt>.</p>
+<p>Jak to działa: za pomocą <tt class="docutils literal">scan_mark</tt> zaznaczany jest jakiś punkt
+<span class="math">P<sub><i>m</i></sub></span>, natomiast metodą <tt class="docutils literal">scan_dragto</tt> wybierany jest drugi punkt
+<span class="math">P<sub><i>d</i></sub></span> i całe okno przesuwa się o różnicę: <span class="math">(P<sub><i>d</i></sub> &minus; P<sub><i>m</i></sub>) &sdot; <i>a</i></span>.
+Czynnik <span class="math"><i>a</i></span> to <em>przyspieszenie</em>; radzę nie przesadzać z jego
+wartością.</p>
+<p>Na początek dwie uwagi:</p>
+<ol class="arabic simple">
+<li>Jeśli jest ustawiony <tt class="docutils literal">scrollregion</tt>, wówczas możliwości przesuwania
+okna są ograniczone właśnie do tego prostokąta.</li>
+<li>Obie metody wymagają współrzędnych <strong>całkowitych</strong>.</li>
+</ol>
+<p>Główne przeznaczenie obu metod to realizacja interaktywnego przesuwania
+zawartości płótna.  Na ogół <tt class="docutils literal">scan_mark</tt> woła się raz po kliknięciu
+myszką, a <tt class="docutils literal">scan_dragto</tt> w funkcji obsługującej zdarzenie z rodzaju
+<tt class="docutils literal">&lt;Motion&gt;</tt>.</p>
+<p>Ale funkcje te mogą być użyte do realizacji funkcji <tt class="docutils literal">see</tt> &mdash; funkcji,
+która tak przesuwa widok, aby wskazany obiekt stał się widoczny.
+Napisałem to w taki sposób, żeby obiekt znalazł się dokładnie na
+środku okna:</p>
+<pre class="literal-block">
+def see(canvas, item):
+        x1, y1, x2, y2 = canvas.bbox(item)
+        cx = (x1+x2)/2
+        cy = (y1+y2)/2
+
+        xo = canvas.canvasx(0)
+        yo = canvas.canvasy(0)
+        w  = canvas.winfo_width()
+        h  = canvas.winfo_height()
+
+        canvas.scan_mark(int(cx), int(cy))
+        canvas.scan_dragto(int(xo + w/2), int(yo + h/2), 1)
+</pre>
+<p>Na początku wyznaczany jest środek obiektu (na podstawie pudełka
+otaczającego), potem środek okna, a na końcu płótno jest przesuwane,
+tak by oba punkty się pokryły.</p>
+<ul>
+<li><p class="first"><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-scan.py">demo</a>:</p>
+<blockquote>
+<ul class="simple">
+<li>LBM + ciągnięcie &mdash; przesuwanie zawartości płótna</li>
+<li>LBM + (Ctrl+ciągnięcie) &mdash; j.w., większa wartość
+przyspieszenia</li>
+<li>LBM na kwadracie &mdash; przesunięcie widoku tak, by wybrany
+kwadrat znalazł się na środku okna (zastosowanie funkcji
+<tt class="docutils literal">see</tt>)</li>
+</ul>
+</blockquote>
+</li>
+</ul>
+</div>
+<div class="section" id="stan-obiektow-optyczne-sprzezenie-zwrotne">
+<h2>Stan obiektów, optyczne sprzężenie zwrotne</h2>
+<p>Obiekty umieszczone na <tt class="docutils literal">canvas</tt> mogą znajdować się w czterech stanach:</p>
+<ol class="arabic simple">
+<li><tt class="docutils literal">normal</tt>   &mdash; normalnym (generują zdarzenia, mogą stać się aktywne);</li>
+<li><tt class="docutils literal">disabled</tt> &mdash; wyłączone (nie generują zdarzeń, nie są aktywowane);</li>
+<li><tt class="docutils literal">active</tt>   &mdash; aktywne &mdash; najwyżej położony obiekt będący w stanie
+<tt class="docutils literal">normal</tt> nad którym znajduje się kursor myszy; obiekt automatycznie
+dostaje tag <tt class="docutils literal">current</tt> (w Tkinterze stała <tt class="docutils literal">CURRENT</tt>);</li>
+<li><tt class="docutils literal">hidden</tt>   &mdash; niewidoczne;</li>
+</ol>
+<p>Stany <tt class="docutils literal">normal</tt>, <tt class="docutils literal">disabled</tt>, <tt class="docutils literal">hidden</tt> mogą być ustawiana przez
+użytkownika poprzez przypisanie tych łańcuchów znaków do opcji <tt class="docutils literal">state</tt>
+(uwaga: pusty łańcuch oznacza również stan <tt class="docutils literal">normal</tt>).  Natomiast o
+przypisanie stanu <tt class="docutils literal">active</tt> dba Tk i jest to niezależne od użytkownika</p>
+<p><strong>Optyczne sprzężenie zwrotne</strong> &mdash; Tkinter umożliwia bardzo łatwe
+wyróżnianie obiektu w zależności od jego stanu, wyręczając użytkownika
+od wielu zbędnych czynności.</p>
+<p>Wyobraźmy sobie, że chcemy, aby aktywny obiekt zmieniał swój kolor, albo
+grubość linii.  Wydawałoby się, że tym celu należałoby coś kombinować ze
+zdarzeniami (może <tt class="docutils literal">&lt;Enter&gt;</tt>/<tt class="docutils literal">&lt;Leave&gt;</tt>, prędzej <tt class="docutils literal">&lt;Motion&gt;</tt>).  Nic z
+tych rzeczy!  Dla opcji: <tt class="docutils literal">fill</tt>, <tt class="docutils literal">outline</tt>, <tt class="docutils literal">dash</tt>, <tt class="docutils literal">width</tt>,
+<tt class="docutils literal">stipple</tt>, <tt class="docutils literal">image</tt> istnieją odpowiedniki <tt class="docutils literal">activefill</tt>,
+<tt class="docutils literal">activeoutline</tt> (itd.) oraz <tt class="docutils literal">disabledfill</tt>, <tt class="docutils literal">disabledoutline</tt>
+(itd.).</p>
+<p>Jeśli obiekt jest w stanie <tt class="docutils literal">normal</tt> to używane są zwykłe opcje, jeśli
+zostanie aktywny, to <strong>automatycznie</strong> użyte zostaną (o ile są
+ustawione) opcje <tt class="docutils literal"><span class="pre">active...</span></tt>, a jeśli użytkownik &bdquo;wyłączy&rdquo; obiekt,
+użyte zostaną opcje <tt class="docutils literal"><span class="pre">disabled...</span></tt>.</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkinter-attribs.py">demo</a></li>
+</ul>
+</div>
+<div class="section" id="blad-w-metodzie-itemconfigure-dla-obiektow-tekstowych">
+<h2>Błąd w metodzie <tt class="docutils literal">itemconfigure</tt> dla obiektów tekstowych</h2>
+<p>Na początek fragment kodu, dla zilustrowania problemu:</p>
+<pre class="literal-block">
+text  = &quot;sample text with spaces&quot;
+id    = canvas.create_text(text=text)
+text2 = cavnas.itemconfigure(id, 'text')
+print text2
+</pre>
+<p>Na konsoli nieoczekiwanie pojawi się:</p>
+<pre class="literal-block">
+('sample', 'text', 'with', 'spaces')
+</pre>
+<p>Metoda nie zwraca przypisanego łańcucha, ale krotkę &mdash; wynik
+działania: <tt class="docutils literal"><span class="pre">tuple(string.split())</span></tt>!  Problem pojawia się po
+stronie Tkintera.</p>
+<p>Rozwiązanie jest dosyć proste, ale wymaga ominięcia Tkintera i
+odwołania się bezpośrednio do interpretera Tcl-a:</p>
+<pre class="literal-block">
+from Tkinter import TclError
+
+def canvas_get_text(canvas, text_id):
+        tk = canvas.tk
+        try:
+                result = tk.call(str(canvas), 'itemconfigure', text_id, '-text')
+                return tk.splitlist(result)[-1]
+        except TclError:
+                return &rdquo;
+</pre>
+</div>
+<div class="section" id="wyznaczanie-pudelka-otaczajacego-wygladzonych-obiektow">
+<h2>Wyznaczanie pudełka otaczającego wygładzonych obiektów</h2>
+<p>Łamane i wielokąty mogą być &bdquo;wygładzone&rdquo; &mdash; należy ustawić opcję
+<tt class="docutils literal">smooth</tt> na <tt class="docutils literal">1</tt> lub <tt class="docutils literal">bezier</tt>.  (Można również definiować własne
+funkcje wygładzające, ale jest to tylko możliwe na poziomie języka C).</p>
+<p>Metoda <tt class="docutils literal">canvas.bbox</tt> zwraca pudełko otaczające wybranego obiektu, czy
+grupy obiektów;  dokumentacja stwierdza, że <em>The return value may
+overestimate the actual bounding box by a few pixels</em>, czyli nie tak
+źle.  Jednak dla obiektów wygładzonych zwracane jest pudełko punktów
+zwyczajnego, niewygładzonego obiektu, a nie krzywej, którą można
+podziwiać na ekranie.</p>
+<p>Pudełko otaczające krzywej można jednak dość łatwo wyznaczyć.</p>
+<p>Wbudowana metoda wygładzania opiera się, jak można się domyśleć po
+wartości <tt class="docutils literal">bezier</tt>, na krzywych Beziera, a gdy spojrzeć w dokumentację
+lub źródła okazuje się, że chodzi o wielomianowe krzywe B-sklejane
+drugiego stopnia z równomiernym rozkładem węzłów wewnętrznych.  A mówiąc
+po ludzku jest to ciąg krzywych Beziera danych za pomocą trzech punktów
+kontrolnych.</p>
+<p>Aby otrzymać pudełko otaczające taką krzywą wystarczy wyznaczyć pudełka
+otaczające każdej z krzywych Beziera i na końcu je wszystkie ze sobą
+połączyć.</p>
+<div class="section" id="pudelko-otaczajace-pojedynczej-krzywej-beziera-2-stopnia">
+<h3>Pudełko otaczające pojedynczej krzywej Beziera 2. stopnia</h3>
+<p>Oznaczmy punkty kontrolne krzywej przez <span class="math">P<sub><i>a</i></sub>, P<sub><i>b</i></sub>, P<sub><i>c</i></sub></span>.</p>
+<p>Pudełko otaczające zależy od punktów:</p>
+<ul class="simple">
+<li><span class="math">P<sub><i>a</i></sub></span> (czyli od <span class="math"><i>x</i><sub><i>a</i></sub></span> i <span class="math"><i>y</i><sub><i>a</i></sub></span>)</li>
+<li><span class="math">P<sub><i>b</i></sub></span></li>
+<li>punktów <span class="math">P(<i>t</i>)</span>, gdzie <span class="math"><i>t</i>&isin;(0, 1)</span> jest parametrem dla którego
+jeden z wielomianów <span class="math"><i>x</i>(<i>t</i>)</span> lub <span class="math"><i>y</i>(<i>t</i>)</span> ma ekstremum.</li>
+</ul>
+<p>Wielomiany te są postaci <span class="math"><i>f</i>(<i>t</i>) = <i>at</i><sup>2</sup> + <i>bt</i> + <i>c</i></span> i wystarczy
+sprawdzić czy  pochodna <span class="math"><i>f</i>'(<i>t</i>) = 0</span>, czyli czy <span class="math"> &minus; <i>b</i>/(2<i>a</i>) = 0</span>.</p>
+<p>Współczynniki wielomianu otrzymamy z następujących wzorów:</p>
+<ul class="simple">
+<li><span class="math"><i>a</i> = P<sub><i>a</i></sub> &minus; 2 &sdot; P<sub><i>b</i></sub> + P<sub><i>c</i></sub></span></li>
+<li><span class="math"><i>b</i> =  &minus; 2 &sdot; P<sub><i>a</i></sub> + 2 &sdot; P<sub><i>b</i></sub></span></li>
+<li><span class="math"><i>c</i> = P<sub><i>a</i></sub></span></li>
+</ul>
+<p>Przedstawiona niżej funkcja wyznacza ekstrema osobno dla osi X i Y
+i zwraca listy wartości.</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">qbezier_bounds</span><span class="p">((</span><span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">),</span> <span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">),</span> <span class="p">(</span><span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">)):</span><span class="w">
+    </span><span class="sd">&quot;&quot;&quot;
+    Returns extents of cubic bezier curve given by three points.
+    &quot;&quot;&quot;</span><span class="w">
+
+</span>    <span class="c1"># cubic Bezier reprsented in polynomial base</span><span class="w">
+</span>    <span class="c1"># f(t) = A*t^2 + B*t + C</span><span class="w">
+</span>    <span class="n">Ax</span> <span class="o">=</span>    <span class="n">x0</span> <span class="o">-</span> <span class="mi">2</span><span class="o">*</span><span class="n">x1</span> <span class="o">+</span> <span class="n">x2</span><span class="w">
+</span>    <span class="n">Bx</span> <span class="o">=</span> <span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">x0</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">x1</span><span class="w">
+</span>    <span class="n">Cx</span> <span class="o">=</span>    <span class="n">x0</span><span class="w">
+
+</span>    <span class="n">Ay</span> <span class="o">=</span>    <span class="n">y0</span> <span class="o">-</span> <span class="mi">2</span><span class="o">*</span><span class="n">y1</span> <span class="o">+</span> <span class="n">y2</span><span class="w">
+</span>    <span class="n">By</span> <span class="o">=</span> <span class="o">-</span><span class="mi">2</span><span class="o">*</span><span class="n">y0</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">y1</span><span class="w">
+</span>    <span class="n">Cy</span> <span class="o">=</span>    <span class="n">y0</span><span class="w">
+
+</span>    <span class="c1"># find extremas:</span><span class="w">
+</span>    <span class="c1">#       1) x(0) = x0</span><span class="w">
+</span>    <span class="c1">#       2) x(1) = x2</span><span class="w">
+</span>    <span class="c1">#       3) f(t_e), where f'(t_e)=0 and t_e in (0,1)</span><span class="w">
+</span>    <span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">x0</span><span class="p">,</span><span class="n">x2</span><span class="p">]</span><span class="w">
+</span>    <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">Ax</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">1e-10</span><span class="p">:</span><span class="w">
+</span>        <span class="n">t</span>  <span class="o">=</span> <span class="o">-</span><span class="n">Bx</span><span class="o">/</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">Ax</span><span class="p">)</span><span class="w">
+</span>        <span class="k">if</span> <span class="mf">0.0</span> <span class="o">&lt;</span> <span class="n">t</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span><span class="w">
+</span>            <span class="n">t2</span> <span class="o">=</span> <span class="n">t</span><span class="o">*</span><span class="n">t</span><span class="w">
+</span>            <span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Ax</span><span class="o">*</span><span class="n">t2</span> <span class="o">+</span> <span class="n">Bx</span><span class="o">*</span><span class="n">t</span> <span class="o">+</span> <span class="n">Cx</span><span class="p">)</span><span class="w">
+
+</span>    <span class="n">y</span> <span class="o">=</span> <span class="p">[</span><span class="n">y0</span><span class="p">,</span><span class="n">y2</span><span class="p">]</span><span class="w">
+</span>    <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">Ay</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">1e-10</span><span class="p">:</span><span class="w">
+</span>        <span class="n">t</span>  <span class="o">=</span> <span class="o">-</span><span class="n">By</span><span class="o">/</span><span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">Ay</span><span class="p">)</span><span class="w">
+</span>        <span class="k">if</span> <span class="mf">0.0</span> <span class="o">&lt;</span> <span class="n">t</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span><span class="w">
+</span>            <span class="n">t2</span> <span class="o">=</span> <span class="n">t</span><span class="o">*</span><span class="n">t</span><span class="w">
+</span>            <span class="n">y</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Ay</span><span class="o">*</span><span class="n">t2</span> <span class="o">+</span> <span class="n">By</span><span class="o">*</span><span class="n">t</span> <span class="o">+</span> <span class="n">Cy</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span>
+</pre>
+</div>
+<div class="section" id="punkty-definiujace-poszczegolne-krzywe">
+<h3>Punkty definiujące poszczególne krzywe</h3>
+<p>Niech obiekty będą określone przez ciąg punktów <span class="math"><i>p</i><sub>0</sub>, <i>p</i><sub>1</sub>, &hellip;, <i>p</i><sub><i>n</i> &minus; 1</sub></span>.  Punkty kontrolne krzywych są wówczas dane jako:</p>
+<ul class="simple">
+<li><span class="math">P<sub><i>a</i></sub> = 0.5 &sdot; <i>p</i><sub><i>i</i> &minus; 1</sub> + 0.5 &sdot; <i>p</i><sub><i>i</i></sub></span></li>
+<li><span class="math">P<sub><i>b</i></sub> = <i>p</i><sub><i>i</i></sub></span></li>
+<li><span class="math">P<sub><i>c</i></sub> = 0.5 &sdot; <i>p</i><sub><i>i</i></sub> + 0.5 &sdot; <i>p</i><sub><i>i</i> + 1</sub></span></li>
+</ul>
+<p>W przypadku łamanej krzywych jest <span class="math"><i>n</i> &minus; 2</span> i są określone dla
+<span class="math"><i>i</i> = 2..<i>n</i> &minus; 2</span>.  Dodatkowo dla <span class="math"><i>i</i> = 1</span> punkt <span class="math">P<sub><i>a</i></sub> = <i>p</i><sub>0</sub></span>,
+a dla <span class="math"><i>i</i> = <i>n</i> &minus; 1</span> punkt <span class="math">P<sub><i>c</i></sub> = <i>p</i><sub><i>n</i></sub></span>.  Jednak przedstawiony
+niżej generator tak modyfikuje pierwszy i ostatni punkt, żeby można
+było stosować powyższe wzory dla <span class="math"><i>i</i> = 1&hellip;<i>n</i> &minus; 2</span>.</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">exact_line_bbox</span><span class="p">(</span><span class="n">points</span><span class="p">):</span><span class="w">
+</span>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span><span class="w">
+</span>        <span class="k">return</span> <span class="kc">None</span><span class="w">
+</span>    <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span><span class="w">
+</span>        <span class="n">X</span> <span class="o">=</span> <span class="p">[</span><span class="n">points</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">points</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span><span class="w">
+</span>        <span class="n">Y</span> <span class="o">=</span> <span class="p">[</span><span class="n">points</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">points</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]]</span><span class="w">
+</span>    <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span><span class="w">
+</span>        <span class="n">X</span><span class="p">,</span> <span class="n">Y</span> <span class="o">=</span> <span class="n">qbezier_bounds</span><span class="p">(</span><span class="o">*</span><span class="n">points</span><span class="p">)</span><span class="w">
+</span>    <span class="k">else</span><span class="p">:</span><span class="w">
+</span>        <span class="k">def</span> <span class="nf">pt</span><span class="p">(</span><span class="n">points</span><span class="p">):</span><span class="w">
+</span>            <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w">
+</span>            <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w">
+</span>            <span class="n">p0</span>     <span class="o">=</span> <span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">x0</span><span class="o">-</span><span class="n">x1</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">y0</span><span class="o">-</span><span class="n">y1</span><span class="p">)</span><span class="w">
+
+</span>            <span class="n">x0</span><span class="p">,</span> <span class="n">y0</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w">
+</span>            <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="w">
+</span>            <span class="n">pn</span>     <span class="o">=</span> <span class="p">(</span><span class="mi">2</span><span class="o">*</span><span class="n">x0</span><span class="o">-</span><span class="n">x1</span><span class="p">,</span> <span class="mi">2</span><span class="o">*</span><span class="n">y0</span><span class="o">-</span><span class="n">y1</span><span class="p">)</span><span class="w">
+
+</span>            <span class="n">p</span> <span class="o">=</span> <span class="p">[</span><span class="n">p0</span><span class="p">]</span> <span class="o">+</span> <span class="n">points</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">pn</span><span class="p">]</span><span class="w">
+
+</span>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span><span class="w">
+</span>                <span class="n">a</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w">
+</span>                <span class="n">b</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w">
+</span>                <span class="n">c</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="w">
+
+</span>                <span class="k">yield</span> <span class="n">lerp</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="n">b</span><span class="p">,</span> <span class="n">lerp</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span><span class="w">
+
+</span>        <span class="n">X</span> <span class="o">=</span> <span class="p">[]</span><span class="w">
+</span>        <span class="n">Y</span> <span class="o">=</span> <span class="p">[]</span><span class="w">
+</span>        <span class="k">for</span> <span class="n">cp</span> <span class="ow">in</span> <span class="n">pt</span><span class="p">(</span><span class="n">points</span><span class="p">):</span><span class="w">
+</span>            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">qbezier_bounds</span><span class="p">(</span><span class="o">*</span><span class="n">cp</span><span class="p">)</span><span class="w">
+</span>            <span class="n">X</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w">
+</span>            <span class="n">Y</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="w">
+</span>    <span class="c1">#fi</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="nb">min</span><span class="p">(</span><span class="n">Y</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">Y</span><span class="p">)</span>
+</pre>
+<p>W przypadku wielokątów jest <span class="math"><i>n</i></span> krzywych, indeksy we wzorach
+są brane modulo <span class="math"><i>n</i></span>, natomiast <span class="math"><i>i</i> = 0&hellip;<i>n</i> &minus; 1</span>.</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">exact_polygon_bbox</span><span class="p">(</span><span class="n">points</span><span class="p">):</span><span class="w">
+</span>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span><span class="w">
+</span>        <span class="k">return</span> <span class="kc">None</span><span class="w">
+</span>    <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span><span class="w">
+</span>        <span class="n">X</span> <span class="o">=</span> <span class="p">[</span><span class="n">points</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">points</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span><span class="w">
+</span>        <span class="n">Y</span> <span class="o">=</span> <span class="p">[</span><span class="n">points</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">points</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]]</span><span class="w">
+</span>    <span class="k">else</span><span class="p">:</span><span class="w">
+</span>        <span class="k">def</span> <span class="nf">pt</span><span class="p">(</span><span class="n">points</span><span class="p">):</span><span class="w">
+</span>            <span class="n">p</span> <span class="o">=</span> <span class="n">points</span><span class="w">
+</span>            <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span><span class="w">
+</span>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="n">n</span><span class="p">):</span><span class="w">
+</span>                <span class="n">a</span> <span class="o">=</span> <span class="n">p</span><span class="p">[(</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">n</span><span class="p">]</span><span class="w">
+</span>                <span class="n">b</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w">
+</span>                <span class="n">c</span> <span class="o">=</span> <span class="n">p</span><span class="p">[(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">n</span><span class="p">]</span><span class="w">
+
+</span>                <span class="k">yield</span> <span class="n">lerp</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">),</span> <span class="n">b</span><span class="p">,</span> <span class="n">lerp</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span><span class="w">
+
+</span>        <span class="n">X</span> <span class="o">=</span> <span class="p">[]</span><span class="w">
+</span>        <span class="n">Y</span> <span class="o">=</span> <span class="p">[]</span><span class="w">
+</span>        <span class="k">for</span> <span class="n">cp</span> <span class="ow">in</span> <span class="n">pt</span><span class="p">(</span><span class="n">points</span><span class="p">):</span><span class="w">
+</span>            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">qbezier_bounds</span><span class="p">(</span><span class="o">*</span><span class="n">cp</span><span class="p">)</span><span class="w">
+</span>            <span class="n">X</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w">
+</span>            <span class="n">Y</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="w">
+</span>    <span class="c1">#fi</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="nb">min</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="nb">min</span><span class="p">(</span><span class="n">Y</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="nb">max</span><span class="p">(</span><span class="n">Y</span><span class="p">)</span>
+</pre>
+</div>
+<div class="section" id="implementacja">
+<h3>Implementacja</h3>
+<ul class="simple">
+<li>moduł: <a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tk_ebbox.py">tk_ebbox.py</a></li>
+<li>przykładowy programik: <a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tk_ebbox-demo.py">tk_ebbox-demo.py</a> (wymaga <a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tkes.py">tkes.py</a>)</li>
+</ul>
+<p>Uwaga: funkcje <tt class="docutils literal">exact_line_bbox</tt> oraz <tt class="docutils literal">exact_polygon_bbox</tt> zwracają
+pudełka otaczające naprawdę &bdquo;dokładne&rdquo;, tzn. zakłada się, że krzywe
+mają zerową szerokość.  Można później te pudełka rozszerzyć o 1/2
+aktualnej szerokości linii &mdash; w przypadku połączeń linii (<em>line join</em>)
+typu <tt class="docutils literal">ROUND</tt> i takiego samego sposobu zakończania linii (<em>line cap</em>)
+będzie to wciąż dokładne.  W przypadku innego sposobu
+łączenia/zakończania linii już nie.</p>
+<img alt="screen" class="align-center" src="img/tk_ebbox-demo.png" />
+</div>
+</div>
+</div>
+<div class="section" id="zadania-interakcyjne">
+<h1>Zadania interakcyjne</h1>
+<div class="section" id="problem">
+<h2>Problem</h2>
+<p>Większość zadań interakcyjnych ma charakter typowo <strong>sekwencyjny</strong>,
+natomiast zdarzenia w Tkinterze są <strong>asynchroniczne</strong> &mdash; nie można
+przewidzieć kiedy i w jakiej kolejności nastąpią.</p>
+<p>Weźmy prosty schemat rysowania prostokąta:</p>
+<ol class="arabic simple">
+<li>Oczekiwanie aż użytkownik naciśnie lewy klawisz myszy i
+wskaże punkt &mdash; pierwszy narożnik prostokąta.</li>
+<li>Weź aktualną pozycję kursora jako drugi narożnik i dopóki
+użytkownik porusza myszką uaktualniaj obraz prostokąta.
+Dopiero gdy użytkownik ponownie naciśnie lewy klawisz myszy
+zapamiętaj bieżącą pozycję kursora jako drugi narożnik
+i zakończ procedurę.</li>
+<li>Jeśli użytkownik na etapie 1. lub 2. naciśnie klawisz ESC
+przerwij <strong>całą</strong> procedurę.</li>
+</ol>
+<p>Oto szkic naiwnego rozwiązania:</p>
+<pre class="literal-block">
+class Dummy:
+    def __init__(self, master):
+        self.state  = 'wait'
+        self.canvas = Canvas(root, master)
+        self.canvas.bind('&lt;Button-1&gt;', self.click)
+        self.canvas.bind('&lt;Motion&gt;',   self.motion)
+        self.canvas.bind('&lt;Escape&gt;',    self.ESC)
+    # [...]
+    def draw_rect(self):
+        # init drawing
+        if self.state == 'active':
+            self.cancel_draw()
+        self.state = 'wait'
+
+    def click(self, event):
+        if self.state == 'wait':
+            self.x1 = event.x
+            self.y1 = event.y
+            self.item = self.canvas.create_rectangle(
+                self.x1, self.y1, self.x1, self.y1
+            )
+        else:
+            self.canvas.itemconfig(
+                self.item, self.x1, self.y1, event.x, event.y
+            )
+            self.state == 'wait'
+
+    def motion(self, event):
+        if self.state == 'active':
+            self.canvas.itemconfig(
+                self.item, self.x1, self.y1, event.x, event.y
+            )
+
+    def ESC(self):
+        if self.state == 'active':
+            self.cancel_draw()
+
+    def cancel_draw(self):
+        if self.state == 'active':
+            self.canvas.delete(self.item)
+            self.state = 'wait'
+</pre>
+<p>W porównaniu z przedstawionym na wstępie schematem postępowania,
+przedstawiony program jest kompletnie nieczytelny i na dobrą sprawę
+nie za bardzo wiadomo co się dzieje.</p>
+<p>Więc ten sposób obsługi zadań interakcyjny wydaje się zupełnie chybiony.
+Bo teraz wyobraźmy sobie, że mamy zadanie, na które nie składają się
+ledwie dwa, czy trzy kroki, lecz dużo więcej.  Oraz że mamy wiele
+różnych zadań do obsłużenia.   Wówczas należałoby stworzyć dla każdego
+zadania osobny zestaw procedur obsługi zdarzeń i dynamicznie je podpinać
+w zależności od wybranego zadania, albo używać jednego zestawu, ale
+wówczas te funkcje rozdęłyby się do jakiś monstrualnych rozmiarów i <em>de
+facto</em> zadanie byłoby rozbite na kilka mniejszych (próbkę tego dałem
+wyżej), formalnie niepołączonych ze sobą funkcji.</p>
+<p>A więc co chcemy osiągnąć:</p>
+<ul class="simple">
+<li>Pojedyncze zadanie interakcyjne powinno mieścić się w jednej
+funkcji (lub też jednym bloku kodu).</li>
+<li>Zaprogramowanie nowego zadania nie powinno pociągać za sobą
+tworzenia osobnych funkcji obsługi zdarzeń, ani modyfikowania
+już istniejących.</li>
+<li>Musi istnieć mechanizm pozwalający na oczekiwanie na jakieś
+zdarzenie (zdarzenia).  A więc na pewnym etapie wykonywania funkcji
+inne, nieistotne zdarzenia muszą być jakoś blokowane, ignorowane.</li>
+</ul>
+<p>Zaczniemy od końca, bo to jak się okaże rozwiązanie tego problemu
+spowoduje automatycznie rozwiązanie dwóch wcześniejszych.</p>
+</div>
+<div class="section" id="oczekiwanie-na-zdarzenia">
+<h2>Oczekiwanie na zdarzenia</h2>
+<p>Na szczęście w Tkinterze dostępne są zmienne <tt class="docutils literal">StringVar</tt>,
+<tt class="docutils literal">BooleanVar</tt>, <tt class="docutils literal">IntVar</tt> oraz  <tt class="docutils literal">DoubleVar</tt>, dla których istnieje
+mechanizm oczekiwania &mdash; wywołanie metody <tt class="docutils literal">widget.wait_variable(var)</tt>
+powoduje wejście Tkintera w <strong>lokalną pętlę</strong> (bez blokowania głównej
+pętli) i przerwanie jej dopiero wtedy, gdy zmienna <tt class="docutils literal">var</tt> zostanie
+zmieniona.</p>
+<p>Ponieważ główna pętla działa bez przeszkód, zatem zdarzenia są normalnie
+obsługiwane i w procedurach ich obsługi można ustawiać odpowiednie
+zmienne, informując tym samym główny program o wystąpieniu zdarzenia.</p>
+</div>
+<div class="section" id="filtrowanie-zdarzen">
+<h2>Filtrowanie zdarzeń</h2>
+<p>Mamy więc mechanizm który umożliwia oczekiwanie na zdarzenia. W porządku,
+program czeka na zdarzenia, bo tyle ma akurat do roboty, ale gdy
+wreszcie się doczeka i zacznie wykonywać jakieś czasochłonne działania,
+co wtedy ze zdarzeniami, które w tym czasie nastąpią?  Procedury obsługi
+zdarzeń mogą sobie zmienną ustawiać do woli, główny program nigdy tego
+nie zauważy.</p>
+<p>Dlatego ze względów praktycznych lepiej jest stworzyć osobną kolejkę
+zdarzeń, która będzie wypełniana przez procedury obsługi zdarzeń.</p>
+<p>Dzięki temu nawet jeśli program główny jest zajęty, to gdy będzie
+chciał sprawdzić czy były jakieś zdarzenia po prostu sięgnie do
+kolejki; a jeśli nie było, to po prostu poczeka.</p>
+<p>Dodatkowym plusem tego rozwiązania jest to, że dodając nowe zadanie
+interakcyjne nie trzeba dodawać nowych funkcji obsługi zdarzeń.  One
+cały czas robią to, co miały robić &mdash; dopisują dane do kolejki, a to
+ile funkcji czyta kolejkę i jak ją wykorzystuje nie ma znaczenia.</p>
+</div>
+<div class="section" id="program-glowny">
+<h2>Program główny</h2>
+<p>Pisząc &bdquo;program główny&rdquo; mam na myśli aktualnie wykonywaną procedurę
+obsługującą pewne zadanie interakcyjne.  Takich procedur może istnieć
+w programie wiele, ale ja rozwiązałem to w ten sposób, że jest
+rzeczywiście tylko jedna procedura główna, która wywołuje zadaną
+funkcję.</p>
+<p>Program główny można uruchomić w osobnym wątku i wówczas zamiast
+tkinterowych zmiennych można wykorzystać muteksy, albo lepiej dostępny
+od Pythona 2.4 moduł <tt class="docutils literal">Queue</tt>.   Tkinter jest jednowątkowy i czytałem,
+że mogą występować problemy z jego wykorzystaniem w programach
+wielowątkowych.  Jednak tutaj jest tylko jeden wątek, przetwarzane jest
+jedno zadanie interakcyjne &mdash; podczas testów nie zanotowałem problemów.</p>
+<p>Ale program w ogóle nie musi korzystać z wątków &mdash; można zlecić
+Tkinterowi, by odpalał funkcje, gdy już nie będzie miał nic do roboty;
+służy do tego metoda <tt class="docutils literal">after_idle</tt>.  To w wielu przypadkach z pewnością
+wystarczy.</p>
+</div>
+<div class="section" id="implementacja-tkinter-events-serializer">
+<h2>Implementacja &mdash; <em>Tkinter Events Serializer</em></h2>
+<p>Te wszystkie rzeczy oprogramowałem w przedstawionym niżej module</p>
+<ul class="simple">
+<li>moduł <a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tkes.py">tkes (Tkinter Events Serializer)</a></li>
+</ul>
+<p>(Po uruchomieniu <tt class="docutils literal">python tkes.py</tt> można pobawić się prościutkim
+programem rysunkowym).</p>
+<p>Problem, który przedstawiłem na początku da się teraz rozwiązać w ten
+sposób:</p>
+<pre class="literal-block">
+class Dummy:
+    def __init__(self, master):
+        self.canvas = Canvas(root, master)
+        self.es.EventsSerializer('&lt;Escape&gt;',
+            {self.canvas: ['&lt;Button-1&gt;', '&lt;Motion&gt;', '&lt;Escape&gt;']})
+
+        def draw_rect(self):
+            try:
+                event  = self.es.wait_event('&lt;Button-1&gt;')
+                x1, y1 = event.x, event.y
+                rect = self.canvas.create_rectangle(x1, y1, x1, y1)
+
+                for _, event in self.es.report_events(['&lt;Motion&gt;'], ['&lt;Button-1&gt;']):
+                    x2, y2 = event.x, event.y
+                    self.canvas.coords(rect, x1, y1, x2, y2)
+            except FunctionInterrupted:
+                try:
+                    self.canvas.delete(rect)
+                except UnboundLocalError:
+                    pass
+</pre>
+<p><strong>Skrótowy opis modułu</strong>.  Każde zdarzenie ma nazwę, może to być nazwa
+Tkintera albo własna (niekoniecznie łańcuch znaków).  Jest jedno
+wyróżnione zdarzenie, którego pojawienie się powoduje podniesienie
+wyjątku <tt class="docutils literal">FunctionInterrupted</tt>; nie można tego zdarzenia zablokować.</p>
+<p>Najważniejsze metody:</p>
+<ul class="simple">
+<li><tt class="docutils literal">wait_events</tt> &mdash; oczekuje na kilka zdarzeń, może także zgłaszać
+dowolne wyjątki po wystąpieniu określonych zdarzeń; inne zdarzenia
+są ignorowane</li>
+<li><tt class="docutils literal">report_events</tt> &mdash; generator, który działa dopóki pojawiają się
+zdarzenia z określonego zbioru; może także zgłaszać dowolne wyjątki po
+wystąpieniu określonych zdarzeń; działanie generatora kończy się,
+gdy pojawi się zdarzenie z określonego zbioru;</li>
+<li><tt class="docutils literal">set_function</tt> &mdash; ustala funkcję, którą ma wykonywać program
+główny (jeśli działa jakaś inna, jest przerywana); funkcja jest
+wykonywana pętli, do czasu aż nie zostanie zmieniona przez inną;</li>
+<li><tt class="docutils literal">unset_function</tt> &mdash; przerywa funkcję i ta funkcja już nie jest
+więcej wykonywana;</li>
+<li><tt class="docutils literal">interrupt</tt>/<tt class="docutils literal">reset</tt> &mdash; kończy działanie ustawionej funkcji, ale
+przy następnym przebiegu pętli funkcja jest wykonywana ponownie</li>
+</ul>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/tkinter_notes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+</html>

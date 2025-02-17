@@ -1,0 +1,109 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/vmovdqa.php?f=vmovdqa32 by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:34:50 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/vmovdqa.php?f=vmovdqa32" />
+<link rel="alternate" hreflang="en" href="vmovdqaf86c.html?f=vmovdqa32" />
+    <title>vmovdqa32</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+
+<body>
+<h2>VMOVDQA32 - MOVe DoubleQword Aligned 32<br>VMOVDQU32 - MOVe DoubleQword Unaligned 32<br></h2>
+VMOVDQA32 <span class="operand">xmm1{k1}{z}, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;16-byte alignment required. &nbsp;&nbsp;also for void*<br>
+<span class="intr">
+__m128i _mm_mask_load_epi32(__m128i s, __mmask8 k, void* p)<br>
+__m128i _mm_maskz_load_epi32(__mmask8 k, void* p)<br>
+__m128i _mm_mask_mov_epi32(__m128i s, __mmask8 k, __m128i a)<br>__m128i _mm_maskz_mov_epi32(__mmask8 k, __m128i a)</span><br>
+VMOVDQU32 <span class="operand">xmm1{k1}{z}, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;no alignment required.<br>
+<span class="intr">
+__m128i _mm_mask_loadu_epi32(__m128i s, __mmask8 k, void* p)<br>
+__m128i _mm_maskz_loadu_epi32(__mmask8 k, void* p)</span><br>
+<div style="height: 2px;"></div><img src="vmovdqa_128_dword_load5e1f.png?v=2" /><br>
+<div style="height: 30px"></div>
+VMOVDQA32 <span class="operand">xmm2/m128{k1}{z}, xmm1</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;16-byte alignment required.&nbsp;&nbsp;also for void*<br>
+<span class="intr">
+void _mm_mask_store_epi32(void* p, __mmask8 k, __m128i a)</span><br>
+VMOVDQU32 <span class="operand">xmm2/m128{k1}{z}, xmm1</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;no alignment required.<br>
+<span class="intr">
+void _mm_mask_storeu_epi32(void* p, __mmask8 k, __m128i a)</span><br>
+<div style="height: 2px;"></div><img src="vmovdqa_128_dword_store.png" /><br>
+<div style="height: 30px"></div>
+VMOVDQA32 <span class="operand">ymm1{k1}{z}, ymm2/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;32-byte alignment required. &nbsp;&nbsp;also for void*<br>
+<span class="intr">
+__m256i _mm256_mask_load_epi32(__m256i s, __mmask8 k, void* p)<br>
+__m256i _mm256_maskz_load_epi32(__mmask8 k, void* p)<br>
+__m256i _mm256_mask_mov_epi32(__m256i s, __mmask8 k, __m256i a)<br>__m256i _mm256_maskz_mov_epi32(__mmask8 k, __m256i a)</span><br>
+VMOVDQU32 <span class="operand">ymm1{k1}{z}, ymm2/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;no alignment required.<br>
+<span class="intr">
+__m256i _mm256_mask_loadu_epi32(__m256i s, __mmask8 k, void* p)<br>
+__m256i _mm256_maskz_loadu_epi32(__mmask8 k, void* p)</span><br>
+<div style="height: 2px;"></div><img src="vmovdqa_256_dword_load5e1f.png?v=2" /><br>
+<div style="height: 30px"></div>
+VMOVDQA32 <span class="operand">ymm2/m256{k1}{z}, ymm1</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;32-byte alignment required.&nbsp;&nbsp;also for void*<br>
+<span class="intr">
+void _mm256_mask_store_epi32(void* p, __mmask8 k, __m256i a)</span><br>
+VMOVDQU32 <span class="operand">ymm2/m256{k1}{z}, ymm1</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL&nbsp;&nbsp;&nbsp;&nbsp;no alignment required.<br>
+<span class="intr">
+void _mm256_mask_storeu_epi32(void* p, __mmask8 k, __m256i a)</span><br>
+<div style="height: 2px;"></div><img src="vmovdqa_256_dword_store.png" /><br>
+<div style="height: 30px"></div>
+VMOVDQA32 <span class="operand">zmm1{k1}{z}, zmm2/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5&nbsp;&nbsp;&nbsp;&nbsp;64-byte alignment required. &nbsp;&nbsp;also for void*<br>
+<span class="intr">
+__m512i _mm512_load_si512(__m512i s, void* p)<br>
+__m512i _mm512_mask_load_epi32(__m512i s, __mmask16 k, void* p)<br>
+__m512i _mm512_maskz_load_epi32(__mmask16 k, void* p)<br>
+__m512i _mm512_mask_mov_epi32(__m512i s, __mmask16 k, __m512i a)<br>__m512i _mm512_maskz_mov_epi32(__mmask16 k, __m512i a)</span><br>
+VMOVDQU32 <span class="operand">zmm1{k1}{z}, zmm2/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5&nbsp;&nbsp;&nbsp;&nbsp;no alignment required.<br>
+<span class="intr">
+__m512i _mm512_loadu_si512(__m512i s, void* p)<br>
+__m512i _mm512_mask_loadu_epi32(__m512i s, __mmask16 k, void* p)<br>
+__m512i _mm512_maskz_loadu_epi32(__mmask16 k, void* p)</span><br>
+<div style="height: 2px;"></div><img src="vmovdqa_512_dword_load5e1f.png?v=2" /><br>
+<div style="height: 30px"></div>
+VMOVDQA32 <span class="operand">zmm2/m512{k1}{z}, zmm1</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5&nbsp;&nbsp;&nbsp;&nbsp;64-byte alignment required.&nbsp;&nbsp;also for void*<br>
+<span class="intr">
+void _mm512_store_si512(void* p, __m512i a)<br>
+void _mm512_mask_store_epi32(void* p, __mmask16 k, __m512i a)</span><br>
+VMOVDQU32 <span class="operand">zmm2/m512{k1}{z}, zmm1</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5&nbsp;&nbsp;&nbsp;&nbsp;no alignment required.<br>
+<span class="intr">
+void _mm512_storeu_si512(void* p, __m512i a)<br>
+void _mm512_mask_storeu_epi32(void* p, __mmask16 k, __m512i a)</span><br>
+<div style="height: 2px;"></div><img src="vmovdqa_512_dword_store.png" /><br>
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vmovdqa32" target="_blank">Feedback</a>
+
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/vmovdqa.php?f=vmovdqa32 by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:34:57 GMT -->
+</html>

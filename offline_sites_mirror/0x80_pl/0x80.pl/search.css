@@ -1,0 +1,25 @@
+#results li p {
+    font-style: italic;
+    margin: 3px 0px 0px 0px;
+}
+
+#results li a {
+    font-size: larger;
+}
+
+#results li {
+    padding: 1ex;
+    margin: 5px 0px 0px 0px;
+}
+
+#results li b {
+    background-color: lightyellow;
+}
+
+#results li.odd {
+    background-color: #e0e0e0;
+}
+
+#results li.even {
+    background-color: #efefef;
+}

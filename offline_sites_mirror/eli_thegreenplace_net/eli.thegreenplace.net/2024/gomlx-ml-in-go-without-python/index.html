@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/gomlx-ml-in-go-without-python/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:02 GMT -->
+<head>
+    <title>GoMLX: ML in Go without Python - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to GoMLX: ML in Go without Python">
+                        GoMLX: ML in Go without Python
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> November 22, 2024 at 07:00</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/go.html">Go</a>
+        ,
+    <a href="../../tag/machine-learning.html">Machine Learning</a>
+        ,
+    <a href="../../tag/python.html">Python</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>In the <a class="reference external" href="../ml-in-go-with-a-python-sidecar/index.html">previous post</a>
+I talked about running ML inference in Go through a Python sidecar process. In
+this post, let's see how we can accomplish the same tasks without using Python
+at all.</p>
+<div class="section" id="how-ml-models-are-implemented">
+<h2>How ML models are implemented</h2>
+<p>Let's start with a brief overview of how ML models are implemented
+under the hood <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>. The model is typically written in Python, using one of the
+ML frameworks like TensorFlow, JAX or PyTorch. The framework takes care
+of at least 2 high-level concerns for developers:</p>
+<ul class="simple">
+<li>Expressive way to describe the model architecture, including
+auto-differentiation for training.</li>
+<li>Efficient implementation of computational primitives on common HW: CPUs,
+GPUs and TPUs.</li>
+</ul>
+<p>In-between these two concerns there exists a standardized model definition
+format (or several) that helps multiple tools interoperate. While it's by no
+means the only solution <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>, let's look at the <a class="reference external" href="https://openxla.org/">OpenXLA stack</a> as a way to run models on diverse hardware:</p>
+<img alt="OpenXLA architectural diagram, with a gopher" class="align-center" src="../../images/2024/openxla-diagram-with-gopher.png" />
+<ul class="simple">
+<li>The top layer are the frameworks that provide high-level primitives to define
+ML models, and translate them to
+a common interchange format called <a class="reference external" href="https://github.com/openxla/stablehlo">StableHLO</a> (where &quot;HLO&quot; stands for High-Level
+Operations). I've added the gopher on the very right - it will soon become
+clear why.</li>
+<li>The bottom layer is the HW that executes these models efficiently.</li>
+<li>In the middle is the OpenXLA system, which includes two major components:
+the XLA compiler translating HLO to HW machine code, and <a class="reference external" href="https://opensource.googleblog.com/2023/05/pjrt-simplifying-ml-hardware-and-framework-integration.html">PJRT</a> -
+the <em>runtime</em> component responsible for managing HW devices, moving data
+(tensors) between the host CPU and these devices, executing tasks, sharding and
+so on.</li>
+</ul>
+<p>There's a huge amount of complexity hidden by the bottom layers of this diagram.
+Efficient compilation and code generation for diverse HW - including using fixed
+blocks and libraries (like cuDNN), runtime management etc. All of this is really
+something one shouldn't try to re-implement unless there's a really, <em>really</em>
+good reason to do so. And the best part? There's no Python there - this is
+C and C++; Python only exists on the upper layer - in the high-level ML
+frameworks.</p>
+</div>
+<div class="section" id="gomlx">
+<h2>GoMLX</h2>
+<p><a class="reference external" href="https://github.com/gomlx">GoMLX</a> is a relatively new Go package for ML
+that deserves some attention. GoMLX slots in as one of the frameworks,
+exactly where the Gopher is in the diagram above <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>. This is absolutely the
+right approach to the problem. There's no point in re-implementing the
+low-level primitives - whatever works for TF and JAX will work for Go as well!
+Google, NVIDIA, Intel and several other companies invest huge resources into
+these systems, and it's a good idea to benefit from these efforts.</p>
+<p>In this post I will showcase re-implementations of some of the samples from
+the <a class="reference external" href="../ml-in-go-with-a-python-sidecar/index.html">previous post</a>,
+but with no Python in sight. But first, a few words about what GoMLX does.</p>
+<p>GoMLX should be familiar if you've used one of the popular Python ML frameworks.
+You build a computational graph representing your model - the usual operations
+are supported and sufficient to implement anything from linear regression to
+cutting-edge transformers. Since GoMLX wraps XLA, it has access to all the same
+building blocks TF and JAX use (and it adds its own higher-level primitives,
+similarly to the Python frameworks).</p>
+<p>GoMLX supports <a class="reference external" href="https://en.wikipedia.org/wiki/Automatic_differentiation">automatic differentiation</a> to
+create the <a class="reference external" href="../../2018/backpropagation-through-a-fully-connected-layer/index.html">backward propagation</a>
+operations required to update weights in training. It also provides many helpers
+for training and keeping track of progress, as well as <a class="reference external" href="https://github.com/janpfeifer/gonb">Jupyter notebook support</a>.</p>
+</div>
+<div class="section" id="an-image-model-for-the-cifar-10-dataset-with-gomlx">
+<h2>An image model for the CIFAR-10 dataset with GoMLX</h2>
+<p>In the <a class="reference external" href="../ml-in-go-with-a-python-sidecar/index.html">previous post</a>
+we built a CNN (convolutional neural network) model using TF+Keras in Python,
+and ran its inference in a sidecar process we could control from Go.</p>
+<p>Here, let's build a similar model in Go, without using Python at all; we'll
+be training it on the same <a class="reference external" href="https://www.cs.toronto.edu/~kriz/cifar.html">CIFAR-10 dataset</a>
+we've used before.</p>
+<img alt="CIFAR-10 dataset sample" class="align-center" src="../../images/2024/cifar10.png" />
+<p>The full code for this sample <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-mlx/cifar-cnn">is here</a>;
+it is heavily based on GoMLX's
+<a class="reference external" href="https://github.com/gomlx/gomlx/tree/main/examples/cifar">own example</a>, with
+some modifications for simplicity and clarity. Here's the code defining the
+model graph:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">C10ConvModel</span><span class="p">(</span><span class="nx">mlxctx</span><span class="w"> </span><span class="o">*</span><span class="nx">mlxcontext</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">spec</span><span class="w"> </span><span class="kt">any</span><span class="p">,</span><span class="w"> </span><span class="nx">inputs</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">graph</span><span class="p">.</span><span class="nx">Node</span><span class="p">)</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">graph</span><span class="p">.</span><span class="nx">Node</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">batchedImages</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">inputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"></span>
+<span class="w">  </span><span class="nx">g</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">batchedImages</span><span class="p">.</span><span class="nx">Graph</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">dtype</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">batchedImages</span><span class="p">.</span><span class="nx">DType</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">batchSize</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">batchedImages</span><span class="p">.</span><span class="nx">Shape</span><span class="p">().</span><span class="nx">Dimensions</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">batchedImages</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">layerIdx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">0</span><span class="w"></span>
+<span class="w">  </span><span class="nx">nextCtx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">name</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">mlxcontext</span><span class="p">.</span><span class="nx">Context</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">newCtx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">mlxctx</span><span class="p">.</span><span class="nx">Inf</span><span class="p">(</span><span class="s">&quot;%03d_%s&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">layerIdx</span><span class="p">,</span><span class="w"> </span><span class="nx">name</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="nx">layerIdx</span><span class="o">++</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">newCtx</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Convolution / activation layers</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Convolution</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;conv&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">).</span><span class="nx">Filters</span><span class="p">(</span><span class="mi">32</span><span class="p">).</span><span class="nx">KernelSize</span><span class="p">(</span><span class="mi">3</span><span class="p">).</span><span class="nx">PadSame</span><span class="p">().</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Convolution</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;conv&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">).</span><span class="nx">Filters</span><span class="p">(</span><span class="mi">32</span><span class="p">).</span><span class="nx">KernelSize</span><span class="p">(</span><span class="mi">3</span><span class="p">).</span><span class="nx">PadSame</span><span class="p">().</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">MaxPool</span><span class="p">(</span><span class="nx">logits</span><span class="p">).</span><span class="nx">Window</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">DropoutNormalize</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;dropout&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">Scalar</span><span class="p">(</span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">dtype</span><span class="p">,</span><span class="w"> </span><span class="mf">0.3</span><span class="p">),</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Convolution</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;conv&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">).</span><span class="nx">Filters</span><span class="p">(</span><span class="mi">64</span><span class="p">).</span><span class="nx">KernelSize</span><span class="p">(</span><span class="mi">3</span><span class="p">).</span><span class="nx">PadSame</span><span class="p">().</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">64</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Convolution</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;conv&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">).</span><span class="nx">Filters</span><span class="p">(</span><span class="mi">64</span><span class="p">).</span><span class="nx">KernelSize</span><span class="p">(</span><span class="mi">3</span><span class="p">).</span><span class="nx">PadSame</span><span class="p">().</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">64</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">MaxPool</span><span class="p">(</span><span class="nx">logits</span><span class="p">).</span><span class="nx">Window</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">DropoutNormalize</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;dropout&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">Scalar</span><span class="p">(</span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">dtype</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">),</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">64</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Convolution</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;conv&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">).</span><span class="nx">Filters</span><span class="p">(</span><span class="mi">128</span><span class="p">).</span><span class="nx">KernelSize</span><span class="p">(</span><span class="mi">3</span><span class="p">).</span><span class="nx">PadSame</span><span class="p">().</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Convolution</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;conv&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">).</span><span class="nx">Filters</span><span class="p">(</span><span class="mi">128</span><span class="p">).</span><span class="nx">KernelSize</span><span class="p">(</span><span class="mi">3</span><span class="p">).</span><span class="nx">PadSame</span><span class="p">().</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">MaxPool</span><span class="p">(</span><span class="nx">logits</span><span class="p">).</span><span class="nx">Window</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">DropoutNormalize</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;dropout&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">Scalar</span><span class="p">(</span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">dtype</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">),</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="p">.</span><span class="nx">AssertDims</span><span class="p">(</span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">)</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Flatten logits, and apply dense layer</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">Reshape</span><span class="p">(</span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="nx">batchSize</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Dense</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;dense&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="mi">128</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">activations</span><span class="p">.</span><span class="nx">Relu</span><span class="p">(</span><span class="nx">logits</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">DropoutNormalize</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;dropout&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">Scalar</span><span class="p">(</span><span class="nx">g</span><span class="p">,</span><span class="w"> </span><span class="nx">dtype</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">),</span><span class="w"> </span><span class="kc">true</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">numClasses</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">10</span><span class="w"></span>
+<span class="w">  </span><span class="nx">logits</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">layers</span><span class="p">.</span><span class="nx">Dense</span><span class="p">(</span><span class="nx">nextCtx</span><span class="p">(</span><span class="s">&quot;dense&quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nx">numClasses</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">graph</span><span class="p">.</span><span class="nx">Node</span><span class="p">{</span><span class="nx">logits</span><span class="p">}</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>As you might expect, the Go code is longer and more explicit (nodes are threaded
+explicitly between builder calls, instead of being magically accumulated). It's
+not hard to envision a Keras-like high level library on top of this.</p>
+<p>Here's a snippet from <a class="reference external" href="https://github.com/eliben/code-for-blog/blob/main/2024/go-mlx/cifar-cnn/classify-cnn/classify-cnn.go">the classifier (inference)</a>:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">flagCheckpoint</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">flag</span><span class="p">.</span><span class="nx">String</span><span class="p">(</span><span class="s">&quot;checkpoint&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Directory to load checkpoint from&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">flag</span><span class="p">.</span><span class="nx">Parse</span><span class="p">()</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">mlxctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">mlxcontext</span><span class="p">.</span><span class="nx">New</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">backend</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">backends</span><span class="p">.</span><span class="nx">New</span><span class="p">()</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">checkpoints</span><span class="p">.</span><span class="nx">Load</span><span class="p">(</span><span class="nx">mlxctx</span><span class="p">).</span><span class="nx">Dir</span><span class="p">(</span><span class="o">*</span><span class="nx">flagCheckpoint</span><span class="p">).</span><span class="nx">Done</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nb">panic</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="nx">mlxctx</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">mlxctx</span><span class="p">.</span><span class="nx">Reuse</span><span class="p">()</span><span class="w"> </span><span class="c1">// helps sanity check the loaded context</span><span class="w"></span>
+<span class="w">  </span><span class="nx">exec</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">mlxcontext</span><span class="p">.</span><span class="nx">NewExec</span><span class="p">(</span><span class="nx">backend</span><span class="p">,</span><span class="w"> </span><span class="nx">mlxctx</span><span class="p">.</span><span class="nx">In</span><span class="p">(</span><span class="s">&quot;model&quot;</span><span class="p">),</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">mlxctx</span><span class="w"> </span><span class="o">*</span><span class="nx">mlxcontext</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">image</span><span class="w"> </span><span class="o">*</span><span class="nx">graph</span><span class="p">.</span><span class="nx">Node</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">graph</span><span class="p">.</span><span class="nx">Node</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// Convert our image to a tensor with batch dimension of size 1, and pass</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// it to the C10ConvModel graph.</span><span class="w"></span>
+<span class="w">    </span><span class="nx">image</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">ExpandAxes</span><span class="p">(</span><span class="nx">image</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="c1">// Create a batch dimension of size 1.</span><span class="w"></span>
+<span class="w">    </span><span class="nx">logits</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">cnnmodel</span><span class="p">.</span><span class="nx">C10ConvModel</span><span class="p">(</span><span class="nx">mlxctx</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">graph</span><span class="p">.</span><span class="nx">Node</span><span class="p">{</span><span class="nx">image</span><span class="p">})[</span><span class="mi">0</span><span class="p">]</span><span class="w"></span>
+<span class="w">    </span><span class="c1">// Take the class with highest logit value, then remove the batch dimension.</span><span class="w"></span>
+<span class="w">    </span><span class="nx">choice</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">ArgMax</span><span class="p">(</span><span class="nx">logits</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">dtypes</span><span class="p">.</span><span class="nx">Int32</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">graph</span><span class="p">.</span><span class="nx">Reshape</span><span class="p">(</span><span class="nx">choice</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">})</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// classify takes a 32x32 image and returns a Cifar-10 classification according</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// to the models. Use C10Labels to convert the returned class to a string</span><span class="w"></span>
+<span class="w">  </span><span class="c1">// name. The returned class is from 0 to 9.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">classify</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">img</span><span class="w"> </span><span class="nx">image</span><span class="p">.</span><span class="nx">Image</span><span class="p">)</span><span class="w"> </span><span class="kt">int32</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">input</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">images</span><span class="p">.</span><span class="nx">ToTensor</span><span class="p">(</span><span class="nx">dtypes</span><span class="p">.</span><span class="nx">Float32</span><span class="p">).</span><span class="nx">Single</span><span class="p">(</span><span class="nx">img</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="nx">outputs</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">exec</span><span class="p">.</span><span class="nx">Call</span><span class="p">(</span><span class="nx">input</span><span class="p">)</span><span class="w"></span>
+<span class="w">    </span><span class="nx">classID</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tensors</span><span class="p">.</span><span class="nx">ToScalar</span><span class="p">[</span><span class="kt">int32</span><span class="p">](</span><span class="nx">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="w"></span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">classID</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// ...</span><span class="w"></span>
+</pre></div>
+<p>Now <tt class="docutils literal">classify</tt> is a function that takes an <a class="reference external" href="https://pkg.go.dev/image#Image">image.Image</a> and runs it through the network, returning
+the index of the most likely label out of the list of CIFAR-10 labels.</p>
+<p>The <a class="reference external" href="https://github.com/eliben/code-for-blog/blob/main/2024/go-mlx/cifar-cnn/README.md">README file</a>
+in the sample explains how to run it locally on a GPU; the
+model trains and runs successfully, with similar results to the TF+Keras
+model we trained in Python earlier.</p>
+</div>
+<div class="section" id="gemma2-with-gomlx">
+<h2>Gemma2 with GoMLX</h2>
+<p>For a (much) more involved example, GoMLX has a full implementation of
+<a class="reference external" href="https://github.com/gomlx/gemma">Gemma2 inference</a>. The model implementation
+itself is in the <a class="reference external" href="https://github.com/gomlx/gemma/tree/main/transformers">transformers package</a>.
+It should look fairly familiar if you've seen a transformer implementation in
+another language.</p>
+<p>The official example in that repository shows how to run it with weights
+downloaded from HuggingFace; since I've already downloaded the <a class="reference external" href="https://www.kaggle.com/models/google/gemma-2">Gemma2 weights
+from Kaggle</a> for the <a class="reference external" href="../ml-in-go-with-a-python-sidecar/index.html">previous
+post</a>,
+here's a simple adaptation:</p>
+<div class="highlight"><pre><span></span><span class="kd">var</span><span class="w"> </span><span class="p">(</span><span class="w"></span>
+<span class="w">  </span><span class="nx">flagDataDir</span><span class="w">   </span><span class="p">=</span><span class="w"> </span><span class="nx">flag</span><span class="p">.</span><span class="nx">String</span><span class="p">(</span><span class="s">&quot;data&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;dir with converted weights&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="nx">flagVocabFile</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">flag</span><span class="p">.</span><span class="nx">String</span><span class="p">(</span><span class="s">&quot;vocab&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;tokenizer vocabulary file&quot;</span><span class="p">)</span><span class="w"></span>
+<span class="p">)</span><span class="w"></span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">  </span><span class="nx">flag</span><span class="p">.</span><span class="nx">Parse</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">New</span><span class="p">()</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Load model weights from the checkpoint downloaded from Kaggle.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">kaggle</span><span class="p">.</span><span class="nx">ReadConvertedWeights</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="nx">flagDataDir</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Load tokenizer vocabulary.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">vocab</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">sentencepiece</span><span class="p">.</span><span class="nx">NewFromPath</span><span class="p">(</span><span class="o">*</span><span class="nx">flagVocabFile</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatal</span><span class="p">(</span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="c1">// Create a Gemma sampler and start sampling tokens.</span><span class="w"></span>
+<span class="w">  </span><span class="nx">sampler</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">samplers</span><span class="p">.</span><span class="nx">New</span><span class="p">(</span><span class="nx">backends</span><span class="p">.</span><span class="nx">New</span><span class="p">(),</span><span class="w"> </span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">vocab</span><span class="p">,</span><span class="w"> </span><span class="mi">256</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">&quot;%+v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+
+<span class="w">  </span><span class="nx">start</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Now</span><span class="p">()</span><span class="w"></span>
+<span class="w">  </span><span class="nx">output</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">sampler</span><span class="p">.</span><span class="nx">Sample</span><span class="p">([]</span><span class="kt">string</span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="s">&quot;Are bees and wasps similar?&quot;</span><span class="p">,</span><span class="w"></span>
+<span class="w">  </span><span class="p">})</span><span class="w"></span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w"></span>
+<span class="w">    </span><span class="nx">log</span><span class="p">.</span><span class="nx">Fatalf</span><span class="p">(</span><span class="s">&quot;%+v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span><span class="w"></span>
+<span class="w">  </span><span class="p">}</span><span class="w"></span>
+<span class="w">  </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;\tElapsed time: %s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Since</span><span class="p">(</span><span class="nx">start</span><span class="p">))</span><span class="w"></span>
+<span class="w">  </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;Generated text:\n%s\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">Join</span><span class="p">(</span><span class="nx">output</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;\n\n&quot;</span><span class="p">))</span><span class="w"></span>
+<span class="p">}</span><span class="w"></span>
+</pre></div>
+<p>The complete code together with installation and setup instructions
+<a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-mlx/gemma">is here</a>.</p>
+<p><tt class="docutils literal">gomlx/gemma</tt> demonstrates that GoMLX has sufficiently advanced capabilities
+to run a real production-grade open LLM, without Python in the loop.</p>
+</div>
+<div class="section" id="summary">
+<h2>Summary</h2>
+<p>The <a class="reference external" href="../ml-in-go-with-a-python-sidecar/index.html">previous post</a>
+discussed some options for incorporating ML inference into a Go project via
+a minimal Python sidecar process. Here, we take it a step further and
+implement ML inference in Go without using Python. We do so by leveraging
+GoMLX, which itself relies on XLA and PJRT to do the heavy lifting.</p>
+<p>If we strip down a framework like TensorFlow to its layers, GoMLX reuses the
+bottom layers (which is where most of the magic lies), and replaces the
+model builder library with a Go variant.</p>
+<p>Since GoMLX is still a relatively new project, it may be a little risky for
+production uses at this point. That said, I find this direction very promising
+and will be following the project's development with interest.</p>
+</div>
+<div class="section" id="code">
+<h2>Code</h2>
+<p>The full code for the samples in this post is <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2024/go-mlx">on GitHub</a>.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>This assumes you know the basics of neural network graphs,
+their training, etc. If not, check out <a class="reference external" href="../../2018/understanding-how-to-implement-a-character-based-rnn-language-model/index.html">this post</a>
+and some of my other posts in the <a class="reference external" href="../../tag/machine-learning.html">Machine Learning category</a>.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>It's likely the most common production solution, and pretty much the only
+way to access Google's TPUs.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>It does so by including Go bindings for both XLA and PJRT; these are
+wrapped in higher-level APIs for users.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/gomlx-ml-in-go-without-python/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:02 GMT -->
+</html>

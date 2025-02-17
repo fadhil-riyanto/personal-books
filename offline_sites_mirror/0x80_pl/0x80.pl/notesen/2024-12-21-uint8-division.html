@@ -1,0 +1,1306 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2024-12-21-uint8-division.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:24 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Dividing unsigned 8-bit numbers</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+<link rel="stylesheet" href="2024-12-21-uint8-division/style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="dividing-unsigned-8-bit-numbers">
+<h1 class="title">Dividing unsigned 8-bit numbers</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2024-12-21</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2024-12-22 (fixed a typo, thanks <strong>John Rinehart</strong>, clarify
+introduction based on <a class="reference external" href="https://news.ycombinator.com/item?id=42481612">HN</a> comments, add more AVX-512 variants);
+2024-12-28 (add <a class="reference internal" href="#see-also">see also</a> section)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#floating-point-point-operations" id="toc-entry-2">Floating-point point operations</a><ul>
+<li><a class="reference internal" href="#division-with-rounding" id="toc-entry-3">Division with rounding</a></li>
+<li><a class="reference internal" href="#division-without-rounding" id="toc-entry-4">Division without rounding</a></li>
+<li><a class="reference internal" href="#using-approximate-reciprocal" id="toc-entry-5">Using approximate reciprocal</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#long-division" id="toc-entry-6">Long division</a></li>
+<li><a class="reference internal" href="#vectorization" id="toc-entry-7">Vectorization</a><ul>
+<li><a class="reference internal" href="#sse-avx2" id="toc-entry-8">SSE &amp; AVX2</a><ul>
+<li><a class="reference internal" href="#step-1-updating-remainder" id="toc-entry-9">Step 1: Updating remainder</a></li>
+<li><a class="reference internal" href="#step-2-comparison" id="toc-entry-10">Step 2: Comparison</a></li>
+<li><a class="reference internal" href="#step-3-conditional-operations" id="toc-entry-11">Step 3: Conditional operations</a></li>
+<li><a class="reference internal" href="#implementation-sse" id="toc-entry-12">Implementation (SSE)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx-512" id="toc-entry-13">AVX-512</a><ul>
+<li><a class="reference internal" href="#step-1-updating-remainder-1" id="toc-entry-14">Step 1: Updating remainder</a></li>
+<li><a class="reference internal" href="#step-2-comparison-1" id="toc-entry-15">Step 2: Comparison</a></li>
+<li><a class="reference internal" href="#step-3-conditional-operations-1" id="toc-entry-16">Step 3: Conditional operations</a></li>
+<li><a class="reference internal" href="#implementation" id="toc-entry-17">Implementation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiment-results" id="toc-entry-18">Experiment results</a><ul>
+<li><a class="reference internal" href="#ryzen-7" id="toc-entry-19">Ryzen 7</a></li>
+<li><a class="reference internal" href="#skylake-x" id="toc-entry-20">Skylake-X</a></li>
+<li><a class="reference internal" href="#icelake" id="toc-entry-21">IceLake</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also-1" id="toc-entry-22">See also</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-23">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Division is quite an expensive operation. For instance, latency of the 32-bit
+division varies between 10 and 15 cycles on the Cannon Lake CPU, and for Zen4
+this range is from 9 to 14 cycles. The latency of 32-bit multiplication is
+3 or 4 cycles on both CPU models.</p>
+<p>None of commonly used SIMD ISAs (SSE, AVX, AVX-512, ARM Neon, ARM SVE) provides
+the integer division, only <a class="reference external" href="2024-11-09-riscv-vector-extension.html">RISC-V Vector Extension</a> does. However, all these
+ISAs have floating point division.</p>
+<p>In this text we present two approaches to achieve a SIMD-ized division of 8-bit
+unsigned numbers:</p>
+<ol class="arabic simple">
+<li>using floating point division,</li>
+<li>using the long division algorithm.</li>
+</ol>
+<p>We try to vectorize the following C++ procedure. The procedure cannot assume
+anything about dividends, especially if they are all equal. Thus, it is not
+possible to employ <a class="reference external" href="http://en.wikipedia.org/wiki/Division_algorithm#Division_by_a_constant">division by a constant</a>.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">scalar_div_u8</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Compilers cannot vectorize it. For example GCC 14.1.0 produces the following assembly
+(stripped from code alignment junk):</p>
+<pre class="code literal-block">
+2b40:       48 85 c9                test   %rcx,%rcx
+2b43:       74 30                   je     2b75 &lt;_Z13scalar_div_u8PKhS0_Phm+0x35&gt;
+2b45:       45 31 c0                xor    %r8d,%r8d
+2b60:       42 0f b6 04 07          movzbl (%rdi,%r8,1),%eax
+2b65:       42 f6 34 06             divb   (%rsi,%r8,1)
+2b69:       42 88 04 02             mov    %al,(%rdx,%r8,1)
+2b6d:       49 ff c0                inc    %r8
+2b70:       4c 39 c1                cmp    %r8,%rcx
+2b73:       75 eb                   jne    2b60 &lt;_Z13scalar_div_u8PKhS0_Phm+0x20&gt;
+2b75:       c3                      ret
+</pre>
+</div>
+<div class="section" id="floating-point-point-operations">
+<h1>Floating-point point operations</h1>
+<p>An 8-bit number can be converted into single precision floating point number
+without any precision loss.</p>
+<p>The generic outline of division consist the following steps:</p>
+<ol class="arabic simple">
+<li>cast 8-bit dividend and divisor into 32-bit integers,</li>
+<li>convert unsigned integers into floating-point numbers,</li>
+<li>perform floating-point division,</li>
+<li>convert floating-point result into 32-bit integers,</li>
+<li>cast back 32-bit integer into 8-bit final result.</li>
+</ol>
+<div class="section" id="division-with-rounding">
+<span id="div-with-rounding"></span><h2>Division with rounding</h2>
+<p>Here is the actual implementation of SSE procedure. Note that we need to explicitly
+truncate the floating point number before converting back into integer. By default
+that conversion rounds the argument, so we would get wrong results (off by 1).</p>
+<ol class="arabic">
+<li><p class="first">Load four 8-bit dividends.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">buf_a</span><span class="p">;</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">buf_a</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">And four 8-bit divisors.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">buf_b</span><span class="p">;</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">buf_b</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Transfer them to SSE register and cast to 32-bit numbers.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">a_u8</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi32_si128</span><span class="p">(</span><span class="n">buf_a</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">a_u32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepu8_epi32</span><span class="p">(</span><span class="n">a_u8</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">b_u8</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi32_si128</span><span class="p">(</span><span class="n">buf_b</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">b_u32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepu8_epi32</span><span class="p">(</span><span class="n">b_u8</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Cast 32-bit integers into floats.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">a_f32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepi32_ps</span><span class="p">(</span><span class="n">a_u32</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">b_f32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepi32_ps</span><span class="p">(</span><span class="n">b_u32</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Perform division and then truncation.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">c_f32</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_div_ps</span><span class="p">(</span><span class="n">a_f32</span><span class="p">,</span><span class="w"> </span><span class="n">b_f32</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">c_f32_2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_round_ps</span><span class="p">(</span><span class="n">c_f32</span><span class="p">,</span><span class="w"> </span><span class="n">_MM_FROUND_TO_ZERO</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">_MM_FROUND_NO_EXC</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Convert floats back into integers.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">c_i32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtps_epi32</span><span class="p">(</span><span class="n">c_f32_2</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Cast 32-bit into 8-bit numbers: gather lowest 8-bit numbers into single
+32-bit word and save this word to the output array.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">c_u8</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">c_i32</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+</span><span class="p">));</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">buf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi128_si32</span><span class="p">(</span><span class="n">c_u8</span><span class="p">);</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="o">&amp;</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="division-without-rounding">
+<span id="div-no-rounding"></span><h2>Division without rounding</h2>
+<p>Rounding instruction <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/ROUNDPS.html">ROUNDPS</a> has quite big latency, at least on Intel CPUs. On IceLake it is 8 cycles,
+while Zen4 has only 3 cycles.</p>
+<p>We can avoid floating point rounding by multiplying the dividend 256 (shift left by 8 bits) and
+shifting right by 8 the final result. The shift right can be done at no cost, because we anyway
+use shuffling to gather individual bytes, so it's only matter of a constant. Shifting left by 8 is
+suitable only for SSE code &mdash; we can use byte shuffle to shift-and-extend integers. In the case
+of AVX2 code, byte shuffling is done on 128-bit lanes, thus we would need more work to prepare
+input for that operation.</p>
+<p>The SSE procedure is almost the same as in the previous section:</p>
+<ol class="arabic">
+<li><p class="first">Load four dividends.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">buf_a</span><span class="p">;</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">buf_a</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">a_u8</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi32_si128</span><span class="p">(</span><span class="n">buf_a</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Convert <tt class="docutils literal">dividend &lt;&lt; 8</tt> into 32-bit numbers.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">a_u32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">a_u8</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Load four divisors and convert them to 32-bit numbers.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">buf_b</span><span class="p">;</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">buf_b</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">b_u8</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi32_si128</span><span class="p">(</span><span class="n">buf_b</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">b_u32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepu8_epi32</span><span class="p">(</span><span class="n">b_u8</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Cast all 32-bit integers into floats.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">a_f32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepi32_ps</span><span class="p">(</span><span class="n">a_u32</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">b_f32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtepi32_ps</span><span class="p">(</span><span class="n">b_u32</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Perform division.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w">  </span><span class="n">c_f32</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_div_ps</span><span class="p">(</span><span class="n">a_f32</span><span class="p">,</span><span class="w"> </span><span class="n">b_f32</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Convert quotient into 32-bit integers.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">c_i32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtps_epi32</span><span class="p">(</span><span class="n">c_f32</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Cast <tt class="docutils literal">quotient &gt;&gt; 8</tt> into 8-bit numbers: gather bit #1 of each 32-bit word.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">c_u8</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">c_i32</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mi">0</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+</span><span class="p">));</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">buf</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi128_si32</span><span class="p">(</span><span class="n">c_u8</span><span class="p">);</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="o">&amp;</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="using-approximate-reciprocal">
+<span id="rcp"></span><h2>Using approximate reciprocal</h2>
+<p>SSE comes with instruction <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/RCPPS.html">RCPPS</a> that calculates the approximate inversion of its argument:
+<span class="math">1/<i>x</i></span>. This would allow us to use expression <span class="math"><i>dividend</i> &sdot; <i>approx</i>(1/<i>divisor</i>)</span>.</p>
+<p>The specification says <strong>relative</strong> error does not exceed <span class="math">1.5 &sdot; 2<sup> &minus; 12</sup></span>.
+But for our needs, the absolute error is too big to use the instruction result
+directly.  The following table shows the results for initial x values, for
+which the error is significant.</p>
+<p>However, by trial-and-error search, we found that after multiplying
+the dividend by value <tt class="docutils literal">1.00025</tt>, the result of RCPPS can be used.
+To be precise, any multiplier between 1.00024 and 1.00199 works.</p>
+<img alt="2024-12-21-uint8-division/rcp_diff.png" class="align-center" src="2024-12-21-uint8-division/rcp_diff.png" />
+<table border="1" class="docutils">
+<colgroup>
+<col width="8%" />
+<col width="16%" />
+<col width="22%" />
+<col width="16%" />
+<col width="22%" />
+<col width="17%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">x</th>
+<th class="head" colspan="2">1 / x</th>
+<th class="head" colspan="2">approx 1 / x</th>
+<th class="head" rowspan="2">error</th>
+</tr>
+<tr><th class="head">float</th>
+<th class="head">hex</th>
+<th class="head">float</th>
+<th class="head">hex</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>1</td>
+<td>1.000000</td>
+<td><tt class="docutils literal">3f800000</tt></td>
+<td>0.999756</td>
+<td><tt class="docutils literal">3f7ff000</tt></td>
+<td>0.000244</td>
+</tr>
+<tr><td>2</td>
+<td>0.500000</td>
+<td><tt class="docutils literal">3f000000</tt></td>
+<td>0.499878</td>
+<td><tt class="docutils literal">3efff000</tt></td>
+<td>0.000122</td>
+</tr>
+<tr><td>3</td>
+<td>0.333333</td>
+<td><tt class="docutils literal">3eaaaaab</tt></td>
+<td>0.333313</td>
+<td><tt class="docutils literal">3eaaa800</tt></td>
+<td>0.000020</td>
+</tr>
+<tr><td>4</td>
+<td>0.250000</td>
+<td><tt class="docutils literal">3e800000</tt></td>
+<td>0.249939</td>
+<td><tt class="docutils literal">3e7ff000</tt></td>
+<td>0.000061</td>
+</tr>
+<tr><td>5</td>
+<td>0.200000</td>
+<td><tt class="docutils literal">3e4ccccd</tt></td>
+<td>0.199951</td>
+<td><tt class="docutils literal">3e4cc000</tt></td>
+<td>0.000049</td>
+</tr>
+<tr><td>6</td>
+<td>0.166667</td>
+<td><tt class="docutils literal">3e2aaaab</tt></td>
+<td>0.166656</td>
+<td><tt class="docutils literal">3e2aa800</tt></td>
+<td>0.000010</td>
+</tr>
+<tr><td>7</td>
+<td>0.142857</td>
+<td><tt class="docutils literal">3e124925</tt></td>
+<td>0.142822</td>
+<td><tt class="docutils literal">3e124000</tt></td>
+<td>0.000035</td>
+</tr>
+<tr><td>8</td>
+<td>0.125000</td>
+<td><tt class="docutils literal">3e000000</tt></td>
+<td>0.124969</td>
+<td><tt class="docutils literal">3dfff000</tt></td>
+<td>0.000031</td>
+</tr>
+<tr><td>9</td>
+<td>0.111111</td>
+<td><tt class="docutils literal">3de38e39</tt></td>
+<td>0.111084</td>
+<td><tt class="docutils literal">3de38000</tt></td>
+<td>0.000027</td>
+</tr>
+<tr><td>10</td>
+<td>0.100000</td>
+<td><tt class="docutils literal">3dcccccd</tt></td>
+<td>0.099976</td>
+<td><tt class="docutils literal">3dccc000</tt></td>
+<td>0.000024</td>
+</tr>
+<tr><td>11</td>
+<td>0.090909</td>
+<td><tt class="docutils literal">3dba2e8c</tt></td>
+<td>0.090897</td>
+<td><tt class="docutils literal">3dba2800</tt></td>
+<td>0.000012</td>
+</tr>
+<tr><td>12</td>
+<td>0.083333</td>
+<td><tt class="docutils literal">3daaaaab</tt></td>
+<td>0.083328</td>
+<td><tt class="docutils literal">3daaa800</tt></td>
+<td>0.000005</td>
+</tr>
+<tr><td>13</td>
+<td>0.076923</td>
+<td><tt class="docutils literal">3d9d89d9</tt></td>
+<td>0.076920</td>
+<td><tt class="docutils literal">3d9d8800</tt></td>
+<td>0.000004</td>
+</tr>
+<tr><td>14</td>
+<td>0.071429</td>
+<td><tt class="docutils literal">3d924925</tt></td>
+<td>0.071411</td>
+<td><tt class="docutils literal">3d924000</tt></td>
+<td>0.000017</td>
+</tr>
+<tr><td>15</td>
+<td>0.066667</td>
+<td><tt class="docutils literal">3d888889</tt></td>
+<td>0.066650</td>
+<td><tt class="docutils literal">3d888000</tt></td>
+<td>0.000016</td>
+</tr>
+<tr><td>16</td>
+<td>0.062500</td>
+<td><tt class="docutils literal">3d800000</tt></td>
+<td>0.062485</td>
+<td><tt class="docutils literal">3d7ff000</tt></td>
+<td>0.000015</td>
+</tr>
+<tr><td>17</td>
+<td>0.058824</td>
+<td><tt class="docutils literal">3d70f0f1</tt></td>
+<td>0.058807</td>
+<td><tt class="docutils literal">3d70e000</tt></td>
+<td>0.000016</td>
+</tr>
+<tr><td>18</td>
+<td>0.055556</td>
+<td><tt class="docutils literal">3d638e39</tt></td>
+<td>0.055542</td>
+<td><tt class="docutils literal">3d638000</tt></td>
+<td>0.000014</td>
+</tr>
+<tr><td>19</td>
+<td>0.052632</td>
+<td><tt class="docutils literal">3d579436</tt></td>
+<td>0.052620</td>
+<td><tt class="docutils literal">3d578800</tt></td>
+<td>0.000012</td>
+</tr>
+<tr><td>20</td>
+<td>0.050000</td>
+<td><tt class="docutils literal">3d4ccccd</tt></td>
+<td>0.049988</td>
+<td><tt class="docutils literal">3d4cc000</tt></td>
+<td>0.000012</td>
+</tr>
+<tr><td colspan="6">...</td>
+</tr>
+<tr><td>255</td>
+<td>0.003922</td>
+<td><tt class="docutils literal">3b808081</tt></td>
+<td>0.003922</td>
+<td><tt class="docutils literal">3b808000</tt></td>
+<td>0.000000</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="long-division">
+<span id="long-div"></span><h1>Long division</h1>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/Long_division">The long division algorithm</a> is the one we know from school.</p>
+<ol class="arabic simple">
+<li>We start with the <strong>remainder</strong> and <strong>quotient</strong> equals zero.</li>
+<li>Then, in each step, we extend the remainder with the next digit of the dividend,
+starting from most significant digits.</li>
+<li>If the remainder becomes bigger than the divisor, we calculate <span class="math"><i>q</i> := <i>remainder</i>/<i>divisor</i></span>.
+This number, <strong>a digit</strong>, is in range [0, 9] for decimal division, or is either 0 or 1
+for binary division.</li>
+<li>We decrement remainder by <span class="math"><i>q</i> &sdot; <i>divisor</i></span>.</li>
+<li>We <strong>prepend</strong> the digit <span class="math"><i>q</i></span> to the quotient.</li>
+<li>If there are still digits in dividend, go to point #2.</li>
+</ol>
+<p>A nice property of the algorithm is calculating both the quotient and remainder.
+The cons of algorithm are:</p>
+<ul class="simple">
+<li>Each step depends on the predecessor, it makes hard to utilize out-of-order CPUs.</li>
+<li>The number of iterations equal the number of significant digits in dividend
+minus # of digits in divisor plus 1. In the worst case, it equals # of digits
+in dividend.</li>
+</ul>
+<p>Since we're going to divide 8-bit numbers, it means that the basic step of algorithm
+has to be repeated eight times. Below is a reference implementation.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">long_div_u8</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">divisor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">7</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// make room for i-th bit of dividend at 0-th position
+</span><span class="w">        </span><span class="n">remainder</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+
+        </span><span class="c1">// inject that bit
+</span><span class="w">        </span><span class="n">remainder</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="p">(</span><span class="n">dividend</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">remainder</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">divisor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// set i-th bit in quotient
+</span><span class="w">            </span><span class="n">quotient</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+
+            </span><span class="c1">// adjust remainder
+</span><span class="w">            </span><span class="n">remainder</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">divisor</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">quotient</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<script type="text/javascript" src="2024-12-21-uint8-division/long_div.js"></script><div>
+    <table>
+        <tr>
+            <td>dividend:</td>
+            <td><input id="input_dividend" value="217"></td>
+        </tr>
+        <tr>
+            <td>divisor:</td>
+            <td><input id="input_divisor" value="13"></td>
+        </tr>
+        <tr>
+            <td></td>
+            <td>
+                <button id="start">start</button>
+                <button id="prev">prev</button>
+                <button id="next">next</button>
+                <span id="status"></span>
+            </td>
+        </tr>
+    </table>
+
+    <table padding="0" id="bits">
+        <tr class="dividend">
+            <td>dividend</td>
+            <td class="bit" id="dividend_7"></td>
+            <td class="bit" id="dividend_6"></td>
+            <td class="bit" id="dividend_5"></td>
+            <td class="bit" id="dividend_4"></td>
+            <td class="bit" id="dividend_3"></td>
+            <td class="bit" id="dividend_2"></td>
+            <td class="bit" id="dividend_1"></td>
+            <td class="bit" id="dividend_0"></td>
+            <td class="decimal" id="dividend"></td>
+        </tr>
+        <tr>
+            <td>divisor</td>
+            <td class="bit" id="divisor_7"></td>
+            <td class="bit" id="divisor_6"></td>
+            <td class="bit" id="divisor_5"></td>
+            <td class="bit" id="divisor_4"></td>
+            <td class="bit" id="divisor_3"></td>
+            <td class="bit" id="divisor_2"></td>
+            <td class="bit" id="divisor_1"></td>
+            <td class="bit" id="divisor_0"></td>
+            <td class="decimal" id="divisor"></td>
+        </tr>
+        <tr>
+            <td>reminder</td>
+            <td class="bit" id="reminder_7"></td>
+            <td class="bit" id="reminder_6"></td>
+            <td class="bit" id="reminder_5"></td>
+            <td class="bit" id="reminder_4"></td>
+            <td class="bit" id="reminder_3"></td>
+            <td class="bit" id="reminder_2"></td>
+            <td class="bit" id="reminder_1"></td>
+            <td class="bit" id="reminder_0"></td>
+            <td class="decimal" id="reminder"></td>
+        </tr>
+        <tr>
+            <td>quotient</td>
+            <td class="bit" id="quotient_7"></td>
+            <td class="bit" id="quotient_6"></td>
+            <td class="bit" id="quotient_5"></td>
+            <td class="bit" id="quotient_4"></td>
+            <td class="bit" id="quotient_3"></td>
+            <td class="bit" id="quotient_2"></td>
+            <td class="bit" id="quotient_1"></td>
+            <td class="bit" id="quotient_0"></td>
+            <td class="decimal" id="quotient"></td>
+        </tr>
+        <tr>
+            <td>&nbsp;</td>
+            <td colspan="16"><span id="relation"></span></td>
+        </tr>
+    </table>
+</div>
+<p>The long division can be also applied to signed integers. We need to calculate
+the absolute values of dividend &amp; divisor and perform the algorithm. Then
+quotient has to be negated if the operands have different signs.</p>
+<p>Since 8-bit signed integers have range <span class="math"> &minus; 128&hellip;127</span>, the range
+of their absolute values is <span class="math">0&hellip;128</span>. It means the long division
+operands still have eight bits.</p>
+</div>
+<div class="section" id="vectorization">
+<h1>Vectorization</h1>
+<p>The algorithm consist the following operations:</p>
+<ol class="arabic">
+<li><p class="first">extract i-th bit from the divisor and shift it into the remainder:</p>
+<pre class="code cpp literal-block">
+<span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">remainder</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">((</span><span class="n">dividend</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">compare the remainder and divisor;</p>
+</li>
+<li><p class="first">conditionally set i-th bit in the quotient and adjust the remainder:</p>
+<pre class="code cpp literal-block">
+<span class="n">quotient</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+</span><span class="n">remainder</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">divisor</span><span class="p">;</span>
+</pre>
+</li>
+</ol>
+<div class="section" id="sse-avx2">
+<span id="long-div-avx2"></span><span id="long-div-sse"></span><h2>SSE &amp; AVX2</h2>
+<div class="section" id="step-1-updating-remainder">
+<h3>Step 1: Updating remainder</h3>
+<p>In SSE &amp; AVX2 it's easy to copy the most significant bit to the least
+significant bit #0. We compare the number interpreted as <strong>a signed one</strong>
+with zero. It yields either 0x00 or 0xff (<span class="math"> &minus; 1</span>).</p>
+<p>We can rewrite the main loop to shift the dividend left by 1, thus
+we'll be able to copy all its bits using that technique.</p>
+<p>Shifting left by 1 is simple addition, which is a really fast operation.</p>
+</div>
+<div class="section" id="step-2-comparison">
+<h3>Step 2: Comparison</h3>
+<p>There's no unsigned comparison in SSE nor AVX2, only signed one. It is possible
+to compare two unsigned numbers with a signed comparison: we need to negate
+their most significant bits. This is done by XOR-ing with 0x80.</p>
+<p>Note that we need to perform xor once for the divisor, and eight times for
+the remainder.</p>
+</div>
+<div class="section" id="step-3-conditional-operations">
+<h3>Step 3: Conditional operations</h3>
+<p>Once we get a mask from the comparison, we can easily compute masked operations.</p>
+<p>In fact we need <strong>unconditionally</strong> shift the quotient by 1 and then <strong>conditionally</strong>
+set the i-th bit.</p>
+</div>
+<div class="section" id="implementation-sse">
+<h3>Implementation (SSE)</h3>
+<p>The following C code shows all the implementation details.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">long_div_u8</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">divisor</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x80</span><span class="p">;</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">divisor_xored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">divisor</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="mh">0x80</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">7</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="c1">// msb =&gt; 0 or -1
+</span><span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">msb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">int8_t</span><span class="p">)</span><span class="n">dividend</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mh">0xff</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mh">0x00</span><span class="p">;</span><span class="w">
+
+        </span><span class="c1">// inject bit
+</span><span class="w">        </span><span class="n">remainder</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">msb</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="kt">int8_t</span><span class="p">)(</span><span class="n">remainder</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="mh">0x80</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="p">(</span><span class="kt">int8_t</span><span class="p">)(</span><span class="n">divisor_xored</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// set i-th bit in quotient
+</span><span class="w">            </span><span class="n">quotient</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="n">bit</span><span class="p">;</span><span class="w">
+
+            </span><span class="c1">// adjust remainder
+</span><span class="w">            </span><span class="n">remainder</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">divisor</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">bit</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="n">dividend</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="c1">// make room for i-th bit of dividend at 0-th position
+</span><span class="w">        </span><span class="n">remainder</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">quotient</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The actual SSE implementation.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_long_div_u8</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">C</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">msb</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="kt">int8_t</span><span class="p">(</span><span class="mh">0x80</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">zero</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x00</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">dividend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">]));</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">divisor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">B</span><span class="p">[</span><span class="n">i</span><span class="p">]));</span><span class="w">
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">divisor_xored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_xor_si128</span><span class="p">(</span><span class="n">divisor</span><span class="p">,</span><span class="w"> </span><span class="n">msb</span><span class="p">);</span><span class="w">
+
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bit</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">msb</span><span class="p">;</span><span class="w">
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi16</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span><span class="w">
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi16</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// copy msb of dividend into remainder
+</span><span class="w">            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="n">zero</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// unsigned comparison of divisor and remainder
+</span><span class="w">            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">remainder_xored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_xor_si128</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">msb</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">gt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpgt_epi8</span><span class="p">(</span><span class="n">divisor_xored</span><span class="p">,</span><span class="w"> </span><span class="n">remainder_xored</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// derive condition subtract and quotient bit
+</span><span class="w">            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">cond_divisor</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">cond_quotient_bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// conditionally update remainder and quotient
+</span><span class="w">            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_epi16</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">cond_divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">cond_quotient_bit</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// next bit for quotient
+</span><span class="w">            </span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">bit</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// put the next bit from dividend to MSB
+</span><span class="w">            </span><span class="n">dividend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="n">dividend</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// make room for bit from dividend
+</span><span class="w">            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">_mm_storeu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">C</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="avx-512">
+<span id="long-div-avx512"></span><h2>AVX-512</h2>
+<div class="section" id="step-1-updating-remainder-1">
+<h3>Step 1: Updating remainder</h3>
+<p>Unlike SSE/AVX2 code it's easier to actually perform shift right
+to place i-th bit at position zero. Then isolating the least
+significant bit and merging it with quotient can be expressed
+as a single <a class="reference external" href="2015-03-22-avx512-ternary-functions.html">ternary operation</a>.</p>
+<pre class="code cpp literal-block">
+<span class="n">remainder</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span><span class="n">t0</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="n">divisor</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+</span><span class="n">remainder</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">remainder</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="n">t0</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w"> </span><span class="c1">// ternary operation</span>
+</pre>
+</div>
+<div class="section" id="step-2-comparison-1">
+<h3>Step 2: Comparison</h3>
+<p>AVX512 supports unsigned byte comparison, and returns a mask.</p>
+</div>
+<div class="section" id="step-3-conditional-operations-1">
+<h3>Step 3: Conditional operations</h3>
+<p>This is straightforward use of masked operations.</p>
+</div>
+<div class="section" id="implementation">
+<h3>Implementation</h3>
+<p>The actual AVX512 implementation is shown below. Unlike SSE code, the inner
+loop is manually unrolled. Also, there's no explicitly use of the ternary logic
+intrinsic function &mdash; but examining the assembly code reveals that a compiler
+nicely fuses binary operation.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">avx512_long_div_u8</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">C</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">one</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">]));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">divisor</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">B</span><span class="p">[</span><span class="n">i</span><span class="p">]));</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">dividend_bit0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">dividend</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">),</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">__m512i</span><span class="w"> </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span><span class="w">
+        </span><span class="n">__m512i</span><span class="w"> </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dividend_bit7</span><span class="p">;</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit6</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit5</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit4</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit3</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit2</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit1</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">);</span><span class="w">
+        </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_epi32</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">dividend_bit0</span><span class="p">);</span><span class="w">
+
+
+        </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">ge</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_epu8_mask</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">remainder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_sub_epi8</span><span class="p">(</span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">remainder</span><span class="p">,</span><span class="w"> </span><span class="n">divisor</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+            </span><span class="n">quotient</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">ge</span><span class="p">,</span><span class="w"> </span><span class="n">quotient</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">C</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="n">quotient</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="experiment-results">
+<h1>Experiment results</h1>
+<p>Short summary:</p>
+<ul class="simple">
+<li>AVX-512 implementation of long division is the fastests on all Intel CPUs.</li>
+<li>AVX2 using approximate reciprocal is the fastests on Ryzen.</li>
+<li>It's worth noting that GCC autovectorized <strong>better</strong> or comparable code
+to hand-written AVX2 variants.</li>
+</ul>
+<p>All benchmark programs were compiled with <tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-march=native</span></tt> options on each
+machine separately.</p>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Procedure</th>
+<th class="head">Comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">scalar</tt></td>
+<td>plain 8-bit division</td>
+</tr>
+<tr><td><tt class="docutils literal">scalar (unrolled x 4)</tt></td>
+<td>division unrolled manually 4 times</td>
+</tr>
+<tr><td><tt class="docutils literal">scalar (long division)</tt></td>
+<td>scalar implementation of <a class="reference internal" href="#long-div">long division</a>, with disabled autovectorization</td>
+</tr>
+<tr><td><tt class="docutils literal">scalar (long div, autovect)</tt></td>
+<td>scalar implementation of long division, with autovectorization</td>
+</tr>
+<tr><td><tt class="docutils literal">SSE</tt></td>
+<td><a class="reference internal" href="#div-with-rounding">division with rounding</a></td>
+</tr>
+<tr><td><tt class="docutils literal">SSE (no rounding)</tt></td>
+<td><a class="reference internal" href="#div-no-rounding">division without rounding</a> (dividend multiplied by 256)</td>
+</tr>
+<tr><td><tt class="docutils literal">SSE (cvtt)</tt></td>
+<td>division followed by casting with truncation (<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/CVTTPS2DQ.html">CVTTPS2DQ</a>)</td>
+</tr>
+<tr><td><tt class="docutils literal">SSE (rcp)</tt></td>
+<td><a class="reference internal" href="#rcp">multiplication by approximate reciprocal</a></td>
+</tr>
+<tr><td><tt class="docutils literal">SSE long div</tt></td>
+<td><a class="reference internal" href="#long-div-sse">long division implemented with SSE instructions</a></td>
+</tr>
+<tr><td><tt class="docutils literal">AVX2</tt></td>
+<td><a class="reference internal" href="#div-with-rounding">division with rounding</a></td>
+</tr>
+<tr><td><tt class="docutils literal">AVX2 (cvtt)</tt></td>
+<td>division followed by casting with truncation (CVTTPS2DQ)</td>
+</tr>
+<tr><td><tt class="docutils literal">AVX2 (rcp)</tt></td>
+<td><a class="reference internal" href="#rcp">multiplication by approximate reciprocal</a></td>
+</tr>
+<tr><td><tt class="docutils literal">AVX2 long div</tt></td>
+<td><a class="reference internal" href="#long-div-avx2">long division implemented with AVX2 instructions</a></td>
+</tr>
+<tr><td><tt class="docutils literal">AVX512 (cvtt)</tt></td>
+<td>division followed by casting with truncation (CVTTPS2DQ)</td>
+</tr>
+<tr><td><tt class="docutils literal">AVX512 (rcp)</tt></td>
+<td><a class="reference internal" href="#rcp">multiplication by approximate reciprocal</a></td>
+</tr>
+<tr><td><tt class="docutils literal">AVX512 long div</tt></td>
+<td><a class="reference internal" href="#long-div-avx512">long division implemented with AVX-512 instructions</a></td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="ryzen-7">
+<h2>Ryzen 7</h2>
+<ul class="simple">
+<li>Compiler: gcc (Debian 14.1.0-5) 14.1.0</li>
+<li>CPU: AMD Ryzen 7 7730U with Radeon Graphics</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="12%" />
+<col width="10%" />
+<col width="6%" />
+<col width="44%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>1.776</td>
+<td>1.759</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███▌</span></tt></td>
+</tr>
+<tr><td>scalar (unrolled x 4)</td>
+<td>1.894</td>
+<td>1.869</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">███▍</span></tt></td>
+</tr>
+<tr><td>scalar (long div)</td>
+<td>5.715</td>
+<td>5.520</td>
+<td>0.3</td>
+<td><tt class="docutils literal">█▏</tt></td>
+</tr>
+<tr><td>scalar (long div, autovect)</td>
+<td>0.427</td>
+<td>0.417</td>
+<td>4.2</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.374</td>
+<td>0.368</td>
+<td>4.8</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (no rounding)</td>
+<td>0.356</td>
+<td>0.332</td>
+<td>5.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (cvtt)</td>
+<td>0.338</td>
+<td>0.331</td>
+<td>5.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (rcp)</td>
+<td>0.348</td>
+<td>0.328</td>
+<td>5.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE long div</td>
+<td>0.753</td>
+<td>0.738</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.223</td>
+<td>0.218</td>
+<td>8.1</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (cvtt)</td>
+<td>0.232</td>
+<td>0.222</td>
+<td>7.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX2 (rcp)</td>
+<td>0.220</td>
+<td>0.216</td>
+<td>8.1</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>AVX2 (4x rcp)</td>
+<td>0.162</td>
+<td>0.159</td>
+<td>11.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 long div</td>
+<td>0.390</td>
+<td>0.376</td>
+<td>4.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▉</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-x">
+<h2>Skylake-X</h2>
+<ul class="simple">
+<li>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</li>
+<li>Compiler: gcc (GCC) 11.2.0</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="12%" />
+<col width="10%" />
+<col width="6%" />
+<col width="44%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>8.032</td>
+<td>8.018</td>
+<td>1.0</td>
+<td><tt class="docutils literal">██▉</tt></td>
+</tr>
+<tr><td>scalar (unrolled x 4)</td>
+<td>6.518</td>
+<td>6.513</td>
+<td>1.2</td>
+<td><tt class="docutils literal"><span class="pre">███▌</span></tt></td>
+</tr>
+<tr><td>scalar (long div)</td>
+<td>18.882</td>
+<td>18.784</td>
+<td>0.4</td>
+<td><tt class="docutils literal">█▏</tt></td>
+</tr>
+<tr><td>scalar (long div, autovect)</td>
+<td>1.008</td>
+<td>1.003</td>
+<td>8.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>1.209</td>
+<td>1.195</td>
+<td>6.7</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (no rounding)</td>
+<td>0.871</td>
+<td>0.864</td>
+<td>9.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (cvtt)</td>
+<td>0.912</td>
+<td>0.905</td>
+<td>8.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (rcp)</td>
+<td>1.026</td>
+<td>1.022</td>
+<td>7.8</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE long div</td>
+<td>2.100</td>
+<td>2.094</td>
+<td>3.8</td>
+<td><tt class="docutils literal"><span class="pre">███████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>1.059</td>
+<td>1.055</td>
+<td>7.6</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (cvtt)</td>
+<td>0.834</td>
+<td>0.823</td>
+<td>9.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>AVX2 (rcp)</td>
+<td>0.976</td>
+<td>0.973</td>
+<td>8.2</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (4x rcp)</td>
+<td>0.589</td>
+<td>0.584</td>
+<td>13.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 long div</td>
+<td>1.077</td>
+<td>1.070</td>
+<td>7.5</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX512 (cvtt)</td>
+<td>1.473</td>
+<td>1.465</td>
+<td>5.5</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX512 (rcp)</td>
+<td>1.194</td>
+<td>1.187</td>
+<td>6.8</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX512 (4x rcp)</td>
+<td>0.687</td>
+<td>0.682</td>
+<td>11.8</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX512 long div</td>
+<td>0.707</td>
+<td>0.699</td>
+<td>11.5</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▍</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="icelake">
+<h2>IceLake</h2>
+<ul class="simple">
+<li>Compiler: gcc (GCC) 13.3.1 20240611 (Red Hat 13.3.1-2)</li>
+<li>CPU: Intel(R) Xeon(R) Gold 6338 CPU &#64; 2.00GHz</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="12%" />
+<col width="10%" />
+<col width="6%" />
+<col width="44%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>6.069</td>
+<td>6.011</td>
+<td>1.0</td>
+<td><tt class="docutils literal">█▋</tt></td>
+</tr>
+<tr><td>scalar (unrolled x 4)</td>
+<td>6.016</td>
+<td>6.013</td>
+<td>1.0</td>
+<td><tt class="docutils literal">█▋</tt></td>
+</tr>
+<tr><td>scalar (long div)</td>
+<td>9.031</td>
+<td>8.407</td>
+<td>0.7</td>
+<td><tt class="docutils literal">█▏</tt></td>
+</tr>
+<tr><td>scalar (long div, autovect)</td>
+<td>0.584</td>
+<td>0.580</td>
+<td>10.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.587</td>
+<td>0.579</td>
+<td>10.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (no rounding)</td>
+<td>0.482</td>
+<td>0.477</td>
+<td>12.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (cvtt)</td>
+<td>0.476</td>
+<td>0.474</td>
+<td>12.7</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (rcp)</td>
+<td>0.497</td>
+<td>0.490</td>
+<td>12.3</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE long div</td>
+<td>1.246</td>
+<td>1.238</td>
+<td>4.9</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.524</td>
+<td>0.520</td>
+<td>11.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (cvtt)</td>
+<td>0.437</td>
+<td>0.432</td>
+<td>13.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (rcp)</td>
+<td>0.435</td>
+<td>0.432</td>
+<td>13.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (4x rcp)</td>
+<td>0.288</td>
+<td>0.286</td>
+<td>21.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2 long div</td>
+<td>0.640</td>
+<td>0.634</td>
+<td>9.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▍</span></tt></td>
+</tr>
+<tr><td>AVX512 (cvtt)</td>
+<td>0.833</td>
+<td>0.830</td>
+<td>7.2</td>
+<td><tt class="docutils literal"><span class="pre">████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX512 (rcp)</td>
+<td>0.504</td>
+<td>0.500</td>
+<td>12.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX512 (4x rcp)</td>
+<td>0.263</td>
+<td>0.261</td>
+<td>23.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX512 long div</td>
+<td>0.403</td>
+<td>0.400</td>
+<td>15.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="see-also-1">
+<span id="see-also"></span><h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="https://avereniect.github.io/2023/04/29/uint8_division_using_avx512.html">Dividing 8-bit Uints with AVX-512VBMI</a></li>
+<li>A <a class="reference external" href="https://github.com/dzaima/CBQN/commit/d333902#diff-eba3a5ca80037095823ccbff52793a7d8ce6386cf248cae1f45be2fef112c4aeR49">practical impelementation</a> in CQBN project.</li>
+<li><a class="reference external" href="https://arxiv.org/abs/2207.08420">Formally verified 32- and 64-bit integer division using double-precision floating-point arithmetic</a> by David Monniaux, Alice Pain</li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample implementation is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/u8div">GitHub</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2024-12-21-uint8-division.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:27 GMT -->
+</html>

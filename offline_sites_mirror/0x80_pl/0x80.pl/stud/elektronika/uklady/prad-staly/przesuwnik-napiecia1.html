@@ -1,0 +1,30 @@
+Przesuwnik napiêcia (postawowy)
+* "Uk³ady pr±du sta³ego.pdf", str. 24
+* Wojciech Mu³a 11.10.2005
+*
+* ku = R2/(R1+R2) i musi byæ w przybli¿eniu równe 1
+*      tutaj to ok. 0.99
+*
+* U_O = (Vin - U_BE) * R2 / (R1+R2)
+
+* uk³ad:
+* - wej¶cie	: 1 0
+* - wyj¶cie	: 2 0
+* - zasilanie	: 3 0
+*
+R2	0 2	1k
+R1	2 4	10
+Q1	3 1 4	npn1
+Vcc	3 0	DC 6V
+.model npn1 NPN(BF=100)
+
+* sygna³ wej¶ciowy
+Vin	1 0	DC 4V
+
+* analiza
+.DC Vin 0.25 6 0.25
+
+* wykres: wej¶cie, wyj¶cie
+.plot DC V(1) V(2)
+
+.end

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/sentencepiece-bpe-tokenizer-in-go/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:55:21 GMT -->
+<head>
+    <title>SentencePiece BPE Tokenizer in Go - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to SentencePiece BPE Tokenizer in Go">
+                        SentencePiece BPE Tokenizer in Go
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> August 23, 2024 at 10:35</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/go.html">Go</a>
+        ,
+    <a href="../../tag/machine-learning.html">Machine Learning</a>
+        ,
+    <a href="../../tag/webassembly.html">WebAssembly</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>Earlier this year I wrote a <a class="reference external" href="../tokens-for-llms-byte-pair-encoding-in-go/index.html">post about implementing BPE tokenization in Go</a>,
+which made it possible to reproduce OpenAI's tokenizer.</p>
+<p>Today I want to mention a new project I've been hacking on recently:
+<a class="reference external" href="https://github.com/eliben/go-sentencepiece">go-sentencepiece</a>
+- a pure Go implementation of the <a class="reference external" href="https://github.com/google/sentencepiece">SentencePiece</a> tokenizer
+that's used for Google AI's models like Gemma and Gemini. SentencePiece has
+a canonical C++ implementation and Python bindings (using SWIG).
+While it's not too hard to wrap the C++ code with cgo, in some cases a C
+compiler dependency isn't desirable, so a pure Go solution may be useful. This
+is what <tt class="docutils literal"><span class="pre">go-sentencepiece</span></tt> is for.</p>
+<p>A disclaimer: while SentencePiece contains implementations for both BPE and
+Unigram tokenizers, <tt class="docutils literal"><span class="pre">go-sentencepiece</span></tt> only implements BPE because this is the
+one use in practice by models. Also, <tt class="docutils literal"><span class="pre">go-sentencepiece</span></tt> doesn't implement the
+training phase of the tokenizer, only encoding &amp; decoding. For training,
+feel free to review my <a class="reference external" href="../tokens-for-llms-byte-pair-encoding-in-go/index.html">previous post</a>.</p>
+<img alt="Screenshot of tokenizer with a sample text, showing tokens" class="align-center" src="../../images/2024/sp-tok-screenshot.png" />
+<p>There are a couple of ways in which SentencePiece works differently from
+OpenAI's variant of BPE:</p>
+<ol class="arabic simple">
+<li>The text is not pre-split by whitespace using a regexp; instead, whitespace
+is considered just another part of the input and has its own tokens. You
+can even see it in the screenshot above - it's marked by the &quot;fat underscore&quot;
+character (U+2581). While single-space runes are usually part of the next
+non-space token, multi-space tokens exist as distinct tokens.</li>
+<li>Instead of being configured by just a vocabulary and a regexp, SentencePiece
+tokenizers have a whole protobuf for configuration, with many options.
+<tt class="docutils literal"><span class="pre">go-sentencepiece</span></tt> only supports the set of options used for Google AI's
+models, but more can be added easily.</li>
+</ol>
+<p>The whitespace difference turns out to play a crucial role in performance. My
+<a class="reference external" href="../tokens-for-llms-byte-pair-encoding-in-go/index.html">original BPE implementation</a>
+was fairly naive, using simple quadratic algorithms for encoding; this was OK,
+because these algorithms were working on one word at a time, so the N was very
+small.</p>
+<p>This is no longer sufficient for SentencePiece, however, since the length
+of the full text is N. Therefore, the implementation adopts some more sophisticated
+algorithms from the C++ SentencePiece codebase; in particular:</p>
+<ul class="simple">
+<li>To match a prefix of a long string from a set of candidates, we use a trie
+data structure. The <a class="reference external" href="https://github.com/eliben/go-sentencepiece/tree/main/internal/prefixmatcher">prefixmatcher</a>
+package implements this and may be generally interesting.</li>
+<li>To figure out which pair of tokens to try merging next, we use a heap-based
+priority queue; this is implemented in the generic <a class="reference external" href="https://github.com/eliben/go-sentencepiece/tree/main/internal/priorityqueue">priorityqueue</a>
+package.</li>
+</ul>
+<p>While I didn't spend much time in micro-optimizing the
+implementation, these algorithmic improvements sped up the encoder by about 100x
+compared to a naive approach, and it's now so fast that I don't think it will
+ever be a bottleneck in reality.</p>
+<div class="section" id="config-and-set-up">
+<h2>Config and set up</h2>
+<p>As mentioned earlier, SentencePiece is configurable with a protobuf file. There
+are two parts to this: first is a <tt class="docutils literal">.proto</tt> file defining the schema of
+the protobuf. This is <a class="reference external" href="https://github.com/eliben/go-sentencepiece/blob/main/internal/model/sentencepiece_model.proto">vendored into my repository</a>,
+copied from the C++ SentencePiece repository. The <tt class="docutils literal">.pb.go</tt> file is also in the
+tree so you don't need to run the protobuf compiler unless the <tt class="docutils literal">.proto</tt>
+changes.</p>
+<p>The second part is the protobuf itself, which contains the tokenizer vocabulary
+and a bunch of configuration options. This can be downloaded from the
+<a class="reference external" href="https://github.com/google/gemma_pytorch/blob/main/tokenizer/tokenizer.model">official Gemma repository</a>.
+<tt class="docutils literal"><span class="pre">go-sentencepiece</span></tt> should be able to load this file.</p>
+</div>
+<div class="section" id="online-demo">
+<h2>Online demo</h2>
+<p>As before, I've implemented an online demo of this tokenizer by compiling it
+into WebAssembly and adding some HTML+JS scaffolding around it. This is where
+the screenshot above is from.</p>
+<p>You can play with it here: <a class="reference external" href="https://eliben.github.io/go-sentencepiece/">https://eliben.github.io/go-sentencepiece/</a> (the
+model protobuf is quite big though, so this page may take a few seconds to load
+if you have a slow connection).</p>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/sentencepiece-bpe-tokenizer-in-go/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:55:21 GMT -->
+</html>

@@ -1,0 +1,855 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-05-13-avx512-jpeg-zigzag-transform.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:40 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512 implementation of JPEG zigzag transformation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512-implementation-of-jpeg-zigzag-transformation">
+<h1 class="title">AVX512 implementation of JPEG zigzag transformation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-05-13</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-11-04 (added <a class="reference internal" href="#bit-shuffling">16bit-array shuffling</a>)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#shuffling-8-bit-arrays" id="toc-entry-2">Shuffling 8-bit arrays</a><ul>
+<li><a class="reference internal" href="#scalar-implementation" id="toc-entry-3">Scalar implementation</a></li>
+<li><a class="reference internal" href="#sse-implementation" id="toc-entry-4">SSE implementation</a></li>
+<li><a class="reference internal" href="#avx512bw-implementation" id="toc-entry-5">AVX512BW implementation</a></li>
+<li><a class="reference internal" href="#avx512bw-implementation-second-variant" id="toc-entry-6">AVX512BW implementation &mdash; second variant</a></li>
+<li><a class="reference internal" href="#avx512vbmi-implementation" id="toc-entry-7">AVX512VBMI implementation</a></li>
+<li><a class="reference internal" href="#performance-evaluation" id="toc-entry-8">Performance evaluation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#shuffling-16-bit-array" id="toc-entry-9">Shuffling 16-bit array</a><ul>
+<li><a class="reference internal" href="#scalar-implementation-1" id="toc-entry-10">Scalar implementation</a></li>
+<li><a class="reference internal" href="#sse-implementation-1" id="toc-entry-11">SSE implementation</a><ul>
+<li><a class="reference internal" href="#shuffle-only" id="toc-entry-12">Shuffle-only</a></li>
+<li><a class="reference internal" href="#shuffle-with-insert-extract" id="toc-entry-13">Shuffle with insert/extract</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx512f-implementation" id="toc-entry-14">AVX512F implementation</a><ul>
+<li><a class="reference internal" href="#implementation-note" id="toc-entry-15">Implementation note</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx512bw-implementation-1" id="toc-entry-16">AVX512BW implementation</a></li>
+<li><a class="reference internal" href="#performance-evaluation-1" id="toc-entry-17">Performance evaluation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-18">Source code</a></li>
+<li><a class="reference internal" href="#changelog" id="toc-entry-19">Changelog</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>One of steps in <a class="reference external" href="http://en.wikipedia.org/wiki/JPEG#Entropy_coding">JPEG compression</a> is <strong>zigzag transformation</strong> which
+linearises pixels from 8x8 block into 64-byte array. It's possible to vectorize
+this transformation. This short text shows <a class="reference external" href="http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions">SSE</a> implementation, then its
+translation into <a class="reference external" href="http://en.wikipedia.org/wiki/AVX-512">AVX512BW</a> instruction set, and finally AVX512VBMI code.</p>
+<p>The order of items in a block after transformation is shown below:</p>
+<pre class="literal-block">
+[  0  1  5  6 14 15 27 28 ]
+[  2  4  7 13 16 26 29 42 ]
+[  3  8 12 17 25 30 41 43 ]
+[  9 11 18 24 31 40 44 53 ]
+[ 10 19 23 32 39 45 52 54 ]
+[ 20 22 33 38 46 51 55 60 ]
+[ 21 34 37 47 50 56 59 61 ]
+[ 35 36 48 49 57 58 62 63 ]
+</pre>
+<img alt="2018-05-13-avx512-jpeg-zigzag-transform/zigzag.png" class="align-center" src="2018-05-13-avx512-jpeg-zigzag-transform/zigzag.png" />
+</div>
+<div class="section" id="shuffling-8-bit-arrays">
+<h1>Shuffling 8-bit arrays</h1>
+<div class="section" id="scalar-implementation">
+<span id="scalar"></span><h2>Scalar implementation</h2>
+<p>Following procedure uses auxiliary table to pick proper pixels.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="n">zigzag_shuffle</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+     </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">
+    </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span><span class="w"> </span><span class="mi">18</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">
+    </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">19</span><span class="p">,</span><span class="w"> </span><span class="mi">26</span><span class="p">,</span><span class="w"> </span><span class="mi">33</span><span class="p">,</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="mi">48</span><span class="p">,</span><span class="w"> </span><span class="mi">41</span><span class="p">,</span><span class="w"> </span><span class="mi">34</span><span class="p">,</span><span class="w">
+    </span><span class="mi">27</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="mi">28</span><span class="p">,</span><span class="w">
+    </span><span class="mi">35</span><span class="p">,</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span><span class="w"> </span><span class="mi">49</span><span class="p">,</span><span class="w"> </span><span class="mi">56</span><span class="p">,</span><span class="w"> </span><span class="mi">57</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span><span class="w"> </span><span class="mi">43</span><span class="p">,</span><span class="w"> </span><span class="mi">36</span><span class="p">,</span><span class="w">
+    </span><span class="mi">29</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span><span class="w"> </span><span class="mi">37</span><span class="p">,</span><span class="w"> </span><span class="mi">44</span><span class="p">,</span><span class="w"> </span><span class="mi">51</span><span class="p">,</span><span class="w">
+    </span><span class="mi">58</span><span class="p">,</span><span class="w"> </span><span class="mi">59</span><span class="p">,</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="mi">45</span><span class="p">,</span><span class="w"> </span><span class="mi">38</span><span class="p">,</span><span class="w"> </span><span class="mi">31</span><span class="p">,</span><span class="w"> </span><span class="mi">39</span><span class="p">,</span><span class="w"> </span><span class="mi">46</span><span class="p">,</span><span class="w">
+    </span><span class="mi">53</span><span class="p">,</span><span class="w"> </span><span class="mi">60</span><span class="p">,</span><span class="w"> </span><span class="mi">61</span><span class="p">,</span><span class="w"> </span><span class="mi">54</span><span class="p">,</span><span class="w"> </span><span class="mi">47</span><span class="p">,</span><span class="w"> </span><span class="mi">55</span><span class="p">,</span><span class="w"> </span><span class="mi">62</span><span class="p">,</span><span class="w"> </span><span class="mi">63</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_scalar</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">unsigned</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zigzag_shuffle</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">in</span><span class="p">[</span><span class="n">index</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>It is compiled into a few instructions:</p>
+<pre class="code nasm literal-block">
+<span class="nl">jpeg_zigzag_scalar:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">zigzag_shuffle</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rcx</span><span class="w">
+    </span><span class="nf">xorl</span><span class="w">    </span><span class="o">%</span><span class="nb">eax</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">                  </span><span class="c1">; eax is 'i'</span><span class="w">
+</span><span class="nl">.L2:</span><span class="w">
+    </span><span class="nf">movzbl</span><span class="w">  </span><span class="p">(</span><span class="o">%</span><span class="nb">rcx</span><span class="p">,</span><span class="o">%</span><span class="nb">rax</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">edx</span><span class="w">           </span><span class="c1">; fetch index</span><span class="w">
+    </span><span class="nf">movzbl</span><span class="w">  </span><span class="p">(</span><span class="o">%</span><span class="nb">rdi</span><span class="p">,</span><span class="o">%</span><span class="nb">rdx</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">edx</span><span class="w">           </span><span class="c1">; fetch byte from in[index]</span><span class="w">
+    </span><span class="nf">movb</span><span class="w">    </span><span class="o">%</span><span class="nb">dl</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="o">%</span><span class="nb">rsi</span><span class="p">,</span><span class="o">%</span><span class="nb">rax</span><span class="p">)</span><span class="w">            </span><span class="c1">; store at out[i]</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">cmpq</span><span class="w">    </span><span class="kc">$</span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">jne</span><span class="w">     </span><span class="nv">.L2</span><span class="w">
+    </span><span class="nf">rep</span><span class="w"> </span><span class="nv">ret</span>
+</pre>
+</div>
+<div class="section" id="sse-implementation">
+<span id="sse"></span><h2>SSE implementation</h2>
+<p>Since SSE registers have 128 bits, only four registers are needed to hold the
+whole block; each register gets two 8-pixels rows. Let's label these registers
+with A, B, C and D:</p>
+<div class="asciidiag"><pre class="asciidiag">
+    A = [<span style="color: red"> 0</span>|<span style="color: red"> 1</span>|<span style="color: red"> 5</span>|<span style="color: red"> 6</span>|<span style="color: red">14</span>|<span style="color: red">15</span>|<span style="color: red">27</span>|<span style="color: red">28</span>|<span style="color: red"> 2</span>|<span style="color: red"> 4</span>|<span style="color: red"> 7</span>|<span style="color: red">13</span>|<span style="color: red">16</span>|<span style="color: red">26</span>|<span style="color: red">29</span>|<span style="color: red">42</span>]
+
+    B = [<span style="color: green"> 3</span>|<span style="color: green"> 8</span>|<span style="color: green">12</span>|<span style="color: green">17</span>|<span style="color: green">25</span>|<span style="color: green">30</span>|<span style="color: green">41</span>|<span style="color: green">43</span>|<span style="color: green"> 9</span>|<span style="color: green">11</span>|<span style="color: green">18</span>|<span style="color: green">24</span>|<span style="color: green">31</span>|<span style="color: green">40</span>|<span style="color: green">44</span>|<span style="color: green">53</span>]
+
+    C = [<span style="color: blue">10</span>|<span style="color: blue">19</span>|<span style="color: blue">23</span>|<span style="color: blue">32</span>|<span style="color: blue">39</span>|<span style="color: blue">45</span>|<span style="color: blue">52</span>|<span style="color: blue">54</span>|<span style="color: blue">20</span>|<span style="color: blue">22</span>|<span style="color: blue">33</span>|<span style="color: blue">38</span>|<span style="color: blue">46</span>|<span style="color: blue">51</span>|<span style="color: blue">55</span>|<span style="color: blue">60</span>]
+
+    D = [<span style="color: magenta">21</span>|<span style="color: magenta">34</span>|<span style="color: magenta">37</span>|<span style="color: magenta">47</span>|<span style="color: magenta">50</span>|<span style="color: magenta">56</span>|<span style="color: magenta">59</span>|<span style="color: magenta">61</span>|<span style="color: magenta">35</span>|<span style="color: magenta">36</span>|<span style="color: magenta">48</span>|<span style="color: magenta">49</span>|<span style="color: magenta">57</span>|<span style="color: magenta">58</span>|<span style="color: magenta">62</span>|<span style="color: magenta">63</span>]
+&lt;/pre&gt;</pre></div><p>Then, the block after transformation is formed with following
+indices from the registers:</p>
+<div class="asciidiag"><pre class="asciidiag">
+[<span style="color: red"> 0A</span> <span style="color: red"> 1A</span> <span style="color: red"> 8A</span> <span style="color: green">16B</span> <span style="color: red"> 9A</span> <span style="color: red"> 2A</span> <span style="color: red"> 3A</span> <span style="color: red">10A</span>]
+[<span style="color: green">17B</span> <span style="color: green">24B</span> <span style="color: green">32C</span> <span style="color: green">25B</span> <span style="color: green">18B</span> <span style="color: red">11A</span> <span style="color: red"> 4A</span> <span style="color: red"> 5A</span>]
+[<span style="color: red">12A</span> <span style="color: green">19B</span> <span style="color: green">26B</span> <span style="color: blue">33C</span> <span style="color: blue">40C</span> <span style="color: magenta">48D</span> <span style="color: blue">41C</span> <span style="color: blue">34C</span>]
+[<span style="color: green">27B</span> <span style="color: green">20B</span> <span style="color: red">13A</span> <span style="color: red"> 6A</span> <span style="color: red"> 7A</span> <span style="color: red">14A</span> <span style="color: green">21B</span> <span style="color: green">28B</span>]
+[<span style="color: blue">35C</span> <span style="color: blue">42C</span> <span style="color: magenta">49D</span> <span style="color: magenta">56D</span> <span style="color: magenta">57D</span> <span style="color: magenta">50D</span> <span style="color: blue">43C</span> <span style="color: blue">36C</span>]
+[<span style="color: green">29B</span> <span style="color: green">22B</span> <span style="color: red">15A</span> <span style="color: green">23B</span> <span style="color: green">30B</span> <span style="color: blue">37C</span> <span style="color: blue">44C</span> <span style="color: magenta">51D</span>]
+[<span style="color: magenta">58D</span> <span style="color: magenta">59D</span> <span style="color: magenta">52D</span> <span style="color: blue">45C</span> <span style="color: blue">38C</span> <span style="color: green">31B</span> <span style="color: blue">39C</span> <span style="color: blue">46C</span>]
+[<span style="color: magenta">53D</span> <span style="color: magenta">60D</span> <span style="color: magenta">61D</span> <span style="color: magenta">54D</span> <span style="color: blue">47C</span> <span style="color: magenta">55D</span> <span style="color: magenta">62D</span> <span style="color: magenta">63D</span>]</pre></div><p>The algorithm produces two 8-pixel lines in a single step. In each step
+similar operations are performed:</p>
+<ul class="simple">
+<li>Bytes in registers are shuffled to desired position using instruction
+<tt class="docutils literal">pshufb</tt> (<tt class="docutils literal">_mm_shuffle_epi8</tt>).</li>
+<li>All these shuffled vectors are or'ed together.</li>
+</ul>
+<p>To build rows 0 &amp; 1 we need registers A, B, C; rows 2 &amp; 3 and 4 &amp; 5 use data
+from all registers; rows 6 &amp; 7 use data from B, C and D.</p>
+<p>The instruction <tt class="docutils literal">pshufb</tt> either puts a byte at given index or zeroes the
+destination byte, thanks to that masking is done at no cost. Please also note
+that in a few cases just single byte from given vector is needed. Then the pair
+of instructions <tt class="docutils literal">pextb</tt> (<tt class="docutils literal">_mm_extract_epi8</tt>) and <tt class="docutils literal">pinsb</tt>
+(<tt class="docutils literal">_mm_insert_epi8</tt>) is used.</p>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_sse</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">16</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">16</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">C</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="mi">16</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="mi">16</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// row0 = [ A0| A1| A8| B0| A9| A2| A3|A10| B1| B8| C0| B9| B2|A11| A4| A5]
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row0_A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row0_B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">B</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="mi">-11</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">));</span><span class="w">
+
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row0_A</span><span class="p">,</span><span class="w"> </span><span class="n">row0_B</span><span class="p">);</span><span class="w">
+    </span><span class="n">row0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi8</span><span class="p">(</span><span class="n">row0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_extract_epi8</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">),</span><span class="w"> </span><span class="mi">10</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// row1 = [A12  B3 B10  C1  C8  D0  C9  C2 B11  B4 A13  A6  A7 A14  B5 B12]
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row1_A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row1_B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">B</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row1_C</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">));</span><span class="w">
+
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row1_A</span><span class="p">,</span><span class="w">
+                   </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row1_B</span><span class="p">,</span><span class="w"> </span><span class="n">row1_C</span><span class="p">));</span><span class="w">
+    </span><span class="n">row1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi8</span><span class="p">(</span><span class="n">row1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_extract_epi8</span><span class="p">(</span><span class="n">D</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">),</span><span class="w"> </span><span class="mi">5</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// row2 = [C3 C10  D1  D8  D9  D2 C11  C4 B13  B6 A15  B7 B14  C5 C12  D3]
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row2_B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">B</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row2_C</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row2_D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">D</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">));</span><span class="w">
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row2_B</span><span class="p">,</span><span class="w">
+                   </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row2_C</span><span class="p">,</span><span class="w"> </span><span class="n">row2_D</span><span class="p">));</span><span class="w">
+    </span><span class="n">row2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi8</span><span class="p">(</span><span class="n">row2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_extract_epi8</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">),</span><span class="w"> </span><span class="mi">10</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// row3 = D10 D11  D4 C13  C6 B15  C7 C14  D5 D12 D13  D6 C15  D7 D14 D15
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row3_C</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row3_D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">D</span><span class="p">,</span><span class="w">
+                           </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">));</span><span class="w">
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row3_C</span><span class="p">,</span><span class="w"> </span><span class="n">row3_D</span><span class="p">);</span><span class="w">
+    </span><span class="n">row3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi8</span><span class="p">(</span><span class="n">row3</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_extract_epi8</span><span class="p">(</span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">),</span><span class="w"> </span><span class="mi">5</span><span class="p">);</span><span class="w">
+
+    </span><span class="n">_mm_storeu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">out</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">16</span><span class="p">),</span><span class="w"> </span><span class="n">row0</span><span class="p">);</span><span class="w">
+    </span><span class="n">_mm_storeu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">out</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">16</span><span class="p">),</span><span class="w"> </span><span class="n">row1</span><span class="p">);</span><span class="w">
+    </span><span class="n">_mm_storeu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">out</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="mi">16</span><span class="p">),</span><span class="w"> </span><span class="n">row2</span><span class="p">);</span><span class="w">
+    </span><span class="n">_mm_storeu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">out</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="mi">16</span><span class="p">),</span><span class="w"> </span><span class="n">row3</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>4 loads;</li>
+<li>10 shuffles;</li>
+<li>4 insert-load-byte;</li>
+<li>6 bit-or;</li>
+<li>4 stores.</li>
+</ul>
+</div>
+<div class="section" id="avx512bw-implementation">
+<span id="avx512bw"></span><h2>AVX512BW implementation</h2>
+<p>The AVX512BW variant of <tt class="docutils literal">pshufb</tt> instruction (<tt class="docutils literal">vpshufb</tt>,
+<tt class="docutils literal">_mm512_shuffle_epi8</tt>) works on 128-bit lanes.  Thus, in this implementation
+we perform all in-lane shuffles (for pairs of rows) using single <tt class="docutils literal">vpshufb</tt>;
+moreover, we get rid of extract/insert operations.</p>
+<p>In order to do this the 128-bit lanes have to be populated after single load.</p>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_avx512bw</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// populate lanes -- each lane represents pair of output rows
+</span><span class="cp">#if 1
+</span><span class="w">    </span><span class="c1">// as proposed by InstLatX64
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcast_i32x4</span><span class="p">(</span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">16</span><span class="p">)));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcast_i32x4</span><span class="p">(</span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">16</span><span class="p">)));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">C</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcast_i32x4</span><span class="p">(</span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">16</span><span class="p">)));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcast_i32x4</span><span class="p">(</span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="cp">#else
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="w">
+                      </span><span class="n">_mm512_setr_epi32</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">),</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="w">
+                      </span><span class="n">_mm512_setr_epi32</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">),</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">C</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="w">
+                      </span><span class="n">_mm512_setr_epi32</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">),</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="w">
+                      </span><span class="n">_mm512_setr_epi32</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">),</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+</span><span class="cp">#endif
+</span><span class="w">
+    </span><span class="c1">// perform shuffling within lanes
+</span><span class="w">    </span><span class="k">static</span><span class="w"> </span><span class="kt">int8_t</span><span class="w"> </span><span class="n">shuffle_A</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+         </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">
+        </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">static</span><span class="w"> </span><span class="kt">int8_t</span><span class="w"> </span><span class="n">shuffle_B</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">static</span><span class="w"> </span><span class="kt">int8_t</span><span class="w"> </span><span class="n">shuffle_C</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+         </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">static</span><span class="w"> </span><span class="kt">int8_t</span><span class="w"> </span><span class="n">shuffle_D</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w">
+        </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shufA</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_A</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shufB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_B</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shufC</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">C</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_C</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shufD</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">D</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_D</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// merge all shufX vectors
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">OR_ALL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0xfe</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_si512</span><span class="p">(</span><span class="n">shufD</span><span class="p">,</span><span class="w">
+                        </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shufA</span><span class="p">,</span><span class="w"> </span><span class="n">shufB</span><span class="p">,</span><span class="w"> </span><span class="n">shufC</span><span class="p">,</span><span class="w"> </span><span class="n">OR_ALL</span><span class="p">));</span><span class="w">
+
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">res</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>5 512-bit loads;</li>
+<li>4 128-bit loads;</li>
+<li>4 broadcasts;</li>
+<li>4 in-lane shuffles;</li>
+<li>1 <a class="reference external" href="2015-03-22-avx512-ternary-functions.html">ternary logic</a>;</li>
+<li>1 bit-or;</li>
+<li>1 store.</li>
+</ul>
+<p>The initial variant used cross-lane shuffles within registers (<tt class="docutils literal">vpermd</tt>,
+<tt class="docutils literal">_mm512_permutexvar_epi32</tt>). <strong>InstLatX64</strong> <a class="reference external" href="https://twitter.com/InstLatX64/status/996370932238307329">proposed</a> to use
+<tt class="docutils literal">vbroadcasti32x4</tt> (<tt class="docutils literal">_mm512_broadcast_i32x4</tt>) which broadcasts 128-bit lanes
+to lanes. While <tt class="docutils literal">vpermd</tt> can be dispatched only on port 5, broadcasts can be
+issued to ports 2 and 3. As a result <a class="reference internal" href="#results">average cycles</a> dropped from
+15 to 11 (1.35 x times faster).</p>
+<p id="avx512bw-masked">Instead of explicit merging of partial results, it is possible to use masked
+invocation of <tt class="docutils literal">vpshufb</tt> (<tt class="docutils literal">_mm512_mask_shuffle_epi8</tt>). The tail of above
+procedure is changed into.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// ...
+</span><span class="w">
+</span><span class="n">__m512i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_A</span><span class="p">));</span><span class="w">
+</span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_shuffle_epi8</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00201b00c3061b08lu</span><span class="p">,</span><span class="w">
+                                  </span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_B</span><span class="p">));</span><span class="w">
+</span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_shuffle_epi8</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="mh">0x10d860c300d80400lu</span><span class="p">,</span><span class="w">
+                                  </span><span class="n">C</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_C</span><span class="p">));</span><span class="w">
+</span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_shuffle_epi8</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="mh">0xef07803c00200000lu</span><span class="p">,</span><span class="w">
+                                  </span><span class="n">D</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">shuffle_D</span><span class="p">));</span><span class="w">
+
+</span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">);</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>5 loads;</li>
+<li>4 cross-lane shuffles;</li>
+<li>4 in-lane shuffles;</li>
+<li>1 store.</li>
+</ul>
+</div>
+<div class="section" id="avx512bw-implementation-second-variant">
+<span id="avx512bw-permute16"></span><h2>AVX512BW implementation &mdash; second variant</h2>
+<p>AVX512BW supports also cross-lane permutations, but the instruction <tt class="docutils literal">vpermw</tt>
+(<tt class="docutils literal">_mm512_permutexvar_epi16</tt>) works on 16-bit values. Thus, we can only move
+<strong>pairs of pixels</strong>.</p>
+<p>The idea is to use <tt class="docutils literal">vpermw</tt> to move required bytes into given 128-bit lanes,
+and then use <tt class="docutils literal">pshufb</tt> to precisely place individual bytes within lanes.  Due
+to the required order of bytes single invocation of <tt class="docutils literal">vpermw</tt> is not
+sufficient; it must be done in two steps.</p>
+<p>Lane 0 (rows 1 &amp; 2) contains following bytes (sorted):</p>
+<pre class="literal-block">
+0,  1,  2,  3,  4,  5,  8,  9, 10, 11, 16, 17, 18, 24, 25, 32
+</pre>
+<p>Lane 1 (rows 2 &amp; 3):</p>
+<pre class="literal-block">
+6,  7, 12, 13, 14, 19, 20, 21, 26, 27, 28, 33, 34, 40, 41, 48
+</pre>
+<p>Lane 2 (rows 4 &amp; 5):</p>
+<pre class="literal-block">
+15, 22, 23, 29, 30, 35, 36, 37, 42, 43, 44, 49, 50, 51, 56, 57
+</pre>
+<p>Lane 3 (rows 6 &amp; 7):</p>
+<pre class="literal-block">
+31, 38, 39, 45, 46, 47, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63
+</pre>
+<p>In the first step of transformation lanes are populated with following pair
+of bytes (colors match registers A, B, C and D).</p>
+<div class="asciidiag"><pre class="asciidiag">
+lane 0 = [<span style="color: red"> 0</span>,<span style="color: red"> 1</span>][<span style="color: red"> 2</span>,<span style="color: red"> 3</span>][<span style="color: red"> 4</span>,<span style="color: red"> 5</span>][<span style="color: red"> 8</span>,<span style="color: red"> 9]</span>[<span style="color: red">10</span>,<span style="color: red">11</span>][<span style="color: green">16</span>,<span style="color: green">17</span>][<span style="color: green">18</span>,<span style="color: green">19</span>][<span style="color: green">24</span>,<span style="color: green">25</span>]
+lane 1 = [<span style="color: red"> 6</span>,<span style="color: red"> 7</span>][<span style="color: red">12</span>,<span style="color: red">13</span>][<span style="color: red">14</span>,15][<span style="color: green">20</span>,<span style="color: green">21</span>][<span style="color: green">26</span>,<span style="color: green">27</span>][<span style="color: green">28</span>,29][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>]
+lane 2 = [<span style="color: green">22</span>,<span style="color: green">23</span>][<span style="color: green">30</span>,31][<span style="color: blue">36</span>,<span style="color: blue">37</span>][<span style="color: blue">42</span>,<span style="color: blue">43</span>][<span style="color: blue">44</span>,45][48,<span style="color: magenta">49</span>][<span style="color: magenta">50</span>,<span style="color: magenta">51</span>][<span style="color: magenta">56</span>,<span style="color: magenta">57</span>]
+lane 3 = [<span style="color: blue">38</span>,<span style="color: blue">39</span>][<span style="color: blue">46</span>,<span style="color: blue">47</span>][<span style="color: magenta">52</span>,<span style="color: magenta">53</span>][<span style="color: magenta">54</span>,<span style="color: magenta">55</span>][<span style="color: magenta">58</span>,<span style="color: magenta">59</span>][<span style="color: magenta">60</span>,<span style="color: magenta">61</span>][<span style="color: magenta">62</span>,<span style="color: magenta">63</span>][<span style="color: magenta">62</span>,<span style="color: magenta">62</span>]</pre></div><p>Please note that there are a few extra values [marked with black] -- lane 0:
+19; lane 1: 15, 29; lane 2: 31, 45, 48.</p>
+<p>Following values are not present in lanes after the first shuffle:</p>
+<ul class="simple">
+<li>lane 0: 32;</li>
+<li>lane 1: 19, 34, 40, 41, 48;</li>
+<li>lane 2: 15, 29, 35;</li>
+<li>lane 3: 31, 45.</li>
+</ul>
+<p>This is the reason why the second invocation of <tt class="docutils literal">vpermw</tt> is needed. Following diagram
+shows layout of byte pairs in the second step:</p>
+<div class="asciidiag"><pre class="asciidiag">
+lane 0 = [<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>][<span style="color: blue">32</span>,<span style="color: blue">33</span>]
+lane 1 = [<span style="color: green">18</span>,<span style="color: green">19</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>][<span style="color: blue">40</span>,<span style="color: blue">41</span>][<span style="color: magenta">48</span>,<span style="color: magenta">49</span>][<span style="color: magenta">48</span>,<span style="color: magenta">49</span>][<span style="color: magenta">48</span>,<span style="color: magenta">49</span>][<span style="color: magenta">48</span>,<span style="color: magenta">49</span>][<span style="color: magenta">48</span>,<span style="color: magenta">49</span>]
+lane 2 = [<span style="color: red">14</span>,<span style="color: red">15</span>][<span style="color: green">28</span>,<span style="color: green">29</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>][<span style="color: blue">34</span>,<span style="color: blue">35</span>]
+lane 3 = [<span style="color: green">30</span>,<span style="color: green">31</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>][<span style="color: blue">44</span>,<span style="color: blue">45</span>]</pre></div><p>The last, third step consists two <tt class="docutils literal">vpshufb</tt> invocation that moves bytes
+within lanes. These shuffled vectors are or'ed together and the result
+is stored.</p>
+<p>Sample implementation is shown below. <a class="reference internal" href="#source">The repository</a> has got a
+python script that calculates all arguments for shuffles (it's pretty boring
+and error prone).</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_avx512bw_permute16</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// crosslane 16-bit shuffle #1
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">int16_t</span><span class="w"> </span><span class="n">crosslane_shuffle1</span><span class="p">[</span><span class="mi">32</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+         </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w">
+         </span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w">
+        </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">18</span><span class="p">,</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span><span class="w"> </span><span class="mi">28</span><span class="p">,</span><span class="w">
+        </span><span class="mi">19</span><span class="p">,</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span><span class="w"> </span><span class="mi">26</span><span class="p">,</span><span class="w"> </span><span class="mi">27</span><span class="p">,</span><span class="w"> </span><span class="mi">29</span><span class="p">,</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span><span class="w"> </span><span class="mi">31</span><span class="p">,</span><span class="w"> </span><span class="mi">31</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shuf1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi16</span><span class="p">(</span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">crosslane_shuffle1</span><span class="p">),</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// in-lane 8-bit shuffle #1
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">int8_t</span><span class="w"> </span><span class="n">inlane_shuffle1</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* lane 0 */</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 1 */</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 2 */</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 3 */</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">shuf1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">(</span><span class="n">inlane_shuffle1</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// crosslane 16-bit shuffle #2
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">int16_t</span><span class="w"> </span><span class="n">crosslane_shuffle2</span><span class="p">[</span><span class="mi">32</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* lane 0*/</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 1*/</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 2*/</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">17</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 3*/</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shuf2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi16</span><span class="p">(</span><span class="n">_mm512_load_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">crosslane_shuffle2</span><span class="p">),</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// in-lane 8-bit shuffle #2
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">int8_t</span><span class="w"> </span><span class="n">inlane_shuffle2</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="n">__attribute__</span><span class="p">((</span><span class="n">aligned</span><span class="p">(</span><span class="mi">64</span><span class="p">)))</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* lane 0 */</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 1 */</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 2 */</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="cm">/* lane 3 */</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">shuf2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_load_si512</span><span class="p">(</span><span class="n">inlane_shuffle2</span><span class="p">));</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_or_si512</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">res</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>5 loads;</li>
+<li>2 cross-lane shuffles;</li>
+<li>2 in-lane shuffles;</li>
+<li>1 bit-or;</li>
+<li>1 store;</li>
+</ul>
+</div>
+<div class="section" id="avx512vbmi-implementation">
+<h2>AVX512VBMI implementation</h2>
+<p>The whole transformation is done by single instruction <tt class="docutils literal">vpermb</tt>
+(<tt class="docutils literal">_mm512_permutexvar_epi8</tt>).  The instruction shuffles bytes across lanes.</p>
+<p>(<tt class="docutils literal">zigzag_shuffle</tt> is defined with scalar code above)</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_avx512vbmi</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">in</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">zigzag_shuffle</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">t2</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="performance-evaluation">
+<span id="results"></span><h2>Performance evaluation</h2>
+<p>The benchmark program runs zigzag transformation 1,000,000 times.
+I run it a few times and noted the minimum values.</p>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">name</th>
+<th class="head">comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><a class="reference internal" href="#scalar">scalar</a></td>
+<td>&nbsp;</td>
+</tr>
+<tr><td><a class="reference internal" href="#sse">SSE</a></td>
+<td>&nbsp;</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx512bw">AVX512BW</a></td>
+<td>&nbsp;</td>
+</tr>
+<tr><td>AVX512BW (masks)</td>
+<td><a class="reference internal" href="#avx512bw">AVX512BW</a> that use mask stores rather bit-level merging</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx512bw-permute16">AVX512BW (perm16)</a></td>
+<td>&nbsp;</td>
+</tr>
+</tbody>
+</table>
+<p>The program was compiled with GCC 7.3.0 and run on
+Skylake Core i7-6700 CPU &#64; 3.40GHz.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="37%" />
+<col width="29%" />
+<col width="35%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best [cycles]</th>
+<th class="head">average [cycles]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>98.000</td>
+<td>103.069</td>
+</tr>
+<tr><td>SSE</td>
+<td>16.000</td>
+<td>26.614</td>
+</tr>
+<tr><td>AVX512BW</td>
+<td>4.000</td>
+<td>11.002</td>
+</tr>
+<tr><td>AVX512BW (masks)</td>
+<td>10.000</td>
+<td>16.732</td>
+</tr>
+<tr><td>AVX512BW (perm16)</td>
+<td>16.000</td>
+<td>24.588</td>
+</tr>
+</tbody>
+</table>
+<p>AVX512BW code is almost two times faster than SSE.</p>
+</div>
+</div>
+<div class="section" id="shuffling-16-bit-array">
+<span id="bit-shuffling"></span><h1>Shuffling 16-bit array</h1>
+<div class="section" id="scalar-implementation-1">
+<span id="bit-scalar"></span><h2>Scalar implementation</h2>
+<p>The scalar implementation is basically <a class="reference internal" href="#scalar">8-bit scalar</a> with different
+types used.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint16_t</span><span class="w"> </span><span class="n">zigzag_shuffle</span><span class="p">[</span><span class="mi">64</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+     </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">
+    </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span><span class="w"> </span><span class="mi">18</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">
+    </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">19</span><span class="p">,</span><span class="w"> </span><span class="mi">26</span><span class="p">,</span><span class="w"> </span><span class="mi">33</span><span class="p">,</span><span class="w"> </span><span class="mi">40</span><span class="p">,</span><span class="w"> </span><span class="mi">48</span><span class="p">,</span><span class="w"> </span><span class="mi">41</span><span class="p">,</span><span class="w"> </span><span class="mi">34</span><span class="p">,</span><span class="w">
+    </span><span class="mi">27</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="mi">28</span><span class="p">,</span><span class="w">
+    </span><span class="mi">35</span><span class="p">,</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span><span class="w"> </span><span class="mi">49</span><span class="p">,</span><span class="w"> </span><span class="mi">56</span><span class="p">,</span><span class="w"> </span><span class="mi">57</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span><span class="w"> </span><span class="mi">43</span><span class="p">,</span><span class="w"> </span><span class="mi">36</span><span class="p">,</span><span class="w">
+    </span><span class="mi">29</span><span class="p">,</span><span class="w"> </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span><span class="w"> </span><span class="mi">37</span><span class="p">,</span><span class="w"> </span><span class="mi">44</span><span class="p">,</span><span class="w"> </span><span class="mi">51</span><span class="p">,</span><span class="w">
+    </span><span class="mi">58</span><span class="p">,</span><span class="w"> </span><span class="mi">59</span><span class="p">,</span><span class="w"> </span><span class="mi">52</span><span class="p">,</span><span class="w"> </span><span class="mi">45</span><span class="p">,</span><span class="w"> </span><span class="mi">38</span><span class="p">,</span><span class="w"> </span><span class="mi">31</span><span class="p">,</span><span class="w"> </span><span class="mi">39</span><span class="p">,</span><span class="w"> </span><span class="mi">46</span><span class="p">,</span><span class="w">
+    </span><span class="mi">53</span><span class="p">,</span><span class="w"> </span><span class="mi">60</span><span class="p">,</span><span class="w"> </span><span class="mi">61</span><span class="p">,</span><span class="w"> </span><span class="mi">54</span><span class="p">,</span><span class="w"> </span><span class="mi">47</span><span class="p">,</span><span class="w"> </span><span class="mi">55</span><span class="p">,</span><span class="w"> </span><span class="mi">62</span><span class="p">,</span><span class="w"> </span><span class="mi">63</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_scalar</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint16_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">unsigned</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zigzag_shuffle</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">in</span><span class="p">[</span><span class="n">index</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code is:</p>
+<pre class="code nasm literal-block">
+<span class="nl">jpeg_zigzag_scalar:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">zigzag_shuffle</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rcx</span><span class="w">
+    </span><span class="nf">xorl</span><span class="w">    </span><span class="o">%</span><span class="nb">eax</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+</span><span class="nl">.L2:</span><span class="w">
+    </span><span class="nf">movzwl</span><span class="w">  </span><span class="p">(</span><span class="o">%</span><span class="nb">rcx</span><span class="p">,</span><span class="o">%</span><span class="nb">rax</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">edx</span><span class="w">
+    </span><span class="nf">movzwl</span><span class="w">  </span><span class="p">(</span><span class="o">%</span><span class="nb">rdi</span><span class="p">,</span><span class="o">%</span><span class="nb">rdx</span><span class="p">,</span><span class="mi">2</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">edx</span><span class="w">
+    </span><span class="nf">movw</span><span class="w">    </span><span class="o">%</span><span class="nb">dx</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="o">%</span><span class="nb">rsi</span><span class="p">,</span><span class="o">%</span><span class="nb">rax</span><span class="p">)</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">cmpq</span><span class="w">    </span><span class="kc">$</span><span class="mi">128</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">jne</span><span class="w">     </span><span class="nv">.L2</span><span class="w">
+    </span><span class="nf">rep</span><span class="w"> </span><span class="nv">ret</span>
+</pre>
+</div>
+<div class="section" id="sse-implementation-1">
+<span id="bit-sse"></span><h2>SSE implementation</h2>
+<p>When 16-bit words are stored in an array, then single SSE register holds
+exactly one row of 8 x 8 pixels block.</p>
+<p>We can use the same techniques as in 8-bit arrays handling. We can shuffle an
+input register and merge it with the destination register (with pair
+<tt class="docutils literal">PSHUFB</tt>/<tt class="docutils literal">POR</tt>); we just have to keep in mind that <tt class="docutils literal">PSHUFB</tt> must move
+whole 16-bit blocks.</p>
+<p>There are two variants of SSE procedure:</p>
+<ul class="simple">
+<li>one that uses only shuffle instructions;</li>
+<li>simplified one; in same cases there's need to copy only single item
+from one register to another, then a pair of instruction <tt class="docutils literal">PEXTRACTW</tt>
+and <tt class="docutils literal">PINSERTW</tt> is suitable.</li>
+</ul>
+<p>Please refer to <a class="reference internal" href="#source">sources</a> for full SSE implementations; they are auto-generated,
+thus there is no much sense to copy them here.</p>
+<div class="section" id="shuffle-only">
+<span id="bit-sse-shuffle"></span><h3>Shuffle-only</h3>
+<p>Below is a summary which operations are required to build
+output rows:</p>
+<ul class="simple">
+<li>row 0 &mdash; 3 x shuffle, 2 x bit-or;</li>
+<li>row 1 &mdash; 5 x shuffle, 4 x bit-or;</li>
+<li>row 2 &mdash; 6 x shuffle, 5 x bit-or;</li>
+<li>row 3 &mdash; 4 x shuffle, 3 x bit-or;</li>
+<li>row 4 &mdash; 4 x shuffle, 3 x bit-or;</li>
+<li>row 5 &mdash; 6 x shuffle, 5 x bit-or;</li>
+<li>row 6 &mdash; 5 x shuffle, 4 x bit-or;</li>
+<li>row 7 &mdash; 3 x shuffle, 2 x bit-or.</li>
+</ul>
+<p>Total number of instructions:</p>
+<ul class="simple">
+<li>8 loads;</li>
+<li>36 shuffles;</li>
+<li>28 bit-or;</li>
+<li>8 stores.</li>
+</ul>
+</div>
+<div class="section" id="shuffle-with-insert-extract">
+<span id="bit-sse-copy-single"></span><h3>Shuffle with insert/extract</h3>
+<p>Below is a summary which operations are required to build
+output rows:</p>
+<ul class="simple">
+<li>row 0 &mdash; 2 x shuffle, 1 x bit-or, 1 x insert-load-word;</li>
+<li>row 1 &mdash; 3 x shuffle, 2 x bit-or, 2 x insert-load-word;</li>
+<li>row 2 &mdash; 2 x shuffle, 1 x bit-or, 4 x insert-load-word;</li>
+<li>row 3 &mdash; 4 x shuffle, 3 x bit-or;</li>
+<li>row 4 &mdash; 4 x shuffle, 3 x bit-or;</li>
+<li>row 5 &mdash; 2 x shuffle, 1 x bit-or, 4 x insert-load-word;</li>
+<li>row 6 &mdash; 3 x shuffle, 2 x bit-or, 2 x insert-load-word;</li>
+<li>row 7 &mdash; 2 x shuffle, 1 x bit-or, 1 x insert-load-word.</li>
+</ul>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>8 loads;</li>
+<li>22 shuffles;</li>
+<li>14 insert-load-word;</li>
+<li>14 bit-or;</li>
+<li>8 stores.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="avx512f-implementation">
+<span id="bit-avx512f"></span><h2>AVX512F implementation</h2>
+<p>In AVX512 code the whole 8 x 8 pixels table fits into two registers.</p>
+<p>Although AVX512F lacks of byte- or word-level operation, we still can move
+<strong>pairs of pixels</strong> across register lanes using <tt class="docutils literal">VPERMD</tt> instruction
+(<tt class="docutils literal">_mm512_permutexvar_epi32</tt>).  Then, there are basically three cases
+we must handle:</p>
+<ol class="arabic">
+<li><p class="first">The lower or higher word of the shuffled pair matches exactly the target
+position. Then only bit-and is needed to mask out another helve.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// a. move pairs around using 'shuffle' pattern
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">permuted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutex2var_epi16</span><span class="p">(</span><span class="n">shuffle</span><span class="p">,</span><span class="w"> </span><span class="k">register</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// b. row = row | (permuted &amp; mask)
+</span><span class="n">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">row</span><span class="p">,</span><span class="w"> </span><span class="n">permuted</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="mh">0xf8</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">The lower word of the pair must be placed in higher word of target register.
+Then we need shift left the permuted vector by 16 bits. Note that unlike
+<tt class="docutils literal">VPSHUFB</tt>, <tt class="docutils literal">VPERMD</tt> does not zero target elements with a special index
+value. Thus an explicit bit-and is needed.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// a. move pairs around using 'shuffle' pattern
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">permuted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutex2var_epi16</span><span class="p">(</span><span class="n">shuffle</span><span class="p">,</span><span class="w"> </span><span class="k">register</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// b. shift lower word to higher word's position
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shifted</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_slli_epi32</span><span class="p">(</span><span class="n">permuted</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// c. row = row | (shifted &amp; mask)
+</span><span class="n">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">row</span><span class="p">,</span><span class="w"> </span><span class="n">shifted</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="mh">0xf8</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Likewise, when higher word of the pair must be place in the lower word of
+target register, then shift left by 16 bits is invoked.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// a. move pairs around using 'shuffle' pattern
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">permuted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutex2var_epi16</span><span class="p">(</span><span class="n">shuffle</span><span class="p">,</span><span class="w"> </span><span class="k">register</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// b. shift higher word to lower word's position
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shifted</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">permuted</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// c. row = row | (shifted &amp; mask)
+</span><span class="n">row</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">row</span><span class="p">,</span><span class="w"> </span><span class="n">shifted</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="mh">0xf8</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+<p>The vectors <tt class="docutils literal">shuffle</tt> and <tt class="docutils literal">mask</tt> that are used in the above cases are
+compile-time constants.</p>
+<p>The code for AVX512 was also auto-generated, please refer to <a class="reference internal" href="#source">sources</a> for
+details. Below is the number of instructions:</p>
+<ul class="simple">
+<li>16 x shuffle,</li>
+<li>16 x ternary logic,</li>
+<li>4 x shift right,</li>
+<li>4 x shift left.</li>
+</ul>
+<div class="section" id="implementation-note">
+<span id="bit-avx512f-note"></span><h3>Implementation note</h3>
+<p>Similarly to other approaches, there are cases where just a single item from a
+source register has to be copied to the destination register. In case of SSE and
+AVX2 code we can use then specialized instructions for extract/insert 8-bit/16-bit
+items from a register.</p>
+<p>AVX512F doesn't have such instructions, but copying 16-bit values is still doable.
+Below is a pattern:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w">   </span><span class="n">src</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_extracti32x4_epi32</span><span class="p">(</span><span class="n">X</span><span class="p">,</span><span class="w"> </span><span class="n">source_lane_index</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w">   </span><span class="n">trg</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_extracti32x4_epi32</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="w"> </span><span class="n">targer_lane_index</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">word</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_extract_epi16</span><span class="p">(</span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="n">source_word_index</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w">   </span><span class="n">mod</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_insert_epi16</span><span class="p">(</span><span class="n">trg</span><span class="p">,</span><span class="w"> </span><span class="n">word</span><span class="p">,</span><span class="w"> </span><span class="n">target_word_index</span><span class="p">);</span><span class="w">
+</span><span class="n">Y</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_inserti32x4</span><span class="p">(</span><span class="n">Y</span><span class="p">,</span><span class="w"> </span><span class="n">mod</span><span class="p">,</span><span class="w"> </span><span class="n">target_lane_index</span><span class="p">);</span>
+</pre>
+<p>As we see, it is pretty complicated. The code consist of five instruction,
+while the generic algorithm compiles to three or four. The <a class="reference internal" href="#bit-results">experiment
+results</a> clearly show that code uses this approach is slower.</p>
+</div>
+</div>
+<div class="section" id="avx512bw-implementation-1">
+<span id="bit-avx512bw"></span><h2>AVX512BW implementation</h2>
+<p>AVX512BW provides instruction <tt class="docutils literal">VPERM2I</tt> (<tt class="docutils literal">_mm512_permutex2var_epi16</tt>) that
+does cross-lane shuffling from <strong>two</strong> AVX512 registers. Since the whole 16-bit
+array fits into two registers we need to execute <tt class="docutils literal">VPERM2I</tt> twice.</p>
+<p>Implementation is straightforward.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">jpeg_zigzag_avx512bw</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="kt">uint16_t</span><span class="o">*</span><span class="w"> </span><span class="n">out</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">A</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">32</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">B</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">in</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">32</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// note: zigzag_shuffle refers here to uint16_t array
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shuf0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">zigzag_shuffle</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">32</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">res0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutex2var_epi16</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="n">shuf0</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shuf1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">zigzag_shuffle</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">32</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">res1</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutex2var_epi16</span><span class="p">(</span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="n">shuf1</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="p">);</span><span class="w">
+
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">out</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">32</span><span class="p">),</span><span class="w"> </span><span class="n">res0</span><span class="p">);</span><span class="w">
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">out</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">32</span><span class="p">),</span><span class="w"> </span><span class="n">res1</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="performance-evaluation-1">
+<span id="bit-results"></span><h2>Performance evaluation</h2>
+<p>The test program <tt class="docutils literal">benchmark_avx512bw</tt> was run five times and minimum times were noted.
+In single run each procedure is invoked 1,000,000 times.</p>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">name</th>
+<th class="head">comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><a class="reference internal" href="#bit-scalar">scalar</a></td>
+<td>&nbsp;</td>
+</tr>
+<tr><td>scalar (unrolled)</td>
+<td><a class="reference internal" href="#bit-scalar">scalar</a> unrolled 4 times</td>
+</tr>
+<tr><td><a class="reference internal" href="#bit-sse-shuffle">SSE</a></td>
+<td>shuffle-only variant</td>
+</tr>
+<tr><td><a class="reference internal" href="#bit-sse-copy-single">SSE (copy single)</a></td>
+<td>shuffle with insert/extract</td>
+</tr>
+<tr><td><a class="reference internal" href="#bit-avx512f">AVX512F</a></td>
+<td>shuffle-only variant</td>
+</tr>
+<tr><td><a class="reference internal" href="#bit-avx512f-note">AVX512F (copy single)</a></td>
+<td>shuffle with insert/extract emulation</td>
+</tr>
+<tr><td><a class="reference internal" href="#bit-avx512bw">AVX512BW</a></td>
+<td>&nbsp;</td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="21%" />
+<col width="14%" />
+<col width="16%" />
+<col width="8%" />
+<col width="41%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best [cycles]</th>
+<th class="head">average [cycles]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>109.000</td>
+<td>113.814</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">█████</span></tt></td>
+</tr>
+<tr><td>scalar (unrolled)</td>
+<td>94.000</td>
+<td>98.745</td>
+<td>1.15</td>
+<td><tt class="docutils literal"><span class="pre">█████▊</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>52.000</td>
+<td>59.906</td>
+<td>1.90</td>
+<td><tt class="docutils literal"><span class="pre">█████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (copy single)</td>
+<td>70.000</td>
+<td>80.275</td>
+<td>1.42</td>
+<td><tt class="docutils literal"><span class="pre">███████</span></tt></td>
+</tr>
+<tr><td>AVX512F</td>
+<td>34.000</td>
+<td>42.295</td>
+<td>2.69</td>
+<td><tt class="docutils literal"><span class="pre">█████████████▍</span></tt></td>
+</tr>
+<tr><td>AVX512F (copy single)</td>
+<td>46.000</td>
+<td>54.455</td>
+<td>2.09</td>
+<td><tt class="docutils literal"><span class="pre">██████████▍</span></tt></td>
+</tr>
+<tr><td>AVX512BW</td>
+<td>8.000</td>
+<td>14.453</td>
+<td>7.87</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████▎</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="source-code">
+<span id="source"></span><h1>Source code</h1>
+<p>Source code is available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/avx512-jpeg-zizag">github</a>.</p>
+</div>
+<div class="section" id="changelog">
+<h1>Changelog</h1>
+<ul class="simple">
+<li>2018-11-04 &mdash; added <a class="reference internal" href="#bit-shuffling">16bit-array shuffling</a></li>
+<li>2018-05-15 &mdash; better broadcasting <a class="reference internal" href="#avx512bw">code</a> in AVX512BW by <strong>InstLatX64</strong></li>
+<li>2018-05-14 &mdash; another <a class="reference internal" href="#avx512bw-permute16">AVX512BW variant</a>,
+AVX512BW code which uses <a class="reference internal" href="#avx512bw-masked">masked writes</a></li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-05-13-avx512-jpeg-zigzag-transform.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+</html>

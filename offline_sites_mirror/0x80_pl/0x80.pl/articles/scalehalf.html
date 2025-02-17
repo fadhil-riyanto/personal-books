@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/scalehalf.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Skalowanie obrazu 0,5x</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="skalowanie-obrazu-0-5x">
+<h1 class="title">Skalowanie obrazu 0,5x</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">30.04.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#proste-skalowanie" id="toc-entry-1">Proste skalowanie</a></li>
+<li><a class="reference internal" href="#skalowanie-z-filtrowaniem-bilinearnym" id="toc-entry-2">Skalowanie z filtrowaniem bilinearnym</a><ul>
+<li><a class="reference internal" href="#kod-x86" id="toc-entry-3">kod x86</a></li>
+<li><a class="reference internal" href="#kod-mmx" id="toc-entry-4">kod MMX</a></li>
+<li><a class="reference internal" href="#kod-mmx2-sse" id="toc-entry-5">kod MMX2/SSE</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<p>Najprostszy sposób to pominąć co drugi pixel (i co drugą linię):</p>
+<pre class="literal-block">
+|a|b|c|d|e|f|... -&gt; |a|c|e|...
+</pre>
+<p>Można również przeprowadzić skalowanie z filtrowaniem bilinearnym:</p>
+<pre class="literal-block">
+|a|b|c|d|e|f|... -&gt; |(a+b)/2|(c+d)/2|(e+f)/2|...
+</pre>
+<div class="section" id="proste-skalowanie">
+<h1>Proste skalowanie</h1>
+<p>Obraz grayscale:</p>
+<pre class="literal-block">
+mov eax, [edi] ; eax = |d|c|b|a| -- pobierz 4 pixele
+mov  ah, al    ; eax = |d|c|a|a|
+shr eax, 8     ; eax = |0|d|c|a|
+
+mov [esi],  ax ; -- zapisz 2 pixele
+</pre>
+<p>Powyższy kod ma jedną dość istotną wadę: przeskalowanie 8 pixeli to 2 zapisy
+do pamięci &mdash; po prostu musi zostać dwukrotnie wykonany; kolejny program
+omija tę wadę.</p>
+<pre class="literal-block">
+mov eax, [edi]   ; eax = |d|c|b|a|
+mov ebx, [edi+4] ; ebx = |h|g|f|e|
+
+mov  ah, al      ; eax = |d|c|a|a|
+mov  bh, bl      ; ebx = |h|g|e|e|
+
+shl eax, 8       ; eax = |c|a|a|0|
+shr ebx, 8       ; ebx = |0|h|g|e|
+
+shrd eax, ebx, 8 ; eax = |g|e|c|a|
+
+mov [esi], eax
+</pre>
+<p>Użycie MMX bardzo ułatwia sprawę.</p>
+<pre class="literal-block">
+pcmpeqb  mm2, mm2 ; generowanie maski 0x00ff00ff00ff00ff
+psrlw    mm2, 8   ;
+
+mov      ecx, img_width/8
+
+_scalehalf:
+        movq mm0, [edi]   ; mm0 = |h|g|f|e|d|c|b|a|
+        movq mm1, [edi+8] ; mm1 = |p|o|n|m|l|k|j|i|
+
+        pand mm0, mm2     ; mm0 = |-|g|-|e|-|c|-|a|
+        pand mm1, mm2     ; mm1 = |-|o|-|m|-|k|-|i|
+
+        packuswb mm0, mm1 ; mm0 = |o|m|k|i|h|e|c|a|
+
+        movq [esi], mm0
+
+        add  edi, 8
+        add  esi, 8
+
+        loop _scalehalf
+</pre>
+</div>
+<div class="section" id="skalowanie-z-filtrowaniem-bilinearnym">
+<h1>Skalowanie z filtrowaniem bilinearnym</h1>
+<p>Proszę zapoznać się z <a class="reference external" href="aver.html">Średnia arytmetyczna</a>.</p>
+<div class="section" id="kod-x86">
+<h2>kod x86</h2>
+<pre class="literal-block">
+mov eax, [edi] ; eax = |d|c|b|a|
+
+add  al, ah    ;
+rcr  al, 1     ; eax = |   d   |   c   |   b   |(a+b)/2|
+
+bswap eax      ; eax = |(a+b)/2|   b   |   c   |   d   |
+
+add  al, ah    ;
+rcr  al, 1     ; eax = |(a+b)/2|   b   |   c   |(d+c)/2|
+
+rcl eax, 8     ; eax = |   b   |   c   |(d+c)/2|(a+b)/2| ***
+
+mov [esi], ax
+</pre>
+<p>Uwaga taka sama jak poprzednio: warto przeskalować 8 pixeli, by
+zapisać równocześnie 4.</p>
+<pre class="literal-block">
+mov eax, [edi]
+mov eax, [edi+4]
+
+; średnia w ax
+
+; średnia w bx -- w miejscu oznaczonym (***) zamiast
+;                 rozkazu rcl, należy użyć RCR.
+
+and eax, 0x0000ffff ;
+and ebx, 0xffff000  ; zamaskowanie słów zawierających średnie
+
+or  eax, ebx        ; połączenie wyników
+
+mov [esi], eax
+</pre>
+</div>
+<div class="section" id="kod-mmx">
+<h2>kod MMX</h2>
+<p>Tu również MMX ułatwi działanie.</p>
+<pre class="literal-block">
+; mm4 = 0x00ff00ff00ff00ff
+
+                    ; [edi] = |i|h|g|f|e|d|c|b|a|
+
+movq  mm0, [edi]    ; mm0 = |h|g|f|e|d|c|b|a|
+movq  mm1, [edi+1]  ; mm1 = |i|h|g|f|e|d|c|b|
+
+movq  mm2, [edi+8]  ; skalowane będzie 16 pixeli równocześnie
+movq  mm3, [edi+9]  ;
+
+pand  mm0, mm4      ; mm0 = |-|g|-|e|-|c|-|a|
+pand  mm1, mm4      ; mm1 = |-|h|-|f|-|d|-|b|
+pand  mm2, mm4
+pand  mm3, mm4
+
+paddw mm0, mm1      ; mm0 = |g+h |e+f |c+d |a+b |
+psrlw mm0, 1        ; mm0 = | gh | ef | cd | ab | -- 'ab' oznacza '(a+b)/2'
+paddw mm2, mm2
+psrlw mm2, 1        ; mm2 = | op | mn | kl | ij |
+
+packuswb mm0, mm2   ; mm0 = |op|mn|kl|ij|gh|ef|cd|ab|
+
+movq [esi], mm0
+</pre>
+</div>
+<div class="section" id="kod-mmx2-sse">
+<h2>kod MMX2/SSE</h2>
+<p>Z filtrowanie bilinearnym:</p>
+<pre class="literal-block">
+movdqa    (%eax), %xmm0         ; xmm0 = |a b c d e f g h|...|
+movdqa  16(%eax), %xmm2         ; xmm2 = |i j k l m n o p|...|
+
+movdqa     %xmm0, %xmm1
+movdqa     %xmm2, %xmm3
+
+pand        MASK, %xmm0         ; xmm0 = |a _ c _ e _ g _|...|      _ = 0
+pand        MASK, %xmm2         ; xmm2 = |i _ k _ m _ o _|...|
+                                ; MASK = packed_word(0x00ff)
+
+psrlw         $8, %xmm1         ; xmm1 = |b _ d _ f _ h _|...|
+psrlw         $8, %xmm3         ; xmm3 = |j _ l _ n _ p _|...|
+
+packuswb   %xmm1, %xmm0         ; xmm0 = |b d f h j l n p|...|
+packuswb   %xmm3, %xmm2         ; xmm2 = |a c e g i k m o|...|
+
+pavgb      %xmm2, %xmm0         ; xmm0 = |(a+b+1)/2 (d+c+1)/2 (f+e+1)/2 (h+g+1)/2 ... |
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/scalehalf.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

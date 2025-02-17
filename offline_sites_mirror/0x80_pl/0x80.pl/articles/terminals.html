@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/terminals.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>raw-mode Unixowego terminala</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="raw-mode-unixowego-terminala">
+<h1 class="title">raw-mode Unixowego terminala</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">2003(?)</td>
+</tr>
+</tbody>
+</table>
+<p>Osoby przyzwyczajone do DOS-owych funkcji <tt class="docutils literal">getch()</tt> lub <tt class="docutils literal">kbhit()</tt>
+odczuwają ich brak w Linuksie. Odpowiedniki tych funkcji są dostarczane
+w bibliotekach <a class="reference external" href="http://www.gnu.org/software/ncurses/">ncurses</a> i <a class="reference external" href="http://www.s-lang.org/">slang</a>, ale nie zawsze można pozwolić sobie na
+luksus ich używania, wtedy samodzielna obsługa <em>raw-mode</em> jest jedynym
+rozwiązaniem.</p>
+<p>Interfejs do terminali zawarty jest w pliku nagłówkowym <tt class="docutils literal">termios.h</tt>.
+Tryb pracy terminala jest opisany przez strukturę termios. Pobraniu
+tychże parametrów terminala służy funkcja <tt class="docutils literal">tcgetattr()</tt>, zapisaniu
+<tt class="docutils literal">tcsetattr()</tt>. Po szczegóły odsyłam do <tt class="docutils literal">man termios</tt>, oraz <tt class="docutils literal">info
+libc</tt> &mdash; rozdział &quot;Low-Level Terminal Interface&quot;.</p>
+<p>Terminale mogą pracować w dwóch trybach:</p>
+<ol class="arabic simple">
+<li>kanonicznym (ang. <em>canonical</em>) -- tryb standardowy; linie są buforowane,
+terminal obsługuje klawisze specjalne (<strong>kill</strong>, <strong>erase</strong> itp.);</li>
+<li>niekanonicznym (ang. <em>raw mode</em>) &mdash; linie nie są buforowane, dane wejściowe
+są dostępne na poziomie bajtów, czyli tak samo jak w DOS.</li>
+</ol>
+<p>Spośród wielu parametrów terminala interesujące są wyłącznie dwie flagi
+<cite>ICANON</cite> oraz <cite>ECHO</cite> przechowywane w polu <cite>c_lflag</cite> wspomnianej
+struktury. Flaga <cite>ICANON</cite> włącza tryb kanoniczny, natomiast <cite>ECHO</cite>
+włącza wyświetlanie wprowadzanych znaków na ekran; poniżej przykład
+przełączenia w tryb raw.</p>
+<p><tt class="docutils literal">terminal.c</tt>:</p>
+<pre class="literal-block">
+#include &lt;stdlib.h&gt;
+#include &lt;stdio.h&gt;
+#include &lt;errno.h&gt;
+
+#include &lt;unistd.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;termios.h&gt;
+
+int tty_fileno; /* deskryptor terminala */
+
+typedef struct {
+          int  num;      /* ilość bajtów (0..8) */
+          char array[8]; /* odczytane bajty     */
+        } keycode;
+
+keycode get_key()
+{
+ static keycode kc;
+
+ /* odczytane zostanie co najwyżej 8 bajtów */
+ if ((kc.num=read(tty_fileno, kc.array, 8)) == -1)
+        kc.num = 0;
+
+ errno = 0;
+ return kc;
+}
+
+keycode wait_for_key()
+{
+ fd_set read_set;
+
+ FD_ZERO(&amp;read_set);
+ FD_SET (tty_fileno, &amp;read_set);
+
+ /* czekaj na klawisz */
+ select(tty_fileno+1, &amp;read_set, NULL, NULL, NULL);
+ return get_key();
+}
+
+extern int errno;
+void check_errno()
+{ if (errno)
+        { perror(&quot;&quot;);
+          exit(EXIT_FAILURE); }
+}
+
+int main()
+{
+ struct termios term;
+ char    eof; /* kod znaku EOF */
+ keycode k;
+ int     i;
+
+ tty_fileno = open(&quot;/dev/tty&quot;, O_RDONLY | O_NONBLOCK);
+ check_errno();
+
+ /* pobranie parametrów terminala */
+ tcgetattr(tty_fileno, &amp;term);
+ check_errno();
+ eof = term.c_cc[VEOF]; /* znak EOF, prawdopodobnie będzie to \004 */
+
+ /* wyłączenie trybu kanonicznego oraz echa */
+ term.c_lflag &amp;= ~(ICANON | ECHO);
+ tcsetattr(tty_fileno, TCSAFLUSH, &amp;term);
+ check_errno();
+
+ /* wyświetlane są kody klawiszy, koniec po naciśnięciu CTRL-D */
+ while (1)
+        {
+         k = wait_for_key(); /* pobierz kod klawisza */
+
+         if (k.num == 1 &amp;&amp; k.array[0] == eof)
+                {
+                 puts(&quot;CTRL-D!&quot;);
+                 break;
+                }
+
+         printf(&quot;%d: &quot;, k.num);
+         for (i=0; i&lt;k.num; i++)
+                printf(&quot;\\%03o &quot;, (unsigned char)k.array[i]);
+         putchar('\n');
+        }
+
+ puts(&quot;naciśnij dowolny klawisz...&quot;);
+ wait_for_key();
+
+ /* przywrócenie zmienionych parametrów */
+ term.c_lflag |= (ICANON | ECHO);
+ tcsetattr(tty_fileno, TCSAFLUSH, &amp;term);
+ check_errno();
+
+ return 0;
+}
+</pre>
+<p>Plik terminala <tt class="docutils literal">/dev/tty</tt> otwierany jest w trybie nieblokującym,
+dzięki czemu można było łatwo zaimplementować sekwencję:</p>
+<pre class="literal-block">
+if (kbhit())
+        return getch();
+else
+        return NO_KEY;
+</pre>
+<p>przy pomocy pojedynczego wywołania funkcji <tt class="docutils literal">read</tt>; w przeciwnym razie
+należałoby użyć funkcji <tt class="docutils literal">select()</tt>. Jeśli Czytelnik programował w
+DOS-ie pamięta zapewne sprawdzanie czy naciśnięty został 2-bajtowy
+klawisz rozszerzony, czy zwyczajny 1-bajtowy, w Linuksie jest jeszcze
+gorzej, bowiem klawiszom przypisywane są kody nawet 5-bajtowe. Dlatego
+też, by zaoszczędzić powtarzających się sekwencji kodu, funkcje
+<tt class="docutils literal">get_key()</tt> oraz <tt class="docutils literal">wait_for_key()</tt> zwracają od razu wszystkie bajty
+wygenerowane przez klawisz w strukturze keycode. Niestety sama
+klasyfikacja poszczególnych kodów musi zostać wykonana samodzielnie,
+gdyż w zależności od terminala te same klawisze mogą wysyłać różne kody.
+Proponuję zapoznać się z <tt class="docutils literal">man termcap</tt>.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/terminals.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+</html>

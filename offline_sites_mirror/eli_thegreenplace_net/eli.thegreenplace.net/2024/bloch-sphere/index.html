@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/bloch-sphere/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:09 GMT -->
+<head>
+    <title>Bloch sphere - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Bloch sphere">
+                        Bloch sphere
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> October 29, 2024 at 16:10</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/math.html">Math</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>When learning the basics of quantum computing, the <a class="reference external" href="https://en.wikipedia.org/wiki/Bloch_sphere">Bloch sphere</a>
+comes early on as a visualization technique of quantum states. It shows the
+state of a single qubit as a point on this sphere:</p>
+<img alt="Bloch sphere showing kets 0 and 1 in the usual places" class="align-center" src="../../images/2024/bloch-with-kets-01.png" />
+<p>This post explains how the Bloch sphere works and also <em>why</em> it works.</p>
+<div class="section" id="mapping-4-dimensions-onto-a-sphere">
+<h2>Mapping 4 dimensions onto a sphere</h2>
+<p>We have a qubit in an arbitrary state:</p>
+<object class="align-center" data="../../images/math/a63b3b4185f94421fe82d6b27e83db4c871fcfb6.svg" style="height: 19px;" type="image/svg+xml">\[\ket{\psi}=a\ket{0}+b\ket{1}\]</object>
+<p>How can we visualize this state?</p>
+<p>Had <em>a</em> and <em>b</em> been real numbers, it would have been easy since there would
+only be two dimensions (degrees of freedom). However, in reality
+<object class="valign-m4" data="../../images/math/a40c5e2c5b3fee3c060de7e3623cfde67a0a54f2.svg" style="height: 16px;" type="image/svg+xml">a,b\in\mathbb{C}</object>, making our visualization task much more challenging
+because there are now 4 dimensions (two for each complex number). The Bloch
+sphere is a clever mapping from this 4D reality into something we can visualize.</p>
+<p>We start by representing each of the complex coefficients using their
+<a class="reference external" href="../notes-on-the-euler-formula/index.html">polar representation</a>,
+where the magnitudes and angles are real numbers:</p>
+<object class="align-center" data="../../images/math/0be9ded0fff08d6e751472c127b3e40b279ddc0a.svg" style="height: 49px;" type="image/svg+xml">\[\begin{align*}
+a&amp;=r_a e^{i\phi_a}\\
+b&amp;=r_b e^{i\phi_b}
+\end{align*}\]</object>
+<p>Therefore:</p>
+<object class="align-center" data="../../images/math/45bd78f16aaf510347915f3d0ba14ca0f8676e28.svg" style="height: 22px;" type="image/svg+xml">\[\ket{\psi}=r_a e^{i\phi_a}\ket{0} + r_b e^{i\phi_b}\ket{1}\]</object>
+<p>Since a global phase doesn't affect the observable properties of a qubit (see
+the appendix for more on this), we can multiply this state by the global
+state <object class="valign-0" data="../../images/math/8d2d62a6083c60a9df49922270ce494c1b9fc567.svg" style="height: 15px;" type="image/svg+xml">e^{-i\phi_a}</object> to get <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>:</p>
+<object class="align-center" data="../../images/math/02be39bdbc3a331d4bf7a7ea0a1ed596e26ae8bf.svg" style="height: 61px;" type="image/svg+xml">\[\begin{align*}
+\ket{\psi}&amp;=e^{-i\phi_a}\left (r_a e^{i\phi_a}\ket{0} + r_b e^{i\phi_b}\ket{1} \right ) \\
+ &amp;=r_a\ket{0}+r_b e^{i(\phi_b-\phi_a)}\ket{1}
+\end{align*}\]</object>
+<p>There's only a single angle in this equation: <object class="valign-m4" data="../../images/math/a062edb59d046220003d17f70cc81374153ac27f.svg" style="height: 16px;" type="image/svg+xml">\phi_b-\phi_a</object>; this
+is the <em>relative</em> phase between the two components of the state. Let's
+call it just <object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object>, and then:</p>
+<object class="align-center" data="../../images/math/239c993ea0542ee402bb3d77eed2400f7a2c51b6.svg" style="height: 22px;" type="image/svg+xml">\[\ket{\psi}=r_a\ket{0}+r_b e^{i\phi}\ket{1}\]</object>
+<p>We're down from 4 real parameters to 3. But there's still a constraint on our
+state equation that we didn't use; all quantum states must be normalized - the
+amplitudes must satisfy:</p>
+<object class="align-center" data="../../images/math/6a408bfe9b9e2ac643a9f2563112c11e74024ffd.svg" style="height: 22px;" type="image/svg+xml">\[|a|^2+|b|^2=1\]</object>
+<p>In our case:</p>
+<object class="align-center" data="../../images/math/1c78aafcb7004b3f4bfe9aa9f1845b90caf2d392.svg" style="height: 22px;" type="image/svg+xml">\[|r_a|^2+|r_b e^{i\phi}|^2=1\]</object>
+<p>To proceed from here, we'll rewrite the second magnitude using the cartesian
+representation of complex numbers (instead of parameters <object class="valign-m3" data="../../images/math/cdfe7c131e161adc750f10a87ccd098fbf8a276c.svg" style="height: 11px;" type="image/svg+xml">r_b</object> and
+<object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object>, we'll use <em>x</em> and <em>y</em>) and do some algebra:</p>
+<object class="align-center" data="../../images/math/735fd5adac7e0e47a77befd1509ce4e21d6183c6.svg" style="height: 77px;" type="image/svg+xml">\[\begin{align*}
+|r_a|^2+|x+iy|^2&amp;=1 \\
+{r_a}^2+(x+iy)(x-iy)&amp;=1 \\
+{r_a}^2+x^2+y^2&amp;=1 \\
+\end{align*}\]</object>
+<p>If we rename <object class="valign-m3" data="../../images/math/cb3719acabf42ce9628ea5488e484e3ff3958fb3.svg" style="height: 11px;" type="image/svg+xml">r_a</object> to <em>z</em>, this equation should look familiar:</p>
+<object class="align-center" data="../../images/math/580c4e5828c85ff64ba780c9857f89283b5b6bba.svg" style="height: 21px;" type="image/svg+xml">\[x^2+y^2+z^2=1\]</object>
+<p>This is the <a class="reference external" href="https://en.wikipedia.org/wiki/Sphere#Equations">equation of a unit sphere</a>!
+We can now use <a class="reference external" href="https://en.wikipedia.org/wiki/Spherical_coordinate_system">spherical coordinates</a>
+to express:</p>
+<object class="align-center" data="../../images/math/3566cb7d40bd8e2b4991672b7200c15b9a83ef1a.svg" style="height: 72px;" type="image/svg+xml">\[\begin{align*}
+x&amp;=sin(\theta) cos(\phi) \\
+y&amp;=sin(\theta) sin(\phi) \\
+z&amp;=cos(\theta) \\
+\end{align*}\]</object>
+<p>Where <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" /> is the angle from the positive <em>z</em> axis (&quot;polar angle&quot;) and
+<object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object> is the angle from the positive <em>x</em> axis (&quot;azimuthal angle&quot;):</p>
+<img alt="Unit sphere with spherical coordinates" class="align-center" src="../../images/2024/unit-sphere-polar.png" />
+<p>If you recall, we expressed <em>a</em> in our quantum state as <em>z</em> and <em>b</em> as
+<object class="valign-m4" data="../../images/math/dc5648d309ad9fa02d53124cd7d954697f66d39c.svg" style="height: 16px;" type="image/svg+xml">x+iy</object>. Substituting back into the state equation:</p>
+<object class="align-center" data="../../images/math/adea20be1037a6345308eb2c42c05caea1619503.svg" style="height: 102px;" type="image/svg+xml">\[\begin{align*}
+\ket{\psi}&amp;=z\ket{0}+(x+iy)\ket{1}\\
+&amp;=cos(\theta)\ket{0}+(sin(\theta)cos(\phi) + i sin(\theta)sin(\phi))\ket{1}\\
+&amp;=cos(\theta)\ket{0}+sin(\theta)(cos(\phi) + i sin(\phi))\ket{1}\\
+&amp;=cos(\theta)\ket{0}+sin(\theta)e^{i \phi}\ket{1}\\
+\end{align*}\]</object>
+<p>We're now down to just 2 real parameters: the angles <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" /> and
+<object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object>. These two angles uniquely map a quantum state onto a unit sphere.</p>
+<p>Now comes the trickiest part in understanding the Bloch sphere, IMHO. Notice
+that something is wrong with the mapping we've just found. In spherical
+coordinates, <object class="valign-0" data="../../images/math/6ac3c9b7281d43fe8cec91958a20e2750285cad9.svg" style="height: 15px;" type="image/svg+xml">$$0\leq\theta\leq \pi$$</object>. However, if we set <object class="valign-0" data="../../images/math/35d63cd9f27cd61eae24d22e3869f0ce0a2acceb.svg" style="height: 12px;" type="image/svg+xml">\theta=\pi</object>
+in the state equation we've just derived, we get:</p>
+<object class="align-center" data="../../images/math/384c07724f4cdc2a000d76ac2303521000cea56b.svg" style="height: 19px;" type="image/svg+xml">\[\ket{\psi}=-\ket{0}\]</object>
+<p>Which is <em>not</em> what we see on the Bloch sphere; indeed, since the states
+<object class="valign-m5" data="../../images/math/6b461a7c4ec702afa72360726f18f43fc7d785a1.svg" style="height: 19px;" type="image/svg+xml">\ket{0}</object> and <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object> are orthogonal by definition, we should
+not be seeing <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object> as the polar opposite of <object class="valign-m5" data="../../images/math/6b461a7c4ec702afa72360726f18f43fc7d785a1.svg" style="height: 19px;" type="image/svg+xml">\ket{0}</object> on the
+Bloch sphere, and yet we do. What's going on?</p>
+<p>The simple (but partial) explanation is that we'd need only half a sphere
+to represent states, but it wouldn't have the nice visual properties of the
+full Bloch sphere. There are deeper mathematical reasons for this - see
+discussions <a class="reference external" href="https://physics.stackexchange.com/questions/174562/why-is-theta-over-2-used-for-a-bloch-sphere-instead-of-theta">#1</a>
+and <a class="reference external" href="https://quantumcomputing.stackexchange.com/questions/4118/why-are-half-angles-used-in-the-bloch-sphere-representation-of-qubits">#2</a>
+for more details.</p>
+<p>The usual mathematical trick is to stretch the state space over an entire
+sphere by using <object class="valign-m6" data="../../images/math/fb50c3fe8ab16c3bc51af81f89862dd768effcd8.svg" style="height: 22px;" type="image/svg+xml">\frac{\theta}{2}</object> instead of <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" />. Therefore,
+our state would be:</p>
+<object class="align-center" data="../../images/math/8418b36e6c0230cfb3867aa4ba3bdb3dea774b94.svg" style="height: 43px;" type="image/svg+xml">\[\ket{\psi}=cos\left (\frac{\theta}{2} \right )\ket{0}+sin\left (\frac{\theta}{2} \right )e^{i \phi}\ket{1}\]</object>
+<p>Now if we set <object class="valign-0" data="../../images/math/35d63cd9f27cd61eae24d22e3869f0ce0a2acceb.svg" style="height: 12px;" type="image/svg+xml">\theta=\pi</object>, we get:</p>
+<object class="align-center" data="../../images/math/c45966410875507bf789ea509bd8554fd8e5a3c0.svg" style="height: 22px;" type="image/svg+xml">\[\ket{\psi}=0\cdot\ket{0}+e^{i\phi}\ket{1}\equiv\ket{1}\]</object>
+<p>Once again, the equivalence to <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object> is because now that the phase
+<object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object> applies only to <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object>, it makes no difference.
+Indeed, if we have a point on the <em>z</em> axis, it doesn't really matter what its
+azimuthal angle is.</p>
+</div>
+<div class="section" id="using-the-bloch-sphere-to-visualize-quantum-states">
+<h2>Using the Bloch sphere to visualize quantum states</h2>
+<p>Now that we understand the math behind the mapping, let's use it to visualize
+some quantum state superpositions on the Bloch sphere.</p>
+<p>We'll start with the important state <object class="valign-m5" data="../../images/math/f1c98d68542f8a94e29c79e5e65768469360e707.svg" style="height: 19px;" type="image/svg+xml">\ket{+}</object>:</p>
+<object class="align-center" data="../../images/math/6af9c454692362b2fce37aa6406e66f376883cda.svg" style="height: 40px;" type="image/svg+xml">\[\ket{+}=\frac{1}{\sqrt{2}}\left (\ket{0}+\ket{1} \right )\]</object>
+<p>To find the angles for the spherical representation:</p>
+<object class="align-center" data="../../images/math/8418b36e6c0230cfb3867aa4ba3bdb3dea774b94.svg" style="height: 43px;" type="image/svg+xml">\[\ket{\psi}=cos\left (\frac{\theta}{2} \right )\ket{0}+sin\left (\frac{\theta}{2} \right )e^{i \phi}\ket{1}\]</object>
+<p>We notice that <object class="valign-m4" data="../../images/math/863965f01f19330eab0895c6fe94ce1b3263d91a.svg" style="height: 16px;" type="image/svg+xml">\phi=0</object> because the coefficient of <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object> is
+real. Also:</p>
+<object class="align-center" data="../../images/math/aa76639e3630fc599b822ac8ccb3f00f9a4eb5b1.svg" style="height: 43px;" type="image/svg+xml">\[\frac{\theta}{2}=cos^{-1}\left (\frac{1}{\sqrt{2}}\right ) \Longrightarrow \theta=\frac{\pi}{2}\]</object>
+<p>Recalling the meaning of <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" /> and <object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object> in spherical
+coordinates, this means that <object class="valign-m5" data="../../images/math/f1c98d68542f8a94e29c79e5e65768469360e707.svg" style="height: 19px;" type="image/svg+xml">\ket{+}</object> is on the positive <em>x</em> axis. Here
+is this state on the Bloch sphere, along with other important states
+<object class="valign-m5" data="../../images/math/e15b266d80354b55bd364547e650588797cc10f6.svg" style="height: 19px;" type="image/svg+xml">\ket{-}</object>, <object class="valign-m5" data="../../images/math/484eb17230e803270870cd1a6cbc42008dfd42a0.svg" style="height: 19px;" type="image/svg+xml">\ket{i}</object> and <object class="valign-m5" data="../../images/math/638a583ff638ffde63113246f47f0e1fd1abb0e3.svg" style="height: 19px;" type="image/svg+xml">\ket{-i}</object>, which are similarly
+simple to compute:</p>
+<img alt="Bloch sphere showing kets 0, 1, +, -, i, -i" class="align-center" src="../../images/2024/bloch-with-basic-states.png" />
+<p>The measurement probabilities of <object class="valign-m5" data="../../images/math/f1c98d68542f8a94e29c79e5e65768469360e707.svg" style="height: 19px;" type="image/svg+xml">\ket{+}</object> in the standard basis are
+<object class="valign-m6" data="../../images/math/eb946338365d9781f7d2e9ec692c26702d0ae3a7.svg" style="height: 22px;" type="image/svg+xml">\frac{1}{2}</object> for 0 and <object class="valign-m6" data="../../images/math/eb946338365d9781f7d2e9ec692c26702d0ae3a7.svg" style="height: 22px;" type="image/svg+xml">\frac{1}{2}</object> for 1 <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>. The Bloch sphere makes
+it geometrically intuitive, because <object class="valign-m5" data="../../images/math/f1c98d68542f8a94e29c79e5e65768469360e707.svg" style="height: 19px;" type="image/svg+xml">\ket{+}</object> lies on the &quot;equator&quot;,
+half-way between <object class="valign-m5" data="../../images/math/6b461a7c4ec702afa72360726f18f43fc7d785a1.svg" style="height: 19px;" type="image/svg+xml">\ket{0}</object> and <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object>. Note that all the
+states depicted above have these measurement probabilities - the only difference
+between them is the relative phase, which is expressed with the <object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object>
+angle on the sphere.</p>
+<p>As the final example, let's map the following state onto the Bloch sphere:</p>
+<object class="align-center" data="../../images/math/346da634519f91d3e34dca04cf2cfe525cd64f49.svg" style="height: 40px;" type="image/svg+xml">\[\ket{\psi}=\frac{3+i\sqrt{3}}{4}\ket{0}-\frac{1}{2}\ket{1}\]</object>
+<p>Rearranging a bit:</p>
+<object class="align-center" data="../../images/math/57b0f70624be5a1a4b25ae190f6f2cc9b5ec24f7.svg" style="height: 54px;" type="image/svg+xml">\[\ket{\psi}=\frac{\sqrt{3}}{2}\left (\frac{\sqrt{3}}{2}+i\frac{1}{2}\right )\ket{0}-\frac{1}{2}\ket{1}\]</object>
+<p>Since <object class="valign-m6" data="../../images/math/3a2a06328699cf55bff36f68bca03d4867809d2e.svg" style="height: 22px;" type="image/svg+xml">sin(\pi/6)=\frac{1}{2}</object> and <object class="valign-m6" data="../../images/math/47c6055c65e5687c104d3023f120baad97a03d0d.svg" style="height: 25px;" type="image/svg+xml">cos(\pi/6)=\frac{\sqrt{3}}{2}</object>,
+we can rewrite it as:</p>
+<object class="align-center" data="../../images/math/2370970cdcec491e0a78395ac09a6c1cefefb40b.svg" style="height: 40px;" type="image/svg+xml">\[\ket{\psi}=\frac{\sqrt{3}}{2}e^{i\pi/6}\ket{0}-\frac{1}{2}\ket{1}\]</object>
+<p>To get into the spherical coordinate representation, we have to move the
+relative phase to the <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object>. To do that, we'll factor out
+<object class="valign-0" data="../../images/math/c491b6741e7886066364f39c0c06d5d99bebad88.svg" style="height: 16px;" type="image/svg+xml">e^{i\pi/6}</object> and then ignore the global phase. We'll then use the
+fact that <object class="valign-0" data="../../images/math/445f8fe14bdc777990faaf6a92e624c9eb1446e1.svg" style="height: 16px;" type="image/svg+xml">e^{-i\pi/6}=e^{i5\pi/6}</object>:</p>
+<object class="align-center" data="../../images/math/6041ae8707c629a2a07d186a8853d96c3df32d60.svg" style="height: 146px;" type="image/svg+xml">\[\begin{align*}
+\ket{\psi}&amp;=\frac{\sqrt{3}}{2}e^{i\pi/6}\ket{0}-\frac{1}{2}\ket{1}\\
+&amp;=e^{i\pi/6}\left(\frac{\sqrt{3}}{2}\ket{0}-e^{-i\pi/6}\frac{1}{2}\ket{1}\right )\\
+&amp;\equiv\frac{\sqrt{3}}{2}\ket{0}+e^{i5\pi/6}\frac{1}{2}\ket{1}
+\end{align*}\]</object>
+<p>Now we're ready to extract the angles:</p>
+<object class="align-center" data="../../images/math/cfe93f7d3af5e3652da02da879fe4e5a40b9bd72.svg" style="height: 96px;" type="image/svg+xml">\[\begin{align*}
+\frac{\theta}{2}&amp;=cos^{-1}\left (\frac{\sqrt{3}}{2}\right ) \Longrightarrow \theta = \frac{\pi}{3}\\
+\phi&amp;=\frac{5\pi}{6}
+\end{align*}\]</object>
+<p>Here's how this looks on the sphere:</p>
+<img alt="Bloch sphere showing psi" class="align-center" src="../../images/2024/bloch-phi-pi-6.png" />
+<p>Visually, we get the intuitive sense that the probability of measuring
+<object class="valign-m5" data="../../images/math/6b461a7c4ec702afa72360726f18f43fc7d785a1.svg" style="height: 19px;" type="image/svg+xml">\ket{0}</object> is
+higher than the probability of measuring <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object>, for example. Also, if
+we measure using another base like <object class="valign-m5" data="../../images/math/f1c98d68542f8a94e29c79e5e65768469360e707.svg" style="height: 19px;" type="image/svg+xml">\ket{+}</object> and <object class="valign-m5" data="../../images/math/e15b266d80354b55bd364547e650588797cc10f6.svg" style="height: 19px;" type="image/svg+xml">\ket{-}</object>, it's
+apparent that the probability of measuring <object class="valign-m5" data="../../images/math/e15b266d80354b55bd364547e650588797cc10f6.svg" style="height: 19px;" type="image/svg+xml">\ket{-}</object> will be higher, and
+so on.</p>
+</div>
+<div class="section" id="appendix-equivalence-of-global-phases">
+<h2>Appendix: Equivalence of global phases</h2>
+<p>Let's take a qubit in this superposition:</p>
+<object class="align-center" data="../../images/math/f862d0020e1490cadeeeeec1c7c7b0dfe4fb9600.svg" style="height: 40px;" type="image/svg+xml">\[\psi=\frac{\sqrt{3}}{2}\ket{0}+\frac{1}{2}\ket{1}\]</object>
+<p>The probabilities of measurements in the standard base are:</p>
+<object class="align-center" data="../../images/math/59bc2b214542e2bf031ff2a60346a96d17dd4881.svg" style="height: 109px;" type="image/svg+xml">\[\begin{align*}
+  0\longrightarrow\left|\frac{\sqrt{3}}{2}\right|^2&amp;=\frac{3}{4}\\
+  1\longrightarrow\left|\frac{1}{2}\right|^2&amp;=\frac{1}{4}
+\end{align*}\]</object>
+<p>Now let's apply a global phase <object class="valign-m4" data="../../images/math/411e715f9ab9075b0a30b4117d209921f0bc2389.svg" style="height: 16px;" type="image/svg+xml">\phi</object> to our qubit:</p>
+<object class="align-center" data="../../images/math/4e2cce421bc6291a7bcb7daa8387b17b8ef36c92.svg" style="height: 54px;" type="image/svg+xml">\[\hat{\psi}=e^{i\phi}\left(\frac{\sqrt{3}}{2}\ket{0}+\frac{1}{2}\ket{1}\right)\]</object>
+<p>And calculate the measurement probabilities again:</p>
+<object class="align-center" data="../../images/math/fda63c6aa7775f911388c1dbf45c87251d901edd.svg" style="height: 109px;" type="image/svg+xml">\[\begin{align*}
+  0\longrightarrow\left|e^{i\phi}\frac{\sqrt{3}}{2}\right|^2=\frac{\sqrt{3}}{2}e^{i\phi}\cdot\frac{\sqrt{3}}{2}e^{-i\phi}&amp;=\frac{3}{4}\\
+  1\longrightarrow\left|\frac{1}{2}\right|^2=\frac{1}{2}e^{i\phi}\cdot\frac{1}{2}e^{-i\phi}&amp;=\frac{1}{4}
+\end{align*}\]</object>
+<p>The global phase didn't change our measurement probabilities in any way;
+since measurement is the only way to observe the quantum state, we say that
+the global phase is irrelevant and can be ignored.</p>
+<p>As an exercise, it's easy to show that this applies for any
+quantum state <object class="valign-m5" data="../../images/math/b573b4df40ba8628e08f542cce5ff9fdf024818d.svg" style="height: 19px;" type="image/svg+xml">a\ket{0}+b\ket{1}</object>. It also applies for any computational
+basis, not just the standard basis <object class="valign-m5" data="../../images/math/6b461a7c4ec702afa72360726f18f43fc7d785a1.svg" style="height: 19px;" type="image/svg+xml">\ket{0}</object> and <object class="valign-m5" data="../../images/math/4f12cd6e6422f93a0993205418cfb42a13b4ec39.svg" style="height: 19px;" type="image/svg+xml">\ket{1}</object>.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>Strictly speaking, we shouldn't be using the equals sign here because
+this new state isn't equal to the old one; it's equivalent to it,
+so we can use the <object class="valign-0" data="../../images/math/265a73f0318d82099471b873fb7854c7f06ef9d4.svg" style="height: 8px;" type="image/svg+xml">\equiv</object> sign. I'll just keep using
+<object class="valign-2" data="../../images/math/21606782c65e44cac7afbb90977d8b6f82140e76.svg" style="height: 5px;" type="image/svg+xml">=</object> for simplicity, though.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>For a generalized quantum superposition <object class="valign-m5" data="../../images/math/1f4e773c84381f25644aa1407e4a7cfe845b2033.svg" style="height: 19px;" type="image/svg+xml">\ket{\psi}=a\ket{0}+b\ket{1}</object>,
+the probability of measuring 0 is <object class="valign-m5" data="../../images/math/16af801e554a81bc5fcb604ec6948d46829d5683.svg" style="height: 20px;" type="image/svg+xml">|a|^2</object>, and the probability
+of measuring 1 is <object class="valign-m5" data="../../images/math/afd90d000ca1b52787b43dc4ad5db6a9848cb930.svg" style="height: 20px;" type="image/svg+xml">|b|^2</object>. Recall that in the general case
+<em>a</em> and <em>b</em> are complex, so we have to calculate the
+<a class="reference external" href="../calculating-the-norm-of-a-complex-number/index.html">norm-squared</a>.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/bloch-sphere/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:09 GMT -->
+</html>

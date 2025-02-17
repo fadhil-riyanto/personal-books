@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:38:35 GMT -->
+<head>
+    <title>Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="theme/css/style.css" type="text/css"/>
+
+        <link href="feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="index.html" class="navbar-brand">
+                <img src="images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+
+        <article>
+            <h1><a href="2025/decorator-jits-python-as-a-dsl/index.html">Decorator JITs - Python as a DSL</a>
+            </h1>
+
+            <span class="published">
+                <i class="fa fa-calendar"></i>
+                <time> February 03, 2025 at 06:22</time>
+            </span>
+            <br/><br/>
+
+            <div class="entry-content">
+                <p>Spend enough time looking at Python programs and packages for machine learning,
+and you'll notice that the &quot;JIT decorator&quot; pattern is pretty popular. For
+example, this JAX snippet:</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">jax.numpy</span> <span class="k">as</span> <span class="nn">jnp</span>
+<span class="kn">import</span> <span class="nn">jax</span>
+
+<span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span> <span class="nf">add</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+  <span class="k">return</span> <span class="n">jnp</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+
+<span class="c1"># Use &quot;add&quot; as a regular Python function</span>
+<span class="o">...</span> <span class="o">=</span> <span class="n">add</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</pre></div>
+<p>Or the <a class="reference external" href="https://triton-lang.org/main/index.html">Triton language</a>
+for writing GPU kernels directly in Python:</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">triton</span>
+<span class="kn">import</span> <span class="nn">triton.language</span> <span class="k">as</span> <span class="nn">tl</span>
+
+<span class="nd">@triton</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span> <span class="nf">add_kernel</span><span class="p">(</span><span class="n">x_ptr</span><span class="p">,</span>
+               <span class="n">y_ptr</span><span class="p">,</span>
+               <span class="n">output_ptr</span><span class="p">,</span>
+               <span class="n">n_elements</span><span class="p">,</span>
+               <span class="n">BLOCK_SIZE</span><span class="p">:</span> <span class="n">tl</span><span class="o">.</span><span class="n">constexpr</span><span class="p">):</span>
+    <span class="n">pid</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">program_id</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">block_start</span> <span class="o">=</span> <span class="n">pid</span> <span class="o">*</span> <span class="n">BLOCK_SIZE</span>
+    <span class="n">offsets</span> <span class="o">=</span> <span class="n">block_start</span> <span class="o">+</span> <span class="n">tl</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">BLOCK_SIZE</span><span class="p">)</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">offsets</span> <span class="o">&lt;</span> <span class="n">n_elements</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">x_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">tl</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">y_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+    <span class="n">output</span> <span class="o">=</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
+    <span class="n">tl</span><span class="o">.</span><span class="n">store</span><span class="p">(</span><span class="n">output_ptr</span> <span class="o">+</span> <span class="n">offsets</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">mask</span><span class="o">=</span><span class="n">mask</span><span class="p">)</span>
+</pre></div>
+<p>In both cases, the function decorated with <tt class="docutils literal">jit</tt> doesn't get executed by the
+Python interpreter in the normal sense. Instead, the code inside is more like
+a DSL (Domain Specific Language) processed by a special purpose compiler built
+into the library (JAX or Triton). Another way to think about it is that Python
+is used as a <em>meta language</em> to describe computations.</p>
+<p>In this post I will describe some implementation strategies used by libraries to
+make this possible.</p>
+<div class="section" id="preface-where-we-re-going">
+<h2>Preface - where we're going</h2>
+<p>The goal is to explain how different kinds of <tt class="docutils literal">jit</tt> decorators work by using
+a simplified, educational example that implements several approaches from
+scratch. All the approaches featured in this post will be using this flow:</p>
+<img alt="Flow of Python source --&gt; Expr IR --&gt; LLVM IR --&gt; Execution" class="align-center" src="images/2025/decjit-python.png" />
+<p>These are the steps that happen when a Python function wrapped with
+our educational <tt class="docutils literal">jit</tt> decorator is called:</p>
+<ol class="arabic simple">
+<li>The function is translated to an &quot;expression IR&quot; - <tt class="docutils literal">Expr</tt>.</li>
+<li>This expression IR is converted to LLVM IR.</li>
+<li>Finally, the LLVM IR is JIT-executed.</li>
+</ol>
+<p>Steps (2) and (3) use <a class="reference external" href="https://github.com/numba/llvmlite">llvmlite</a>; I've
+written about llvmlite before, see <a class="reference external" href="2015/building-and-using-llvmlite-a-basic-example/index.html">this post</a>
+and also the <a class="reference external" href="https://github.com/eliben/pykaleidoscope">pykaleidoscope project</a>.
+For an introduction to JIT compilation, be sure to <a class="reference external" href="2013/11/05/how-to-jit-an-introduction.html">read this</a>
+and maybe also the series of posts <a class="reference external" href="2017/adventures-in-jit-compilation-part-1-an-interpreter/index.html">starting here</a>.</p>
+<p>First, let's look at the <tt class="docutils literal">Expr</tt> IR. Here we'll make a big simplification -
+only supporting functions that define a single expression, e.g.:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">expr2</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">a</span> <span class="o">+</span> <span class="n">d</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">10</span> <span class="o">-</span> <span class="n">c</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span> <span class="o">+</span> <span class="n">d</span> <span class="o">/</span> <span class="n">c</span>
+</pre></div>
+<p>Naturally, this can be easily generalized - after all, LLVM IR can be used to
+express fully general computations.</p>
+<p>Here are the <tt class="docutils literal">Expr</tt> data structures:</p>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Expr</span><span class="p">:</span>
+    <span class="k">pass</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">ConstantExpr</span><span class="p">(</span><span class="n">Expr</span><span class="p">):</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">float</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">VarExpr</span><span class="p">(</span><span class="n">Expr</span><span class="p">):</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">arg_idx</span><span class="p">:</span> <span class="nb">int</span>
+
+<span class="k">class</span> <span class="nc">Op</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+    <span class="n">ADD</span> <span class="o">=</span> <span class="s2">&quot;+&quot;</span>
+    <span class="n">SUB</span> <span class="o">=</span> <span class="s2">&quot;-&quot;</span>
+    <span class="n">MUL</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span>
+    <span class="n">DIV</span> <span class="o">=</span> <span class="s2">&quot;/&quot;</span>
+
+<span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">BinOpExpr</span><span class="p">(</span><span class="n">Expr</span><span class="p">):</span>
+    <span class="n">left</span><span class="p">:</span> <span class="n">Expr</span>
+    <span class="n">right</span><span class="p">:</span> <span class="n">Expr</span>
+    <span class="n">op</span><span class="p">:</span> <span class="n">Op</span>
+</pre></div>
+<p>To convert an <tt class="docutils literal">Expr</tt> into LLVM IR and JIT-execute it, we'll use this function:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">llvm_jit_evaluate</span><span class="p">(</span><span class="n">expr</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Use LLVM JIT to evaluate the given expression with *args.</span>
+
+<span class="sd">    expr is an instance of Expr. *args are the arguments to the expression, each</span>
+<span class="sd">    a float. The arguments must match the arguments the expression expects.</span>
+
+<span class="sd">    Returns the result of evaluating the expression.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">llvm</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+    <span class="n">llvm</span><span class="o">.</span><span class="n">initialize_native_target</span><span class="p">()</span>
+    <span class="n">llvm</span><span class="o">.</span><span class="n">initialize_native_asmprinter</span><span class="p">()</span>
+    <span class="n">llvm</span><span class="o">.</span><span class="n">initialize_native_asmparser</span><span class="p">()</span>
+
+    <span class="n">cg</span> <span class="o">=</span> <span class="n">_LLVMCodeGenerator</span><span class="p">()</span>
+    <span class="n">modref</span> <span class="o">=</span> <span class="n">llvm</span><span class="o">.</span><span class="n">parse_assembly</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">cg</span><span class="o">.</span><span class="n">codegen</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">))))</span>
+
+    <span class="n">target</span> <span class="o">=</span> <span class="n">llvm</span><span class="o">.</span><span class="n">Target</span><span class="o">.</span><span class="n">from_default_triple</span><span class="p">()</span>
+    <span class="n">target_machine</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">create_target_machine</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">llvm</span><span class="o">.</span><span class="n">create_mcjit_compiler</span><span class="p">(</span><span class="n">modref</span><span class="p">,</span> <span class="n">target_machine</span><span class="p">)</span> <span class="k">as</span> <span class="n">ee</span><span class="p">:</span>
+        <span class="n">ee</span><span class="o">.</span><span class="n">finalize_object</span><span class="p">()</span>
+        <span class="n">cfptr</span> <span class="o">=</span> <span class="n">ee</span><span class="o">.</span><span class="n">get_function_address</span><span class="p">(</span><span class="s2">&quot;func&quot;</span><span class="p">)</span>
+        <span class="n">cfunc</span> <span class="o">=</span> <span class="n">CFUNCTYPE</span><span class="p">(</span><span class="n">c_double</span><span class="p">,</span> <span class="o">*</span><span class="p">([</span><span class="n">c_double</span><span class="p">]</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)))(</span><span class="n">cfptr</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cfunc</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+</pre></div>
+<p>It uses the <tt class="docutils literal">_LLVMCodeGenerator</tt> class to actually generate LLVM IR from <tt class="docutils literal">Expr</tt>.
+This process is straightforward and covered extensively in the resources I
+linked to earlier; take a look at <a class="reference external" href="https://github.com/eliben/code-for-blog/blob/main/2025/decjit/exprcode.py">the full code here</a>.</p>
+<p>My goal with this architecture is to make things simple, but <em>not too simple</em>.
+On one hand - there are several simplifications: only single expressions are
+supported, very limited set of operators, etc. It's very easy to extend this!
+On the other hand, we could have just trivially evaluated the <tt class="docutils literal">Expr</tt>
+without resorting to LLVM IR; I do want to show a more complete compilation
+pipeline, though, to demonstrate that an arbitrary amount of complexity can
+be hidden behind these simple interfaces.</p>
+<p>With these building blocks in hand, we can review the strategies used by
+<tt class="docutils literal">jit</tt> decorators to convert Python functions into <tt class="docutils literal">Expr</tt>s.</p>
+</div>
+<div class="section" id="ast-based-jit">
+<h2>AST-based JIT</h2>
+<p>Python comes with powerful code reflection and introspection capabilities out
+of the box. Here's the <tt class="docutils literal">astjit</tt> decorator:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">astjit</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ASTJITError</span><span class="p">(</span><span class="s2">&quot;Keyword arguments are not supported&quot;</span><span class="p">)</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getsource</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="n">tree</span> <span class="o">=</span> <span class="n">ast</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+
+        <span class="n">emitter</span> <span class="o">=</span> <span class="n">_ExprCodeEmitter</span><span class="p">()</span>
+        <span class="n">emitter</span><span class="o">.</span><span class="n">visit</span><span class="p">(</span><span class="n">tree</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">llvm_jit_evaluate</span><span class="p">(</span><span class="n">emitter</span><span class="o">.</span><span class="n">return_expr</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">wrapper</span>
+</pre></div>
+<p>This is a standard Python decorator. It takes a function and returns another
+function that will be used in its place (<tt class="docutils literal">functools.wraps</tt> ensures that
+function attributes like the name and docstring of the wrapper match the
+wrapped function).</p>
+<p>Here's how it's used:</p>
+<div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">astjit</span> <span class="kn">import</span> <span class="n">astjit</span>
+
+<span class="nd">@astjit</span>
+<span class="k">def</span> <span class="nf">some_expr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">b</span> <span class="o">/</span> <span class="p">(</span><span class="n">a</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">-</span> <span class="n">c</span> <span class="o">*</span> <span class="p">(</span><span class="n">b</span> <span class="o">-</span> <span class="n">a</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">some_expr</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+</pre></div>
+<p>After <tt class="docutils literal">astjit</tt> is applied to <tt class="docutils literal">some_expr</tt>, what <tt class="docutils literal">some_expr</tt> holds is the
+wrapper. When <tt class="docutils literal">some_expr(2, 16, 3)</tt> is called, the wrapper is invoked with
+<tt class="docutils literal">*args = [2, 16, 3]</tt>.</p>
+<p>The wrapper obtains the AST of the wrapped function, and then uses
+<tt class="docutils literal">_ExprCodeEmitter</tt> to convert this AST into an <tt class="docutils literal">Expr</tt>:</p>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">_ExprCodeEmitter</span><span class="p">(</span><span class="n">ast</span><span class="o">.</span><span class="n">NodeVisitor</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">return_expr</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">op_map</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">ast</span><span class="o">.</span><span class="n">Add</span><span class="p">:</span> <span class="n">Op</span><span class="o">.</span><span class="n">ADD</span><span class="p">,</span>
+            <span class="n">ast</span><span class="o">.</span><span class="n">Sub</span><span class="p">:</span> <span class="n">Op</span><span class="o">.</span><span class="n">SUB</span><span class="p">,</span>
+            <span class="n">ast</span><span class="o">.</span><span class="n">Mult</span><span class="p">:</span> <span class="n">Op</span><span class="o">.</span><span class="n">MUL</span><span class="p">,</span>
+            <span class="n">ast</span><span class="o">.</span><span class="n">Div</span><span class="p">:</span> <span class="n">Op</span><span class="o">.</span><span class="n">DIV</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="k">def</span> <span class="nf">visit_FunctionDef</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="n">arg</span><span class="o">.</span><span class="n">arg</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">node</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">args</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">body</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">body</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ast</span><span class="o">.</span><span class="n">Return</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">ASTJITError</span><span class="p">(</span><span class="s2">&quot;Function must consist of a single return statement&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">body</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">visit_Return</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">return_expr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">visit_Name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ASTJITError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unknown variable </span><span class="si">{</span><span class="n">node</span><span class="o">.</span><span class="n">id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">VarExpr</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">idx</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">visit_Constant</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ConstantExpr</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">visit_BinOp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="n">left</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">left</span><span class="p">)</span>
+        <span class="n">right</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">right</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">op</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">op_map</span><span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">op</span><span class="p">)]</span>
+            <span class="k">return</span> <span class="n">BinOpExpr</span><span class="p">(</span><span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">,</span> <span class="n">op</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ASTJITError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported operator </span><span class="si">{</span><span class="n">node</span><span class="o">.</span><span class="n">op</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+<p>When <tt class="docutils literal">_ExprCodeEmitter</tt> finishes visiting the AST it's given, its
+<tt class="docutils literal">return_expr</tt> field will contain the <tt class="docutils literal">Expr</tt> representing the function's
+return value. The wrapper then invokes <tt class="docutils literal">llvm_jit_evaluate</tt> with this <tt class="docutils literal">Expr</tt>.</p>
+<p>Note how our decorator interjects into the regular Python execution process.
+When <tt class="docutils literal">some_expr</tt> is called, instead of the standard Python compilation and
+execution process (code is compiled into bytecode, which is then executed
+by the VM), we translate its code to our own representation and emit LLVM from
+it, and then JIT execute the LLVM IR. While it seems kinda pointless in this
+artificial example, in reality this means we can execute the function's code
+in any way we like.</p>
+<div class="section" id="ast-jit-case-study-triton">
+<h3>AST JIT case study: Triton</h3>
+<p>This approach is almost exactly how the Triton language works. The body of a
+function decorated with <tt class="docutils literal">&#64;triton.jit</tt> gets parsed to a Python AST, which then
+- through a series of internal IRs - ends up in LLVM IR; this in turn is lowered
+to <a class="reference external" href="https://docs.nvidia.com/cuda/parallel-thread-execution/">PTX</a> by the
+<a class="reference external" href="https://llvm.org/docs/NVPTXUsage.html">NVPTX LLVM backend</a>.
+Then, the code runs on a GPU using a standard CUDA pipeline.</p>
+<p>Naturally, the subset of Python that can be compiled down to a GPU is limited;
+but it's sufficient to run performant kernels, in a language that's much
+friendlier than CUDA and - more importantly - lives in the same file with the
+&quot;host&quot; part written in regular Python. For example, if you want testing and
+debugging, you can run Triton in &quot;interpreter mode&quot; which will just run the
+same kernels locally on a CPU.</p>
+<p>Note that Triton lets us import names from the <tt class="docutils literal">triton.language</tt> package
+and use them inside kernels; these serve as the <em>intrinsics</em> for the language
+- special calls the compiler handles directly.</p>
+</div>
+</div>
+<div class="section" id="bytecode-based-jit">
+<h2>Bytecode-based JIT</h2>
+<p>Python is a fairly complicated language with <em>a lot</em> of features. Therefore,
+if our JIT has to support some large portion of Python semantics, it may make
+sense to leverage more of Python's own compiler. Concretely, we can have it
+compile the wrapped function all the way <a class="reference external" href="https://github.com/python/cpython/blob/main/InternalDocs/interpreter.md">to bytecode</a>,
+and start our translation from there.</p>
+<p>Here's the <tt class="docutils literal">bytecodejit</tt> decorator that does just this <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">bytecodejit</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">BytecodeJITError</span><span class="p">(</span><span class="s2">&quot;Keyword arguments are not supported&quot;</span><span class="p">)</span>
+
+        <span class="n">expr</span> <span class="o">=</span> <span class="n">_emit_exprcode</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">llvm_jit_evaluate</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">wrapper</span>
+
+
+<span class="k">def</span> <span class="nf">_emit_exprcode</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="n">bc</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="vm">__code__</span>
+    <span class="n">stack</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">inst</span> <span class="ow">in</span> <span class="n">dis</span><span class="o">.</span><span class="n">get_instructions</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="k">match</span> <span class="n">inst</span><span class="o">.</span><span class="n">opname</span><span class="p">:</span>
+            <span class="k">case</span> <span class="s2">&quot;LOAD_FAST&quot;</span><span class="p">:</span>
+                <span class="n">idx</span> <span class="o">=</span> <span class="n">inst</span><span class="o">.</span><span class="n">arg</span>
+                <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">VarExpr</span><span class="p">(</span><span class="n">bc</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">idx</span><span class="p">))</span>
+            <span class="k">case</span> <span class="s2">&quot;LOAD_CONST&quot;</span><span class="p">:</span>
+                <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ConstantExpr</span><span class="p">(</span><span class="n">inst</span><span class="o">.</span><span class="n">argval</span><span class="p">))</span>
+            <span class="k">case</span> <span class="s2">&quot;BINARY_OP&quot;</span><span class="p">:</span>
+                <span class="n">right</span> <span class="o">=</span> <span class="n">stack</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+                <span class="n">left</span> <span class="o">=</span> <span class="n">stack</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+                <span class="k">match</span> <span class="n">inst</span><span class="o">.</span><span class="n">argrepr</span><span class="p">:</span>
+                    <span class="k">case</span> <span class="s2">&quot;+&quot;</span><span class="p">:</span>
+                        <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BinOpExpr</span><span class="p">(</span><span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">,</span> <span class="n">Op</span><span class="o">.</span><span class="n">ADD</span><span class="p">))</span>
+                    <span class="k">case</span> <span class="s2">&quot;-&quot;</span><span class="p">:</span>
+                        <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BinOpExpr</span><span class="p">(</span><span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">,</span> <span class="n">Op</span><span class="o">.</span><span class="n">SUB</span><span class="p">))</span>
+                    <span class="k">case</span> <span class="s2">&quot;*&quot;</span><span class="p">:</span>
+                        <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BinOpExpr</span><span class="p">(</span><span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">,</span> <span class="n">Op</span><span class="o">.</span><span class="n">MUL</span><span class="p">))</span>
+                    <span class="k">case</span> <span class="s2">&quot;/&quot;</span><span class="p">:</span>
+                        <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">BinOpExpr</span><span class="p">(</span><span class="n">left</span><span class="p">,</span> <span class="n">right</span><span class="p">,</span> <span class="n">Op</span><span class="o">.</span><span class="n">DIV</span><span class="p">))</span>
+                    <span class="k">case</span> <span class="k">_</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="n">BytecodeJITError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported operator </span><span class="si">{</span><span class="n">inst</span><span class="o">.</span><span class="n">argval</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">case</span> <span class="s2">&quot;RETURN_VALUE&quot;</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">stack</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">BytecodeJITError</span><span class="p">(</span><span class="s2">&quot;Invalid stack state&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">stack</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+            <span class="k">case</span> <span class="s2">&quot;RESUME&quot;</span> <span class="o">|</span> <span class="s2">&quot;CACHE&quot;</span><span class="p">:</span>
+                <span class="c1"># Skip nops</span>
+                <span class="k">pass</span>
+            <span class="k">case</span> <span class="k">_</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">BytecodeJITError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported opcode </span><span class="si">{</span><span class="n">inst</span><span class="o">.</span><span class="n">opname</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+<p>The Python VM is a stack machine; so we emulate a stack to convert the
+function's bytecode to <tt class="docutils literal">Expr</tt> IR (a bit like an <a class="reference external" href="https://en.wikipedia.org/wiki/Reverse_Polish_notation">RPN evaluator</a>).
+As before, we then use our <tt class="docutils literal">llvm_jit_evaluate</tt> utility function to lower
+<tt class="docutils literal">Expr</tt> to LLVM IR and JIT execute it.</p>
+<p>Using this JIT is as simple as the previous one - just swap <tt class="docutils literal">astjit</tt>
+for <tt class="docutils literal">bytecodejit</tt>:</p>
+<div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">bytecodejit</span> <span class="kn">import</span> <span class="n">bytecodejit</span>
+
+<span class="nd">@bytecodejit</span>
+<span class="k">def</span> <span class="nf">some_expr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">b</span> <span class="o">/</span> <span class="p">(</span><span class="n">a</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">-</span> <span class="n">c</span> <span class="o">*</span> <span class="p">(</span><span class="n">b</span> <span class="o">-</span> <span class="n">a</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">some_expr</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+</pre></div>
+<div class="section" id="bytecode-jit-case-study-numba">
+<h3>Bytecode JIT case study: Numba</h3>
+<p><a class="reference external" href="https://numba.pydata.org/">Numba</a> is a compiler for Python itself. The idea
+is that you can speed up specific functions in your code by slapping a
+<tt class="docutils literal">numba.njit</tt> decorator on them. What happens next is similar in spirit to
+our simple <tt class="docutils literal">bytecodejit</tt>, but of course much more complicated because it
+supports a very large portion of Python semantics.</p>
+<p>Numba uses the Python compiler to emit bytecode, just as we did; it then
+converts it into its own IR, and then to LLVM using <tt class="docutils literal">llvmlite</tt> <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>.</p>
+<p>By starting with the bytecode, Numba makes its life easier (no need to rewrite
+the entire Python compiler). On the other hand, it also makes some analyses
+<em>harder</em>, because by the time we're in bytecode, a lot of semantic information
+existing in higher-level representations is lost. For example, Numba has to
+sweat a bit to recover control flow information from the bytecode (by
+running it through a special interpreter first).</p>
+</div>
+</div>
+<div class="section" id="tracing-based-jit">
+<h2>Tracing-based JIT</h2>
+<p>The two approaches we've seen so far are similar in many ways - both rely on
+Python's introspection capabilities to compile the source code of the JIT-ed
+function to some extent (one to AST, the other all the way to bytecode), and
+then work on this lowered representation.</p>
+<p>The tracing strategy is very different. It doesn't analyze the source code of
+the wrapped function at all - instead, it <em>traces</em> its execution by means of
+specially-boxed arguments, leveraging overloaded operators and functions, and
+then works on the generated trace.</p>
+<p>The code implementing this for our smile demo is surprisingly compact:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">tracejit</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="nd">@functools</span><span class="o">.</span><span class="n">wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">TraceJITError</span><span class="p">(</span><span class="s2">&quot;Keyword arguments are not supported&quot;</span><span class="p">)</span>
+
+        <span class="n">argspec</span> <span class="o">=</span> <span class="n">inspect</span><span class="o">.</span><span class="n">getfullargspec</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+
+        <span class="n">argboxes</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">arg</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">argspec</span><span class="o">.</span><span class="n">args</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">TraceJITError</span><span class="p">(</span><span class="s2">&quot;Too many arguments&quot;</span><span class="p">)</span>
+            <span class="n">argboxes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_Box</span><span class="p">(</span><span class="n">VarExpr</span><span class="p">(</span><span class="n">argspec</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">i</span><span class="p">)))</span>
+
+        <span class="n">out_box</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">argboxes</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">llvm_jit_evaluate</span><span class="p">(</span><span class="n">out_box</span><span class="o">.</span><span class="n">expr</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">wrapper</span>
+</pre></div>
+<p>Each runtime argument of the wrapped function is assigned a <tt class="docutils literal">VarExpr</tt>, and
+that is placed in a <tt class="docutils literal">_Box</tt>, a placeholder class which lets us
+do operator overloading:</p>
+<div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">_Box</span><span class="p">:</span>
+    <span class="n">expr</span><span class="p">:</span> <span class="n">Expr</span>
+
+<span class="n">_Box</span><span class="o">.</span><span class="fm">__add__</span> <span class="o">=</span> <span class="n">_Box</span><span class="o">.</span><span class="fm">__radd__</span> <span class="o">=</span> <span class="n">_register_binary_op</span><span class="p">(</span><span class="n">Op</span><span class="o">.</span><span class="n">ADD</span><span class="p">)</span>
+<span class="n">_Box</span><span class="o">.</span><span class="fm">__sub__</span> <span class="o">=</span> <span class="n">_register_binary_op</span><span class="p">(</span><span class="n">Op</span><span class="o">.</span><span class="n">SUB</span><span class="p">)</span>
+<span class="n">_Box</span><span class="o">.</span><span class="fm">__rsub__</span> <span class="o">=</span> <span class="n">_register_binary_op</span><span class="p">(</span><span class="n">Op</span><span class="o">.</span><span class="n">SUB</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">_Box</span><span class="o">.</span><span class="fm">__mul__</span> <span class="o">=</span> <span class="n">_Box</span><span class="o">.</span><span class="fm">__rmul__</span> <span class="o">=</span> <span class="n">_register_binary_op</span><span class="p">(</span><span class="n">Op</span><span class="o">.</span><span class="n">MUL</span><span class="p">)</span>
+<span class="n">_Box</span><span class="o">.</span><span class="fm">__truediv__</span> <span class="o">=</span> <span class="n">_register_binary_op</span><span class="p">(</span><span class="n">Op</span><span class="o">.</span><span class="n">DIV</span><span class="p">)</span>
+<span class="n">_Box</span><span class="o">.</span><span class="fm">__rtruediv__</span> <span class="o">=</span> <span class="n">_register_binary_op</span><span class="p">(</span><span class="n">Op</span><span class="o">.</span><span class="n">DIV</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+<p>The remaining key function is <tt class="docutils literal">_register_binary_op</tt>:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">_register_binary_op</span><span class="p">(</span><span class="n">opcode</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Registers a binary opcode for Boxes.</span>
+
+<span class="sd">    If reverse is True, the operation is registered as arg2 &lt;op&gt; arg1,</span>
+<span class="sd">    instead of arg1 &lt;op&gt; arg2.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_op</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">reverse</span><span class="p">:</span>
+            <span class="n">arg1</span><span class="p">,</span> <span class="n">arg2</span> <span class="o">=</span> <span class="n">arg2</span><span class="p">,</span> <span class="n">arg1</span>
+        <span class="n">box1</span> <span class="o">=</span> <span class="n">arg1</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">arg1</span><span class="p">,</span> <span class="n">_Box</span><span class="p">)</span> <span class="k">else</span> <span class="n">_Box</span><span class="p">(</span><span class="n">ConstantExpr</span><span class="p">(</span><span class="n">arg1</span><span class="p">))</span>
+        <span class="n">box2</span> <span class="o">=</span> <span class="n">arg2</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">arg2</span><span class="p">,</span> <span class="n">_Box</span><span class="p">)</span> <span class="k">else</span> <span class="n">_Box</span><span class="p">(</span><span class="n">ConstantExpr</span><span class="p">(</span><span class="n">arg2</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">_Box</span><span class="p">(</span><span class="n">BinOpExpr</span><span class="p">(</span><span class="n">box1</span><span class="o">.</span><span class="n">expr</span><span class="p">,</span> <span class="n">box2</span><span class="o">.</span><span class="n">expr</span><span class="p">,</span> <span class="n">opcode</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">_op</span>
+</pre></div>
+<p>To understand how this works, consider this trivial example:</p>
+<div class="highlight"><pre><span></span><span class="nd">@tracejit</span>
+<span class="k">def</span> <span class="nf">add</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">add</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+</pre></div>
+<p>After the decorated function is defined, <tt class="docutils literal">add</tt> holds the wrapper function
+defined inside <tt class="docutils literal">tracejit</tt>. When <tt class="docutils literal">add(1, 2)</tt> is called, the wrapper runs:</p>
+<ol class="arabic simple">
+<li>For each argument of <tt class="docutils literal">add</tt> itself (that is <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt>), it creates
+a new <tt class="docutils literal">_Box</tt> holding a <tt class="docutils literal">VarExpr</tt>. This denotes a named variable in
+the <tt class="docutils literal">Expr</tt> IR.</li>
+<li>It then calls the wrapped function, passing it the boxes as runtime
+parameters.</li>
+<li>When (the wrapped) <tt class="docutils literal">add</tt> runs, it invokes <tt class="docutils literal">a + b</tt>. This is caught by the overloaded
+<tt class="docutils literal">__add__</tt> operator of <tt class="docutils literal">_Box</tt>, and it creates a new <tt class="docutils literal">BinOpExpr</tt> with
+the <tt class="docutils literal">VarExpr</tt>s representing <tt class="docutils literal">a</tt> and <tt class="docutils literal">b</tt> as children. This
+<tt class="docutils literal">BinOpExpr</tt> is then returned <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>.</li>
+<li>The wrapper unboxes the returned <tt class="docutils literal">Expr</tt> and passes it to
+<tt class="docutils literal">llvm_jit_evaluate</tt> to emit LLVM IR from it and JIT execute it with the
+actual runtime arguments of the call: <tt class="docutils literal">1, 2</tt>.</li>
+</ol>
+<p>This might be a little mind-bending at first, because there are two different
+executions that happen:</p>
+<ul class="simple">
+<li>The first is calling the wrapped <tt class="docutils literal">add</tt> function itself, letting the Python
+interpreter run it as usual, but with special arguments that build up the IR
+instead of doing any computations. This is the <em>tracing step</em>.</li>
+<li>The second is lowering this IR our tracing step built into LLVM IR and then
+JIT executing it with the actual runtime argument values <tt class="docutils literal">1, 2</tt>; this is
+the <em>execution step</em>.</li>
+</ul>
+<p>This tracing approach has some interesting characteristics. Since we don't
+have to analyze the source of the wrapped functions but only trace through
+the execution, we can &quot;magically&quot; support a much richer set of programs, e.g.:</p>
+<div class="highlight"><pre><span></span><span class="nd">@tracejit</span>
+<span class="k">def</span> <span class="nf">use_locals</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">):</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">a</span> <span class="o">+</span> <span class="mi">2</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">b</span> <span class="o">-</span> <span class="n">a</span>
+    <span class="n">z</span> <span class="o">=</span> <span class="n">c</span> <span class="o">*</span> <span class="n">x</span>
+    <span class="k">return</span> <span class="n">y</span> <span class="o">/</span> <span class="n">x</span> <span class="o">-</span> <span class="n">z</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">use_locals</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">11</span><span class="p">))</span>
+</pre></div>
+<p>This <em>just works</em> with our basic <tt class="docutils literal">tracejit</tt>. Since Python variables are
+placeholders (references) for values, our tracing step is oblivious to them - it
+follows the flow of values. Another example:</p>
+<div class="highlight"><pre><span></span><span class="nd">@tracejit</span>
+<span class="k">def</span> <span class="nf">use_loop</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">):</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">11</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">+=</span> <span class="n">i</span>
+    <span class="k">return</span> <span class="n">result</span> <span class="o">+</span> <span class="n">b</span> <span class="o">*</span> <span class="n">c</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">use_loop</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+</pre></div>
+<p>This also just works! The created <tt class="docutils literal">Expr</tt> will be a long chain of <tt class="docutils literal">BinExpr</tt>
+additions of <tt class="docutils literal">i</tt>'s runtime values through the loop, added to the <tt class="docutils literal">BinExpr</tt>
+for <tt class="docutils literal">b * c</tt>.</p>
+<p>This last example also leads us to a limitation of the tracing approach; the
+loop cannot be <em>data-dependent</em> - it cannot depend on the function's arguments,
+because the tracing step has no concept of runtime values and wouldn't know
+how many iterations to run through; or at least, it doesn't know this unless
+we want to perform the tracing run for every runtime execution <a class="footnote-reference" href="#footnote-4" id="footnote-reference-4">[4]</a>.</p>
+<p>The tracing approach is useful in several domains, most notably
+<a class="reference external" href="https://en.wikipedia.org/wiki/Automatic_differentiation">automatic differentiation</a> (AD).
+For a slightly deeper taste, check out my <a class="reference external" href="https://github.com/eliben/radgrad">radgrad</a> project.</p>
+<div class="section" id="tracing-jit-case-study-jax">
+<h3>Tracing JIT case study: JAX</h3>
+<p>The <a class="reference external" href="https://jax.readthedocs.io/en/latest/">JAX ML framework</a> uses a tracing
+approach very similar to the one described here. The first code sample in this
+post shows the JAX notation. JAX cleverly wraps Numpy with its own version which
+is traced (similar to our <tt class="docutils literal">_Box</tt>, but JAX calls these boxes &quot;tracers&quot;),
+letting you write regular-feeling Numpy code that can be JIT optimized and
+executed on accelerators like GPUs and TPUs via <a class="reference external" href="https://github.com/openxla">XLA</a>. JAX's tracer builds up an underlying IR (called
+<a class="reference external" href="https://jax.readthedocs.io/en/latest/jaxpr.html">jaxpr</a>) which can then be
+emitted to XLA ops and passed to XLA for further lowering and execution.</p>
+<p>For a fairly deep overview of how JAX works, I recommend reading the
+<a class="reference external" href="https://jax.readthedocs.io/en/latest/autodidax.html">autodidax doc</a>.</p>
+<p>As mentioned earlier, JAX has <a class="reference external" href="https://jax.readthedocs.io/en/latest/jit-compilation.html">some limitations</a>
+with things like data-dependent control flow in native Python. This won't work,
+because there's control flow
+that depends on a runtime value (<tt class="docutils literal">count</tt>):</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">jax</span>
+
+<span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span> <span class="nf">sum_datadep</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">count</span><span class="p">):</span>
+    <span class="n">total</span> <span class="o">=</span> <span class="n">a</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">count</span><span class="p">):</span>
+        <span class="n">total</span> <span class="o">+=</span> <span class="n">b</span>
+    <span class="k">return</span> <span class="n">total</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">sum_datadep</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+</pre></div>
+<p>When <tt class="docutils literal">sum_datadep</tt> is executed, JAX will throw an exception, saying something
+like:</p>
+<blockquote>
+This concrete value was not available in Python because it depends on the
+value of the argument count.</blockquote>
+<p>As a remedy, JAX has its
+own built-in intrinsics from the <a class="reference external" href="https://jax.readthedocs.io/en/latest/jax.lax.html">jax.lax package</a>.
+Here's the example rewritten in a way that actually works:</p>
+<div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">jax</span>
+<span class="kn">from</span> <span class="nn">jax</span> <span class="kn">import</span> <span class="n">lax</span>
+
+<span class="nd">@jax</span><span class="o">.</span><span class="n">jit</span>
+<span class="k">def</span> <span class="nf">sum_datadep_fori</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">count</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">body</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">total</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">total</span> <span class="o">+</span> <span class="n">b</span>
+
+    <span class="k">return</span> <span class="n">lax</span><span class="o">.</span><span class="n">fori_loop</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+</pre></div>
+<p><tt class="docutils literal">fori_loop</tt> (and many other built-ins in the <tt class="docutils literal">lax</tt> package) is something JAX
+can trace through, generating a corresponding XLA operation (XLA has support for
+<a class="reference external" href="https://openxla.org/xla/operation_semantics">While loops</a>, to which this
+<tt class="docutils literal">lax.fori_loop</tt> can be lowered).</p>
+<p>The tracing approach has clear benefits for JAX as well; because it only cares
+about the flow of values, it can handle arbitrarily complicated Python code,
+as long as the flow of values can be traced. Just like the local variables and
+data-independent loops shown earlier, but also things like closures. This makes
+meta-programming and templating easy <a class="footnote-reference" href="#footnote-5" id="footnote-reference-5">[5]</a>.</p>
+</div>
+</div>
+<div class="section" id="code">
+<h2>Code</h2>
+<p>The full code for this post is available <a class="reference external" href="https://github.com/eliben/code-for-blog/tree/main/2025/decjit">on GitHub</a>.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>Once again, this is a very simplified example. A more realistic
+translator would have to support <a class="reference external" href="https://docs.python.org/3/library/dis.html#python-bytecode-instructions">many, many more</a>
+Python bytecode instructions.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>In fact, <tt class="docutils literal">llvmlite</tt> itself is a Numba sub-project and is maintained
+by the Numba team, for which I'm grateful!</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>For a fun exercise, try adding constant folding to the wrapped <tt class="docutils literal">_op</tt>:
+when both its arguments are constants (not boxes), instead placing
+each in a <tt class="docutils literal"><span class="pre">_Box(ConstantExpr(...))</span></tt>, it could perform the mathematical
+operation on them and return a single constant box. This is a common
+optimization in compilers!</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-4" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-4">[4]</a></td><td><p class="first">In all the JIT approaches showed in this post, the expectation is that
+compilation happens once, but the compiled function can be executed
+many times (perhaps in a loop). This means that the compilation step
+cannot depend on the runtime values of the function's arguments, because
+it has no access to them. You could say that it <em>does</em>, but that's just
+for the very first time the function is run (in the tracing approach);
+it has no way of knowing their values the next times the function will
+run.</p>
+<p class="last">JAX has <a class="reference external" href="https://jax.readthedocs.io/en/latest/jit-compilation.html#marking-arguments-as-static">some provisions</a>
+for cases where a function is invoked with a small set of runtime
+values and we want to separately JIT each of them.</p>
+</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-5">[5]</a></td><td>A reader pointed out that <a class="reference external" href="https://blog.tensorflow.org/2018/07/autograph-converts-python-into-tensorflow-graphs.html">TensorFlow's AutoGraph</a>
+feature combines the AST and tracing approaches. TF's <em>eager mode</em>
+performs tracing, but it also uses AST analyses to rewrite Python loops
+and conditions into builtins like <tt class="docutils literal">tf.cond</tt> and <tt class="docutils literal">tf.while_loop</tt>.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+        </article>
+
+        <hr class="style-eight"/>
+
+        <h3>Recent posts</h3>
+
+        <table class="archive-list">
+            <tr>
+                <td style="padding-right: 10px">2025.01.13:</td>
+                <td><a href='2025/reverse-mode-automatic-differentiation/index.html'>Reverse mode Automatic Differentiation</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.12.31:</td>
+                <td><a href='2024/summary-of-reading-october-december-2024/index.html'>Summary of reading: October - December 2024</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.12.18:</td>
+                <td><a href='2024/implementing-raft-part-5-exactly-once-delivery/index.html'>Implementing Raft: Part 5 - Exactly-once delivery</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.11.22:</td>
+                <td><a href='2024/gomlx-ml-in-go-without-python/index.html'>GoMLX: ML in Go without Python</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.11.11:</td>
+                <td><a href='2024/ml-in-go-with-a-python-sidecar/index.html'>ML in Go with a Python sidecar</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.11.02:</td>
+                <td><a href='2024/ranging-over-functions-in-go-123/index.html'>Ranging over functions in Go 1.23</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.10.29:</td>
+                <td><a href='2024/bloch-sphere/index.html'>Bloch sphere</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.10.17:</td>
+                <td><a href='2024/calculating-the-norm-of-a-complex-number/index.html'>Calculating the norm of a complex number</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.10.10:</td>
+                <td><a href='2024/implementing-raft-part-4-keyvalue-database/index.html'>Implementing Raft: Part 4 - Key/Value Database</a></td>
+            </tr>
+            <tr>
+                <td style="padding-right: 10px">2024.10.07:</td>
+                <td><a href='2024/linearizability-in-distributed-systems/index.html'>Linearizability in distributed systems</a></td>
+            </tr>
+        </table>
+        <br/>
+        See <a href="archives/all.html">Archives</a> for a full list.
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:38:35 GMT -->
+</html>

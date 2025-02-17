@@ -1,0 +1,491 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2019-01-29-simd-count-byte.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMDized counting byte in byte stream</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simdized-counting-byte-in-byte-stream">
+<h1 class="title">SIMDized counting byte in byte stream</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2019-01-29</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a><ul>
+<li><a class="reference internal" href="#gcc-vectorization" id="toc-entry-2">GCC vectorization</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx2-and-sse-vectorization" id="toc-entry-3">AVX2 and SSE vectorization</a><ul>
+<li><a class="reference internal" href="#bit-counters" id="toc-entry-4">8-bit counters</a></li>
+<li><a class="reference internal" href="#population-count" id="toc-entry-5">Population count</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx512bw-vectorization" id="toc-entry-6">AVX512BW vectorization</a></li>
+<li><a class="reference internal" href="#evaluation" id="toc-entry-7">Evaluation</a><ul>
+<li><a class="reference internal" href="#skylake" id="toc-entry-8">Skylake</a></li>
+<li><a class="reference internal" href="#skylake-x" id="toc-entry-9">Skylake-X</a></li>
+<li><a class="reference internal" href="#cannonlake" id="toc-entry-10">CannonLake</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#conclusions" id="toc-entry-11">Conclusions</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-12">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<span id="scalar"></span><h1>Introduction</h1>
+<p>We want to count how many times given byte occurs in a byte stream;
+here is a C program doing this:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;stdint.h&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;stddef.h&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="kt">size_t</span><span class="w"> </span><span class="nf">countbyte</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+        </span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">b</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="gcc-vectorization">
+<span id="gcc"></span><h2>GCC vectorization</h2>
+<p>The current GCC vectorization algorithm is able to handle the presented
+procedure, but its output is not optimal. For an AVX2 target GCC keeps <strong>four
+64-bit sub-counters</strong> which are updated in every iteration and then added in
+the end.</p>
+<p>In a single iteration 32 bytes are loaded and then compared with vector filled
+with given byte:</p>
+<pre class="code nasm literal-block">
+<span class="nf">vpcmpeqb</span><span class="w">    </span><span class="p">(</span><span class="o">%</span><span class="nb">rax</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm7</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span>
+</pre>
+<p>Result of this operation is vector of bytes filled with either ones (0xff)
+or zeros. Then 0xff are converted to ones by bit-and operation:</p>
+<pre class="code nasm literal-block">
+<span class="nf">vpand</span><span class="w">       </span><span class="o">%</span><span class="nb">ymm6</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w"> </span><span class="c1">; ymm6 = _mm256_set1_epi8(0x01)</span>
+</pre>
+<p>The last step of algorithm is casting these 8-bit numbers to 64-bit value
+and updating the mentioned counters.</p>
+<p>The conversion is done gradually: first from 8-bit numbers to 16-bit ones; then
+from 16-bit to 32-bit and finally from 32-bit to 64-bit values.  This
+conversion must be done for each 4-byte subarray of input register.  It means
+that following code is repeated <strong>eight times</strong>:</p>
+<pre class="code nasm literal-block">
+<span class="nf">vpmovzxbw</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">        </span><span class="c1">; 8-bit -&gt; 16-bit numbers</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="w">        </span><span class="c1">; 16-bit -&gt; 32-bit numbers</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">        </span><span class="c1">; 32-bit -&gt; 64-bit numbers</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w"> </span><span class="c1">; update the sub-counters</span>
+</pre>
+<p>Below is the full dissasembly from GCC 9 (snapshot from 2019-01-17, options:
+<tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-march=cannonlake</span></tt>).</p>
+<pre class="code nasm literal-block">
+<span class="nf">vpmovzxbw</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm1</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm4</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm0</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm1</span><span class="w">
+</span><span class="nf">vpmovzxbw</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm0</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm3</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w">    </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm0</span><span class="w">
+</span><span class="nf">vpmovzxdq</span><span class="w">       </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddq</span><span class="w">          </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm5</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm5</span>
+</pre>
+</div>
+</div>
+<div class="section" id="avx2-and-sse-vectorization">
+<h1>AVX2 and SSE vectorization</h1>
+<div class="section" id="bit-counters">
+<span id="avx2-counters"></span><h2>8-bit counters</h2>
+<p>The byte-wise comparison in both AVX2 and SSE yields vector of 0 or -1.
+Accumulation can be done in two steps:</p>
+<ol class="arabic simple">
+<li>sum up to 255 elements in a vector register &mdash; in means we have 32
+(for AVX2) or 16 sub-counters (for SSE2), where each byte will hold
+count in range 0 .. 255;</li>
+<li>calculate the sum of 8-bit sub-counters in a wider type.</li>
+</ol>
+<p>The second point can use instruction <tt class="docutils literal">PSADBW</tt> (<tt class="docutils literal">_mm256_sad_epu8</tt>), which
+calculates the sum of absolute values of differences between bytes. When one of
+arguments is full of zeros, the instruction effectively calculates sum of bytes
+from the second argument. This is the fastest option according to my
+experiments described in <a class="reference external" href="2018-10-24-sse-sumbytes.html">SIMDized sum of all bytes in the array</a>.</p>
+<p>Below is the main loop of AVX2 implementation:</p>
+<pre class="code cpp literal-block">
+<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">256</span><span class="o">*</span><span class="mi">32</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">local_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">();</span><span class="w">
+
+    </span><span class="c1">// update 32 x 8-bit counter
+</span><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">256</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">,</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)</span><span class="n">ptr</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0 or -1
+</span><span class="w">
+        </span><span class="n">local_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sub_epi8</span><span class="p">(</span><span class="n">local_sum</span><span class="p">,</span><span class="w"> </span><span class="n">eq</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// update the global accumulator 2 x 64-bit
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sad_epu8</span><span class="p">(</span><span class="n">local_sum</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">());</span><span class="w">
+    </span><span class="n">global_sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi64</span><span class="p">(</span><span class="n">global_sum</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="population-count">
+<span id="avx2-popcount"></span><h2>Population count</h2>
+<p>Since in this problem we just want to tell whether given byte in a registers is
+equal or not the searched value, we might consider encoding this information as
+a bit-set. And then, once we have a number, count ones in it, using a
+<a class="reference external" href="http://en.wikipedia.org/wiki/Hamming_weight">population count</a> instruction.</p>
+<p>The obvious solution would require just three instructions:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// compare bytes &mdash; get a byte-mask
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w">  </span><span class="n">eq</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="n">byte</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// convert byte mask into bit-mask with VPMOVMSKB
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_movemask_epi8</span><span class="p">(</span><span class="n">eq</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// count bits
+</span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">mask</span><span class="p">);</span>
+</pre>
+<p>However, I think it's not the best solution. A better way is to calculate
+<strong>eight byte-masks</strong>, merge them into 256 (AVX2) or 128 (SSE) bit set
+and then count bytes. Unfortunately, SSE nor AVX2 has a bit-level blend,
+so we resort to basic bit operations.</p>
+<p>Below is the main loop:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">5</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">6</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">7</span><span class="o">*</span><span class="mi">16</span><span class="p">)));</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq0bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x01</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq1bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x02</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq2bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x04</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq3bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq3</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x08</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq4bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq4</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x10</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq5bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq5</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x20</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq6bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq6</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="mh">0x40</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq7bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">eq7</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi8</span><span class="p">(</span><span class="kt">int8_t</span><span class="p">(</span><span class="mh">0x80</span><span class="p">)));</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m01</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">eq0bit</span><span class="p">,</span><span class="w"> </span><span class="n">eq1bit</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m23</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">eq2bit</span><span class="p">,</span><span class="w"> </span><span class="n">eq3bit</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m45</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">eq4bit</span><span class="p">,</span><span class="w"> </span><span class="n">eq5bit</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m67</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">eq6bit</span><span class="p">,</span><span class="w"> </span><span class="n">eq7bit</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m0123</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">m01</span><span class="p">,</span><span class="w"> </span><span class="n">m23</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m4567</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">m45</span><span class="p">,</span><span class="w"> </span><span class="n">m67</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">merged</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">m0123</span><span class="p">,</span><span class="w"> </span><span class="n">m4567</span><span class="p">);</span><span class="w">
+
+</span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm256_extract_epi64</span><span class="p">(</span><span class="n">merged</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">));</span><span class="w">
+</span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm256_extract_epi64</span><span class="p">(</span><span class="n">merged</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">));</span><span class="w">
+</span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm256_extract_epi64</span><span class="p">(</span><span class="n">merged</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">));</span><span class="w">
+</span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm256_extract_epi64</span><span class="p">(</span><span class="n">merged</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">));</span>
+</pre>
+</div>
+</div>
+<div class="section" id="avx512bw-vectorization">
+<span id="avx512-popcount"></span><h1>AVX512BW vectorization</h1>
+<p>Since AVX512 comparisons yield bitmasks, we can directly use population count
+instruction. Naive implementation is shown below.</p>
+<pre class="code cpp literal-block">
+<span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">64</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">ptr</span><span class="p">);</span><span class="w">
+    </span><span class="n">sum</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">__builtin_popcountll</span><span class="p">(</span><span class="n">_mm512_cmpeq_epi8_mask</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">));</span><span class="w">
+
+    </span><span class="n">ptr</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="evaluation">
+<h1>Evaluation</h1>
+<table border="1" class="docutils">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">description</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><a class="reference internal" href="#scalar">scalar</a></td>
+<td>in fact code <a class="reference internal" href="#gcc">vectorized by GCC</a> for either AVX2 or AVX512BW</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx2-counters">SSE</a></td>
+<td>16 x 8-bit counter summed up every 255 iterations</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx2-popcount">SSE (popcount)</a></td>
+<td>population count of 128-bit words build from eight byte-masks</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx2-counters">AVX2</a></td>
+<td>32 x 8-bit counter summed up every 255 iterations</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx2-popcount">AVX2 (popcount)</a></td>
+<td>population count of 256-bit words build from eight byte-masks</td>
+</tr>
+<tr><td><a class="reference internal" href="#avx512-popcount">AVX512BW</a></td>
+<td>&nbsp;</td>
+</tr>
+<tr><td>AVX512BW (unrolled)</td>
+<td>the above procedure unrolled four times</td>
+</tr>
+</tbody>
+</table>
+<p>Each procedure was run three times and minimum measurements were noted.</p>
+<div class="section" id="skylake">
+<h2>Skylake</h2>
+<p>CPU: Intel(R) Core(TM) i7-6700 CPU &#64; 3.40GHz</p>
+<p>Compiler: g++-8 (Ubuntu 8.1.0-5ubuntu1~16.04) 8.1.0</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="19%" />
+<col width="14%" />
+<col width="12%" />
+<col width="5%" />
+<col width="49%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>0.613</td>
+<td>0.610</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████▉</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.107</td>
+<td>0.104</td>
+<td>5.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (popcount)</td>
+<td>0.100</td>
+<td>0.098</td>
+<td>6.2</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.077</td>
+<td>0.075</td>
+<td>8.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (popcount)</td>
+<td>0.107</td>
+<td>0.104</td>
+<td>5.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▊</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-x">
+<h2>Skylake-X</h2>
+<p>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</p>
+<p>Compiler: GCC version 8.1.0 (Ubuntu 8.1.0-5ubuntu1~16.04)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="22%" />
+<col width="14%" />
+<col width="11%" />
+<col width="5%" />
+<col width="48%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>0.452</td>
+<td>0.446</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████▍</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.118</td>
+<td>0.115</td>
+<td>3.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (popcount)</td>
+<td>0.113</td>
+<td>0.111</td>
+<td>4.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.094</td>
+<td>0.090</td>
+<td>5.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX2 (popcount)</td>
+<td>0.111</td>
+<td>0.107</td>
+<td>4.2</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX512BW</td>
+<td>0.072</td>
+<td>0.062</td>
+<td>7.2</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX512BW (unrolled)</td>
+<td>0.055</td>
+<td>0.049</td>
+<td>9.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="cannonlake">
+<h2>CannonLake</h2>
+<p>CPU: Intel(R) Core(TM) i3-8121U CPU &#64; 2.20GHz</p>
+<p>Compiler: g++ (GCC) 7.3.1 20180303 (Red Hat 7.3.1-5)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="22%" />
+<col width="14%" />
+<col width="11%" />
+<col width="5%" />
+<col width="48%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td>0.288</td>
+<td>0.280</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.099</td>
+<td>0.093</td>
+<td>3.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (popcount)</td>
+<td>0.091</td>
+<td>0.085</td>
+<td>3.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.073</td>
+<td>0.070</td>
+<td>4.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (popcount)</td>
+<td>0.084</td>
+<td>0.081</td>
+<td>3.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX512BW</td>
+<td>0.070</td>
+<td>0.065</td>
+<td>4.3</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX512BW (unrolled)</td>
+<td>0.049</td>
+<td>0.042</td>
+<td>6.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="conclusions">
+<h1>Conclusions</h1>
+<ul class="simple">
+<li>In case of SSE &amp; AVX2, the popcount-based procedures are not that bad.
+I suspected that due to complex procedures that postprocess the comparison
+results, the performance would be much worse.</li>
+<li>On AVX512 machines the AVX512BW code is faster than AVX2 procedures,
+but unrolling does not help that much. My rough guess is that the
+culprit is <tt class="docutils literal">popcnt</tt>, as this instruction can be dispatched only
+on single port and latency is three cycles.</li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All implementation are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-count-bytes">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2019-01-29-simd-count-byte.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+</html>

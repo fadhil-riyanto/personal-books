@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?&f=vrndscaleph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:37 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unopv5.php?&amp;f=vrndscaleph" />
+<link rel="alternate" hreflang="en" href="unopv5ce8e.html?&amp;f=vrndscaleph" />
+<title>vrndscaleph</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VRNDSCALEPH - RouND SCALE Packed Half<br /></h2>
+VRNDSCALEPH<span class="operand"> xmm1{k1}{z}, xmm2/m128/m16bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__m128h _mm_roundscale_ph(__m128h a, int imm8)</span><br />
+<span class="intr">__m128h _mm_mask_roundscale_ph(__m128h s, __mmask8 k, __m128h a, int imm8)</span><br />
+<span class="intr">__m128h _mm_maskz_roundscale_ph(__mmask8 k, __m128h a, int imm8)</span><br />
+<div style="height: 2px;"></div><img src="unop_word_1.png" /><br />
+<div style="padding-left: 110px">For each FP16, round (1) to n-bit below the decimal point and store the resulting FP16 in (2).</div>
+<div style="height: 30px"></div>
+VRNDSCALEPH<span class="operand"> ymm1{k1}{z}, ymm2/m256/m16bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__m256h _mm256_roundscale_ph(__m256h a, int imm8)</span><br />
+<span class="intr">__m256h _mm256_mask_roundscale_ph(__m256h s, __mmask16 k, __m256h a, int imm8)</span><br />
+<span class="intr">__m256h _mm256_maskz_roundscale_ph(__mmask16 k, __m256h a, int imm8)</span><br />
+<div style="height: 2px;"></div><img src="unop_word_2.png" /><br />
+<div style="padding-left: 110px">For each FP16, round (1) to n-bit below the decimal point and store the resulting FP16 in (2).</div>
+<div style="height: 30px"></div>
+VRNDSCALEPH<span class="operand"> zmm1{k1}{z}, zmm2/m512/m16bcst{sae}, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16<br />
+<span class="intr">__m512h _mm512_roundscale_ph(__m512h a, int imm8)</span><br />
+<span class="intr">__m512h _mm512_mask_roundscale_ph(__m512h s, __mmask32 k, __m512h a, int imm8)</span><br />
+<span class="intr">__m512h _mm512_maskz_roundscale_ph(__mmask32 k, __m512h a, int imm8)</span><br />
+<span class="intr">__m512h _mm512_roundscale_round_ph(__m512h a, int imm8, int sae)</span><br />
+<span class="intr">__m512h _mm512_mask_roundscale_round_ph(__m512h s, __mmask32 k, __m512h a, int imm8, int sae)</span><br />
+<span class="intr">__m512h _mm512_maskz_roundscale_round_ph(__mmask32 k, __m512h a, int imm8, int sae)</span><br />
+<div style="height: 2px;"></div><img src="unop_word_3.png" /><br />
+<div style="padding-left: 110px">For each FP16, round (1) to n-bit below the decimal point and store the resulting FP16 in (2).</div>
+<div style="height: 30px"></div>
+
+<p>imm8</p>
+<table>
+	<tr>
+		<th>bit</th>
+		<th></th>
+	</tr>
+	<tr>
+		<th>7:4</th>
+		<td>
+			Bits to preserve below decimal point (0 to 15).<br>
+			Set 0 in this field to round to decimal point (like ROUNDPD / ROUNDPS).<br>
+		</td>
+	</tr>
+	<tr>
+		<th>3</th>
+		<td>
+			0: precision exception mask is specified by MXCSR<br>
+			1: precision exception is masked<br>
+		</td>
+	</tr>
+	<tr>
+		<th>2</th>
+		<td>
+			0: rounding mode is specified by bit 1:0<br>
+			1: rounding mode is specified by MXCSR<br>
+		</td>
+	</tr>
+	<tr>
+		<th>1:0</th>
+		<td>
+			00: round to nearest or even<br>
+			01: round toward negative infinity<br>
+			10: round toward positive inifinity<br>
+			11: round toward zero<br>
+		</td>
+	</tr>
+</table>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vrndscaleph" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?&f=vrndscaleph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:37 GMT -->
+</html>

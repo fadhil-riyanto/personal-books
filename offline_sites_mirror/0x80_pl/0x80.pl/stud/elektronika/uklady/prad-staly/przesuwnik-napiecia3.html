@@ -1,0 +1,29 @@
+Przesuwnik napiêcia
+* "Uk³ady pr±du sta³ego.pdf", str. 28
+* Wojciech Mu³a 11.10.2005, 16.10.2005
+*
+* W uk³adzie R1-R2-Q, przy zaniedbaniu pr±du bazy:
+* U_CE = U_BE*(1 + R1/R2) ~= 0.8 * (1 + R1/R2)
+* tutaj U_CE ~= 2.4V
+
+* uk³ad
+Q	2 1 0	tr
+.model tr NPN BF=100
+
+* warto¶ci R1, R2 musz± tak byæ ma³e, inaczej pr±d bazy nie zostanie "zaniedbany"
+* i przesuwnik napiêcia nie zadzia³a; warto dodaæ przyrostek 'k' po warto¶ciach
+* rezystancji i porównaæ wyniki
+R1	1 2	10
+R2	1 0	5
+
+* rzeczywiste ¼ród³o napiêcia pod³±czone do zacisków C i E tranzystora
+Ri	2 3	100Ohm
+Vi	3 0	DC 10V
+
+* analiza
+.DC Vi 1 50 0.2
+
+* napiêcie kolektor-emiter
+.plot DC V(2)
+
+.end

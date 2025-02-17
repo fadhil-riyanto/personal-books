@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-22-sse-convert-hex-to-ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Using SSE to convert from hexadecimal ASCII to number</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="using-sse-to-convert-from-hexadecimal-ascii-to-number">
+<h1 class="title">Using SSE to convert from hexadecimal ASCII to number</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-10-22</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#converting-from-ascii-to-nibbles" id="toc-entry-2">Converting from ASCII to nibbles</a></li>
+<li><a class="reference internal" href="#packing-nibbles-reversed-input" id="toc-entry-3">Packing nibbles &mdash; reversed input</a></li>
+<li><a class="reference internal" href="#packing-nibbles-reversing-result" id="toc-entry-4">Packing nibbles &mdash; reversing result</a></li>
+<li><a class="reference internal" href="#converting-32-digit-strings" id="toc-entry-5">Converting 32-digit strings</a></li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-6">Sample code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>SSE procedure can convert 16- and 32-digits inputs producing
+8- and 16-bytes results.</p>
+<p>To get correct result's order of input, characters have to be reversed.
+In SSSE3 it can be done with <tt class="docutils literal">pshufb</tt>, but in the earlier versions
+of SSE this is quite hard. When byte shuffling is not available
+then reversing can be done on the result word using <tt class="docutils literal">bswap</tt>
+instructions.</p>
+</div>
+<div class="section" id="converting-from-ascii-to-nibbles">
+<h1>Converting from ASCII to nibbles</h1>
+<p>Converting from ASCII to nibbles is reversion of the algorithm <a class="reference external" href="2014-09-21-convert-to-hex.html">described
+in another text</a>:</p>
+<pre class="literal-block">
+uint8_t ASCII2nibble(uint8_t ch) {
+
+    const uint8_t result      = ch - '0';
+    const uint8_t correction  = (ch &gt; 'a') ? 'a' - 10 - '0' : 0;
+
+    return result - correction;
+}
+</pre>
+<p>In SSE the condition <tt class="docutils literal">correction</tt> can be expressed as a compare &amp; a bit-and:</p>
+<pre class="literal-block">
+t1 = pcmpgt(ch, packed_byte('a' - 1))
+t2 = t1 &amp; packed_byte('a' - 10 - '0')
+</pre>
+</div>
+<div class="section" id="packing-nibbles-reversed-input">
+<h1>Packing nibbles &mdash; reversed input</h1>
+<ol class="arabic">
+<li><p class="first">input &mdash; 16 nibbles:</p>
+<pre class="literal-block">
+t1 = packed_byte(| 00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 0a | 0b | 0c | 0d | 0e | 0f |)
+</pre>
+</li>
+<li><p class="first">join nibbles:</p>
+<pre class="literal-block">
+t2 = t1 | (t1 &gt;&gt; 4)
+   = packed_byte(| 00 | 01 | 02 | 23 | 04 | 45 | 06 | 67 | 08 | 89 | 0a | ab | 0c | cd | 0e | ef |)
+</pre>
+</li>
+<li><p class="first">mask higher byte of each word, as they contain garbage:</p>
+<pre class="literal-block">
+t3 = t2 &amp; packed_word(0x00ff)
+   = packed_byte(| .. | 01 | .. | 23 | .. | 45 | .. | 67 | .. | 89 | .. | ab | .. | cd | .. | ef |)
+</pre>
+</li>
+<li><p class="first">convert packed words to packed bytes &mdash; the lower 8 bytes of SSE register is the result word:</p>
+<pre class="literal-block">
+t4 = packuswb(t3, whatever)
+   = packed_qword(| 0123456789abcdef | ???????????????? |)
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="packing-nibbles-reversing-result">
+<h1>Packing nibbles &mdash; reversing result</h1>
+<ol class="arabic">
+<li><p class="first">input &mdash; 16 nibbles:</p>
+<pre class="literal-block">
+t1 = packed_byte(| 00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 0a | 0b | 0c | 0d | 0e | 0f |)
+</pre>
+</li>
+<li><p class="first">join nibbles:</p>
+<pre class="literal-block">
+t2 = (t1 &lt;&lt; 12) | t1
+   = packed_byte(| 10 | 01 | 32 | 03 | 54 | 05 | 76 | 07 | 98 | 09 | ba | 0b | dc | 0d | fe | 0f |)
+</pre>
+</li>
+<li><p class="first">move higher bytes to lower, discarding lower bytes:</p>
+<pre class="literal-block">
+t3 = t2 &gt;&gt; 8 // psrlw
+   = packed_byte(| .. | 10 | .. | 32 | .. | 54 | .. | 76 | .. | 98 | .. | ba | .. | dc | .. | fe |)
+</pre>
+</li>
+<li><p class="first">convert packed words to packed bytes &mdash; the lower 8 bytes of SSE register is the result word:</p>
+<pre class="literal-block">
+t4 = packuswb(t3, whatever)
+   = packed_qword(| 0123456789abcdef | ???????????????? |)
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="converting-32-digit-strings">
+<h1>Converting 32-digit strings</h1>
+<p>This algorithm is able to convert 16 hex digits, but it can be easily
+extended to convert up to 32 hex digits. Steps 1 ... 3 have to be
+applied for lower &amp; higher half of an input, and in step 4 arguments
+of <tt class="docutils literal">packuswb</tt> are the outputs from 3rd step, say <tt class="docutils literal">t3_lower</tt> and
+<tt class="docutils literal">t3_higher</tt>:</p>
+<pre class="literal-block">
+t4 = packuswb(t3_lower, t3_higher)
+</pre>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample implementation is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/conv_from_hex">github</a> (file <tt class="docutils literal">parse.sse2.c</tt>).</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-22-sse-convert-hex-to-ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

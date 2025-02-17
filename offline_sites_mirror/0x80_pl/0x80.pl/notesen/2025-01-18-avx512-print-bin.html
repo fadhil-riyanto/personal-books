@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-18-avx512-print-bin.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:18 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512: printing u64 as binary</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512-printing-u64-as-binary">
+<h1 class="title">AVX512: printing u64 as binary</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2025-01-18</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="problem">
+<h1>Problem</h1>
+<p>Printing 64-bit numbers in binary format can be done nicely with AVX-512 instructions.
+First, we populate each byte from the number into a separate 64-bit word of an
+AVX-512 register:</p>
+<div class="asciidiag"><pre class="asciidiag">
+    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+x = │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">g</span> │ <span style="color: blue; font-weight: bold">f</span> │ <span style="color: blue; font-weight: bold">e</span> │ <span style="color: blue; font-weight: bold">d</span> │ <span style="color: blue; font-weight: bold">c</span> │ <span style="color: blue; font-weight: bold">b</span> │ <span style="color: blue; font-weight: bold">a</span> │
+    └───┴───┴───┴───┴───┴───┴───┴───┘
+      <span style="color: gray">|</span>   <span style="color: gray">|</span>                   <span style="color: gray">|</span>   <span style="color: gray">│</span>
+      <span style="color: gray">│</span>   <span style="color: gray">│</span>                   <span style="color: gray">│</span>   <span style="color: gray">└──────────────────┐</span>
+      <span style="color: gray">│</span>   <span style="color: gray">│</span>                   <span style="color: gray">└──────────┐</span>           <span style="color: gray">│</span>
+      <span style="color: gray">│</span>   <span style="color: gray">└──────────┐</span>                   <span style="color: gray">│</span>           <span style="color: gray">│</span>
+      <span style="color: gray">└──┐</span>           <span style="color: gray">│</span>                   <span style="color: gray">│</span>           <span style="color: gray">│</span>
+         <span style="color: gray">│</span>           <span style="color: gray">│</span>                   <span style="color: gray">│</span>           <span style="color: gray">│</span>
+         <span style="color: gray">├─╴┈┈┈╶─┐</span>   <span style="color: gray">├─╴┈┈┈╶─┐</span>           <span style="color: gray">├─╴┈┈┈╶─┐</span>   <span style="color: gray">├─╴┈┈┈╶─┐</span>
+         <span style="color: gray">│</span>       <span style="color: gray">│</span>   <span style="color: gray">│</span>       <span style="color: gray">│</span>           <span style="color: gray">│</span>       <span style="color: gray">│</span>   <span style="color: gray">│</span>       <span style="color: gray">│</span>
+         <span style="color: gray">▼</span>       <span style="color: gray">▼</span>   <span style="color: gray">▼</span>       <span style="color: gray">▼</span>           <span style="color: gray">▼</span>       <span style="color: gray">▼</span>   <span style="color: gray">▼</span>       <span style="color: gray">▼</span>
+       ┌───┬┈┈┈┬───┬───┬┈┈┈┬───┬┈┈┈┈┈┈┈┬───┬┈┈┈┬───┬───┬┈┈┈┬───┐
+zmm0 = │ <span style="color: blue; font-weight: bold">h</span> │   │ <span style="color: blue; font-weight: bold">h</span> │ <span style="color: blue; font-weight: bold">g</span> │   │ <span style="color: blue; font-weight: bold">g</span> │       │ <span style="color: blue; font-weight: bold">b</span> │   │ <span style="color: blue; font-weight: bold">b</span> │ <span style="color: blue; font-weight: bold">a</span> │   │ <span style="color: blue; font-weight: bold">a</span> │
+       └───┴┈┈┈┴───┴───┴┈┈┈┴───┴┈┈┈┈┈┈┈┴───┴┈┈┈┴───┴───┴┈┈┈┴───┘
+
+       │           │                               │           │
+       ╰─ word 7 ╶─╯                               ╰─ word 0 ╶─╯</pre></div><p>Then, in each byte of 64-bit words we isolate i-th bit, where <strong>i</strong> is the byte position within a 64-bit word.</p>
+<div class="asciidiag"><pre class="asciidiag">
+     ┈┈┈┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬┈┈┈
+zmm0    │ <span style="color: blue; font-weight: bold">0</span>1010100 │ 0<span style="color: blue; font-weight: bold">1</span>010100 │ 01<span style="color: blue; font-weight: bold">0</span>10100 │ 010<span style="color: blue; font-weight: bold">1</span>0100 │ 0101<span style="color: blue; font-weight: bold">0</span>100 │ 01010<span style="color: blue; font-weight: bold">1</span>00 │ 010101<span style="color: blue; font-weight: bold">0</span>0 │ 0101010<span style="color: blue; font-weight: bold">0</span> │
+     ┈┈┈┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴┈┈┈
+     ┈┈┈┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬┈┈┈
+zmm1    │ <span style="color: blue; font-weight: bold">1</span>0000000 │ 0<span style="color: blue; font-weight: bold">1</span>000000 │ 00<span style="color: blue; font-weight: bold">1</span>00000 │ 000<span style="color: blue; font-weight: bold">1</span>0000 │ 0000<span style="color: blue; font-weight: bold">1</span>000 │ 00000<span style="color: blue; font-weight: bold">1</span>00 │ 000000<span style="color: blue; font-weight: bold">1</span>0 │ 0000000<span style="color: blue; font-weight: bold">1</span> │
+     ┈┈┈┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴┈┈┈
+
+zmm0 &amp; zmm1 =
+
+     ┈┈┈┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬┈┈┈
+        │ <span style="color: blue; font-weight: bold">0</span>0010100 │ 0<span style="color: blue; font-weight: bold">1</span>000000 │ 00<span style="color: blue; font-weight: bold">0</span>00000 │ 000<span style="color: blue; font-weight: bold">1</span>0000 │ 0000<span style="color: blue; font-weight: bold">0</span>000 │ 00000<span style="color: blue; font-weight: bold">1</span>00 │ 000000<span style="color: blue; font-weight: bold">0</span>0 │ 0000000<span style="color: blue; font-weight: bold">0</span> │
+     ┈┈┈┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴┈┈┈</pre></div><p>Finally, we convert non-zero bytes into ASCII '1' (0x31) and zero bytes into ASCII '0' (0x30). This particular
+operation can be done in two different ways:</p>
+<ul class="simple">
+<li>converting non-zero bytes to value 1 using <tt class="docutils literal">min</tt> operation and performing a non-masked addition:
+<tt class="docutils literal">byte[i] = min(byte[i], 1) + 0x30</tt>.</li>
+<li>building a bitmask in k-register and performing standard masked instructions, like:
+<tt class="docutils literal">byte[i] = mask[i] ? 0x31 : 0x30</tt>.</li>
+</ul>
+<p>These two methods do not differ in performance, just the first one does not use mask registers.</p>
+</div>
+<div class="section" id="variant-1">
+<h1>Variant 1</h1>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">avx512_u64_to_bin_ver1</span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">buf</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// 1. broadcast word
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="n">v</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 2. in each 64-bit lane populate i-th byte
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">populate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set_epi64</span><span class="p">(</span><span class="w">
+        </span><span class="mh">0x0000000000000000</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0101010101010101</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0202020202020202</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0303030303030303</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0404040404040404</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0505050505050505</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0606060606060606</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0707070707070707</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">populate</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 3. keep j-th bit in each 64-bit word
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="mh">0x0102040810204080</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 4. convert bits to byte 0 or 1
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_min_epu8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="mi">1</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// 5. convert to ASCII ('0' = 0x30 or '1' = 0x31)
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi8</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="sc">'0'</span><span class="p">));</span><span class="w">
+
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly output from GCC 14.1:</p>
+<pre class="literal-block">
+vpbroadcastq    %rdi, %zmm1
+mov             $0x1, %eax
+vpshufb         0x0(%rip), %zmm1, %zmm1
+vpbroadcastb    %eax, %zmm0
+mov             $0x30, %eax
+vpandd          0x0(%rip), %zmm1, %zmm1
+vpminub         %zmm1, %zmm0, %zmm0
+vpbroadcastb    %eax, %zmm1
+vpaddb          %zmm1, %zmm0, %zmm0
+vmovdqu64       %zmm0, (%rsi)
+</pre>
+</div>
+<div class="section" id="variant-2">
+<h1>Variant 2</h1>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">avx512_u64_to_bin_ver2</span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">buf</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// 1. broadcast word
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="n">v</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 2. in each 64-bit lane populate i-th byte
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">populate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set_epi64</span><span class="p">(</span><span class="w">
+        </span><span class="mh">0x0000000000000000</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0101010101010101</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0202020202020202</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0303030303030303</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0404040404040404</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0505050505050505</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0606060606060606</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x0707070707070707</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_shuffle_epi8</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">populate</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 3. keep j-th bit in each 64-bit word
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">bits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="mh">0x0102040810204080</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_test_epi8_mask</span><span class="p">(</span><span class="n">bits</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 4. convert to ASCII ('0' = 0x30 or '1' = 0x31)
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_add_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="sc">'0'</span><span class="p">),</span><span class="w">
+        </span><span class="n">mask</span><span class="p">,</span><span class="w">
+        </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="sc">'0'</span><span class="p">),</span><span class="w">
+        </span><span class="n">_mm512_set1_epi8</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="n">_mm512_storeu_si512</span><span class="p">((</span><span class="n">__m512i</span><span class="o">*</span><span class="p">)</span><span class="n">buf</span><span class="p">,</span><span class="w"> </span><span class="n">t2</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly output from GCC 14.1:</p>
+<pre class="literal-block">
+vmovdqa64       0x0(%rip), %zmm1
+vpbroadcastq    %rdi, %zmm0
+mov             $0x30, %eax
+vpshufb         0x0(%rip), %zmm0, %zmm0
+vptestmb        %zmm0, %zmm1, %k1
+vpbroadcastb    %eax, %zmm0
+mov             $0x1, %eax
+vpbroadcastb    %eax, %zmm1
+vmovdqa64       %zmm0, %zmm2
+vpaddb          %zmm1, %zmm0, %zmm2{%k1}
+vmovdqu64       %zmm2, (%rsi)
+</pre>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample implementation is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/avx512-print-u64-bin">GitHub</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-18-avx512-print-bin.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:18 GMT -->
+</html>

@@ -1,0 +1,31 @@
+Przesuwnik napiêcia (praktyczny)
+* "Uk³ady pr±du sta³ego.pdf", str. 26
+* Wojciech Mu³a 11.10.2005
+*
+* U_O = (Vin - U_BE - U_z)
+* (U_z to parametr Bv w modelu diody)
+
+* uk³ad
+* - wej¶cie	: 1 0
+* - wyj¶cie	: 2 0
+* - zasilanie	: 3 0
+*
+R	0 2	1k
+Dz	2 4	dz
+Q	3 1 4	tr
+Vcc	3 0	DC 6V
+
+* sygna³ wej¶ciowy
+Vin	1 0	DC 4V
+
+* model tranzystora i diody zenera
+.model tr NPN	BF=100
+.model dz D	Bv=3V
+
+* analiza
+.DC Vin 0.25 6 0.25
+
+* wykresy: wej¶cie, wyj¶cie
+.plot DC V(1) V(2)
+
+.end

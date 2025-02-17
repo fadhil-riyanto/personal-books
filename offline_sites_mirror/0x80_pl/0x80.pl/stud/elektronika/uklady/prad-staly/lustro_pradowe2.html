@@ -1,0 +1,26 @@
+Udoskonalone lustro pr±dowe
+* "Uk³ady pr±du sta³ego.pdf", str. 6
+* Wojciech Mu³a, 17.10.2005
+
+* uk³ad:
+Q1	i	b	0	NPN
+Q2	Uwy	b	0	NPN
+Q3	Ucc	i	b	NPN
+R	Ucc	i		100
+Vcc	Ucc	0		DC 10V
+.model NPN NPN Bf=100
+
+* obci±¿enie
+
+Robc	Uwy	1		100
+Vobc	1	0		DC 1V
+
+* analiza
+.DC Vobc 0V 15V 0.1V
+
+* wykresy pr±du (mierzony na rezystancjach):
+* - pr±d wyj¶ciowy (mierzony na Robc)
+* - pr±d referencyjny (mierzony na R)
+.plot DC V(Uwy,1) V(Ucc,i)
+
+.end

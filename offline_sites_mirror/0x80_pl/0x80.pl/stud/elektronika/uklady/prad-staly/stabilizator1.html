@@ -1,0 +1,32 @@
+Prosty stabilizator napiêcia (równoleg³y)
+* "Uk³ady pr±du sta³ego.pdf", str. 33
+* Wojciech Mu³a 11.10.2005
+
+* U_WY = Uz + U_BE ~= 5V
+
+* stabilizator
+* - wej¶cie: 3 0
+* - wyj¶cie: 2 0
+Rd	0 1	1k
+Dz	1 2	zener
+Q1	2 1 0	transistor
+R	2 3	100
+
+.model transistor NPN (Bf=200)
+* Uz = 4.2V
+.model zener D(Bv=4.2V)
+
+* napiêcie zasilaj±ce
+Vin	3 0	8V
+
+* obci±¿enie
+Ro	4 2	100
+Io	0 4	1m
+
+* zmiana obci±¿enia
+.DC Io -100m 100m 1m
+
+* wykresy: napiêcie na wyj¶ciu, pr±d wyj¶ciowy
+.print DC V(2) V(2,4)
+
+.end

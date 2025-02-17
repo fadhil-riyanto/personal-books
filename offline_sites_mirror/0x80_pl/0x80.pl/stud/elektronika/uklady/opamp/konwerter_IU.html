@@ -1,0 +1,25 @@
+Konwerter pr±d-napiêcie
+* "Wzmacniacz operacyjny.pdf", str. 21
+* Wojeciech Mu³a, 17.10.2005
+
+* uk³ad:
+* - wej¶cie: 1 0
+* - wyj¶cie: 2 0
+*
+* Uwy = -Iwe*R
+X	1 0 2	opamp
+R	1 2		10k
+
+.include opamp.model
+
+* pr±d wej¶ciowy
+Rx	20 1		1
+Iin	20 0		DC 1uA
+
+* analiza
+.DC Iin	0uA 1uA	0.1uA
+
+* warto¶ci: pr±d wej¶ciowy, napiêcie wyj¶ciowe
+.print DC V(1,20) V(2)
+
+.end

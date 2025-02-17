@@ -1,0 +1,2051 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-05-simd-pdep-pext.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:24 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMD parallel bits deposit/extract</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simd-parallel-bits-deposit-extract">
+<h1 class="title">SIMD parallel bits deposit/extract</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2025-01-05</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#pext" id="toc-entry-2">PEXT</a><ul>
+<li><a class="reference internal" href="#specification" id="toc-entry-3">Specification</a></li>
+<li><a class="reference internal" href="#software-implementation" id="toc-entry-4">Software implementation</a><ul>
+<li><a class="reference internal" href="#avx2-implementation" id="toc-entry-5">AVX2 implementation</a></li>
+<li><a class="reference internal" href="#avx-512-implementation" id="toc-entry-6">AVX-512 implementation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#pdep" id="toc-entry-7">PDEP</a><ul>
+<li><a class="reference internal" href="#specification-1" id="toc-entry-8">Specification</a></li>
+<li><a class="reference internal" href="#software-implementation-1" id="toc-entry-9">Software implementation</a><ul>
+<li><a class="reference internal" href="#avx2-implementation-1" id="toc-entry-10">AVX2 implementation</a></li>
+<li><a class="reference internal" href="#avx-512-implementation-1" id="toc-entry-11">AVX-512 implementation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-12">Experiments</a><ul>
+<li><a class="reference internal" href="#ryzen-7" id="toc-entry-13">Ryzen 7</a></li>
+<li><a class="reference internal" href="#alder-lake" id="toc-entry-14">Alder Lake</a></li>
+<li><a class="reference internal" href="#ice-lake" id="toc-entry-15">Ice Lake</a></li>
+<li><a class="reference internal" href="#skylake-x" id="toc-entry-16">Skylake-X</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-17">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>The <a class="reference external" href="http://en.wikipedia.org/wiki/X86_Bit_manipulation_instruction_set">BMI2 extension</a> introduced two
+complementary instructions: parallel bits deposit (<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PDEP.html">PDEP</a>) and parallel
+bits extract (<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PEXT.html">PEXT</a>).</p>
+<p>The <tt class="docutils literal">PDEP</tt> scatters continuous set of bits to positions denoted by the
+mask. The <tt class="docutils literal">PEXT</tt> does the opposite: gathers/compresses selected bits into
+a continuous word.</p>
+<p>SIMD instruction sets do not directly support this kind of operations. There is
+<a class="reference external" href="https://www.felixcloutier.com//x86/gf2p8affineqb">GF2P8AFFINEQB</a> in AVX-512, that allows arbitrary bit shuffling at
+the <strong>byte level</strong> (see <a class="reference external" href="2020-01-19-avx512-galois-field-for-bit-shuffling.html">Use AVX512 Galois field affine transformation for bit shuffling</a>).</p>
+<p>In this text we show approaches suitable for implementing <tt class="docutils literal">PEXT</tt> and <tt class="docutils literal">PDEP</tt>
+for wider element widths on any SIMD ISA.</p>
+</div>
+<div class="section" id="pext">
+<h1>PEXT</h1>
+<div class="section" id="specification">
+<h2>Specification</h2>
+<p>Pseudocode for <tt class="docutils literal">PEXT</tt>:</p>
+<pre class="literal-block">
+N - the number of bits in a word (32 or 64)
+
+k := 0
+result := 0
+for m := 0 to N do
+    if mask[m] == 1 then
+        result[k] = data[m]
+        k := k + 1
+    end
+end for
+</pre>
+<div class="asciidiag"><pre class="asciidiag">
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+mask = │ 0 │ 0 │ <span style="font-weight: bold">1</span> │ 0 │ <span style="font-weight: bold">1</span> │ 0 │ 0 │ 0 │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">1</span> │ 0 │ 0 │ <span style="font-weight: bold">1</span> │ 0 │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">1</span> │ 0 │
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+data = │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">0</span> │
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+                 |       |               |   |           |       |   │
+                 │       │               │   │           │       │   └───┐
+                 │       │               │   │           │       └───┐   │
+                 │       │               │   │           └───────┐   │   │
+                 │       │               │   └───────────────┐   │   │   │
+                 │       │               └───────────────┐   │   │   │   │
+                 │       └───────────────────────────┐   │   │   │   │   │
+                 └───────────────────────────────┐   │   │   │   │   │   │
+                                                 │   │   │   │   │   │   │
+                                                 ▼   ▼   ▼   ▼   ▼   ▼   ▼
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+pext = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></div>
+<div class="section" id="software-implementation">
+<h2>Software implementation</h2>
+<p>The most basic operation we need is copying the <strong>m-th</strong> bit from data to <strong>k-th</strong>
+position in the result word. An important property is that the source index <strong>m</strong>
+is greater or equals the destination index <strong>k</strong>.</p>
+<p>We can avoid any explicit shifting of bits. We mask the m-th bit of data: this
+yields either <tt class="docutils literal">1 &lt;&lt; m</tt> or <tt class="docutils literal">0</tt>. We have the mask for destination bit, having
+value <tt class="docutils literal">1 &lt;&lt; k</tt>. Calculating <strong>the minimum</strong> of these two values yields
+either <tt class="docutils literal">1 &lt;&lt; k</tt> or <tt class="docutils literal">0</tt>. Finally, we merge that value with the result word.</p>
+<p>The following pseudocode shows the idea:</p>
+<pre class="code cpp literal-block">
+<span class="w">                              </span><span class="c1">// m-th bit = 1             m-th bit = 0
+</span><span class="n">masked</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">m</span><span class="p">);</span><span class="w">     </span><span class="c1">// masked = 1 &lt;&lt; m          masked = 0
+</span><span class="n">k_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">k</span><span class="w">               </span><span class="c1">// k_mask = 1 &lt;&lt; k          k_mask = 1 &lt;&lt; k
+</span><span class="n">bit_k</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">min</span><span class="p">(</span><span class="n">masked</span><span class="p">,</span><span class="w"> </span><span class="n">k_mask</span><span class="p">);</span><span class="w"> </span><span class="c1">// bit_k  = 1 &lt;&lt; k          bit_k  = 0</span>
+</pre>
+<p>To isolate the first bit, we'll use a well known trick of resetting such bit:</p>
+<pre class="literal-block">
+x'  = (x - 1) &amp; x;  // reset lowest bit set
+fbs = x ^ x';       // isolated lowest bit set
+</pre>
+<p>And this is how this works for sample values:</p>
+<div class="asciidiag"><pre class="asciidiag">
+                                                       the first bit set
+                                                                │
+                                                                ▼
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+x           = │ 0 │ 0 │ 1 │ 0 │ 1 │ 0 │ 0 │ 0 │ 1 │ 1 │ 0 │ 1 │ <span style="font-weight: bold; color: blue">1</span> │ 0 │ 0 │ 0 │ 0 │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+x - 1       = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+(x-1) &amp; x   = │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">0</span> │ <span style="font-weight: bold">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ = x&apos;
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+x&apos; ^ x      = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ = fbs
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘</pre></div><div class="section" id="avx2-implementation">
+<span id="pext-avx2"></span><h3>AVX2 implementation</h3>
+<p>The following C++ template generates an implementation. The most generic one would scan
+all mask bits (<tt class="docutils literal">MAX_MASK_BITS=32</tt>), but when we know the maximum number of bits set
+in masks, we may limit the number of iterations accordingly.</p>
+<p>The parameter <tt class="docutils literal">EARLY_EXIT</tt> decides whether to check in every iteration if all mask
+bits were scanned on not. It adds runtime overhead, and in the case we don't know how
+diverse masks are, this check won't help. If we know that the number of bits in
+different masks are similar, this check may be a win.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="kt">int</span><span class="w"> </span><span class="n">MAX_MASK_BITS</span><span class="p">,</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">EARLY_EXIT</span><span class="o">&gt;</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="n">avx2_pext_u32_reference</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="o">*</span><span class="w"> </span><span class="n">data_arr</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="o">*</span><span class="w"> </span><span class="n">mask_arr</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="o">*</span><span class="w"> </span><span class="n">out_arr</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">static_assert</span><span class="p">(</span><span class="n">MAX_MASK_BITS</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">
+    </span><span class="k">static_assert</span><span class="p">(</span><span class="n">MAX_MASK_BITS</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">32</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">one</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">zero</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">__m256i</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">data_arr</span><span class="p">[</span><span class="n">i</span><span class="p">]));</span><span class="w">
+        </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">mask_arr</span><span class="p">[</span><span class="n">i</span><span class="p">]));</span><span class="w">
+        </span><span class="n">__m256i</span><span class="w"> </span><span class="n">out</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">__m256i</span><span class="w"> </span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">one</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">MAX_MASK_BITS</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// 1. isolate the first non-zero bit set of mask
+</span><span class="w">            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sub_epi32</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m0</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_xor_si256</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m1</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// 2. isolate that bit from data word
+</span><span class="w">            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">d0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">m2</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// 3. move that bit on the next position in out
+</span><span class="w">            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">o0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_min_epu32</span><span class="p">(</span><span class="n">d0</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span><span class="w">
+            </span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">o0</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// 4. reset selected bit in mask (we already done it)
+</span><span class="w">            </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">m1</span><span class="p">;</span><span class="w">
+
+            </span><span class="c1">// 5. advance to the next bit in out
+</span><span class="w">            </span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi32</span><span class="p">(</span><span class="n">bit</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span><span class="w">
+
+            </span><span class="c1">// 6. all are zeros?
+</span><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">EARLY_EXIT</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">_mm256_testc_si256</span><span class="p">(</span><span class="n">zero</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">_mm256_storeu_si256</span><span class="p">((</span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="o">&amp;</span><span class="n">out_arr</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span><span class="w"> </span><span class="n">out</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="avx-512-implementation">
+<span id="pext-avx512"></span><h3>AVX-512 implementation</h3>
+<p>Solution for AVX-512 can use the above trick, but it is simpler to directly
+use mask registers. There is instruction <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/VPTESTMB_VPTESTMW_VPTESTMD_VPTESTMQ.html">VPTESTMD</a> that sets a register mask
+based on bit-and of two operands. This allows us to produce element-wise
+masks from m-th bits.</p>
+<p>Then conditional <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/POR.html">VPORD</a> can be used to update the resulting word.</p>
+<p>The following fragment from AVX-512 implementation shows these steps.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// 1. isolate the first bit set of mask
+//                                                 mask = [0101_1001_1100_0000|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">m0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w"> </span><span class="c1">// m0   = [0101_1001_1011_1111|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">m1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m0</span><span class="p">);</span><span class="w">  </span><span class="c1">// m1   = [0101_1001_1000_0000|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">m2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_xor_si512</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m1</span><span class="p">);</span><span class="w">  </span><span class="c1">// m2   = [0000_0000_0100_0000|...]
+</span><span class="w">
+</span><span class="c1">// 2. get m-th data bits in a mask register
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_test_epi32_mask</span><span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">m2</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// 3. set k-th bit when m-th bit is set
+</span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_or_epi32</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">,</span><span class="w"> </span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// 4. reset selected bit in mask
+</span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">m1</span><span class="p">;</span><span class="w">
+
+</span><span class="c1">// 5. the next bit to set
+</span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">bit</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="pdep">
+<h1>PDEP</h1>
+<div class="section" id="specification-1">
+<h2>Specification</h2>
+<p>Pseudocode for <tt class="docutils literal">PDEP</tt>:</p>
+<pre class="literal-block">
+N - the number of bits in a word (32 or 64)
+
+k := 0
+result := 0
+for m := 0 to N do
+    if mask[m] == 1 then
+        result[m] = data[k]
+        k := k + 1
+    end
+end for
+</pre>
+<p>Example of <tt class="docutils literal">PDEP</tt> invoked with a 4-bit mask and sample data.</p>
+<div class="asciidiag"><pre class="asciidiag">
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+mask = │ 0 │ <span style="font-weight: bold">1</span> │ 0 │ 0 │ 0 │ <span style="font-weight: bold">1</span> │ 0 │ 0 │ 0 │ <span style="font-weight: bold">1</span> │ <span style="font-weight: bold">1</span> │ 0 │ 0 │ 0 │ 0 │ 0 │ 0 │
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+data = │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">0</span> │
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+                                                             │   |   |   |
+             ┌───────────────────────────────────────────────┘   │   │   │
+             │               ┌───────────────────────────────────┘   │   │
+             │               │               ┌───────────────────────┘   │
+             │               │               │   ┌───────────────────────┘
+             │               │               │   │
+             ▼               ▼               ▼   ▼
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+pdep = │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></div>
+<div class="section" id="software-implementation-1">
+<h2>Software implementation</h2>
+<p>In the case of <tt class="docutils literal">PDEP</tt> we need to copy the <strong>k-th</strong> from data to the <strong>m-th</strong> bit
+of destination. Similarly to <tt class="docutils literal">PEXT</tt>, in this case relation <span class="math"><i>m</i> &ge; <i>k</i></span> is hold.</p>
+<p>It is also possible to avoid any bit shifting, but the method is not as elegant
+as for <tt class="docutils literal">PEXT</tt>.</p>
+<ol class="arabic">
+<li><p class="first">We start from isolating <strong>m-th</strong> bit from the <strong>mask</strong></p>
+<div class="asciidiag"><pre class="asciidiag">
+                                                            m-th bit
+                                                                │
+                                                                ▼
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+mask        = │ 0 │ 0 │ 1 │ 0 │ 1 │ 0 │ 0 │ 0 │ 1 │ 1 │ 0 │ 1 │ <span style="font-weight: bold; color: blue">1</span> │ 0 │ 0 │ 0 │ 0 │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+mask - 1    = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></li>
+<li><p class="first">In the word <tt class="docutils literal">mask - 1</tt> we have a series of ones before the <strong>m</strong>. Since <span class="math"><i>k</i> &le; <i>m</i></span>, we
+may now add the isolated <strong>k-th</strong> bit from data. If that bit it one, it will cause the series
+of ones to carry up the bit again to m-th position.</p>
+<div class="asciidiag"><pre class="asciidiag">
+                                                            m-th bit
+                                                                │
+                                                                ▼
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+mask - 1    = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="font-weight: bold; color: blue">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="font-weight: bold; color: blue">1</span> │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+data_k      = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">0</span> │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+                                                                            ▲
+                                                                            │
+                                                                         k-th bit
+
+              ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+sum         = │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │ <span style="font-weight: bold; color: blue">1</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">0</span> │ <span style="color: lightgray">1</span> │
+              └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘</pre></div></li>
+<li><p class="first">Than we need isolate the <strong>m-th</strong> bit, mask that bit in <tt class="docutils literal">sum</tt> and use it to update the
+resulting word.</p>
+<blockquote>
+<pre class="code literal-block">
+m1 = mask - 1
+m2 = mask &amp; m1
+m3 = mask ^ m2
+
+data_k = data &amp; (1 &lt;&lt; k)
+sum    = m1 + data_k
+data_m = m3 &amp; sum
+
+result = result | data_m
+</pre>
+</blockquote>
+</li>
+</ol>
+<div class="section" id="avx2-implementation-1">
+<span id="pdep-avx2"></span><h3>AVX2 implementation</h3>
+<p>While the shift-less method is feasible, we found an easier way to update the result
+word. We use <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PCMPEQB_PCMPEQW_PCMPEQD.html">VPCMPEQD</a> that fills a 32-bit word with zeros or ones, depending on
+comparison result. We isolate the <strong>k-th</strong> bit of data and compare it with zero.</p>
+<p>This yield <strong>a negated mask</strong>, which we use to filter out <strong>m-th</strong> bits.</p>
+<p>The following snippet from AVX2 implementation shows the order of operations.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// 1. isolate the first non-zoro bit set of mask (at m)
+//                                                 mask = [0101_1001_1100_0000|0000_1110_1100_1000|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sub_epi32</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w"> </span><span class="c1">// m0   = [0101_1001_1011_1111|0000_1110_1100_0111|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m0</span><span class="p">);</span><span class="w">  </span><span class="c1">// m1   = [0101_1001_1000_0000|0000_1110_1100_0000|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_xor_si256</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m1</span><span class="p">);</span><span class="w">  </span><span class="c1">// m2   = [0000_0000_0100_0000|0000_0000_0000_1000|...]
+</span><span class="w">
+</span><span class="c1">// 2. isolate k-th bit from data                   data = [1100_0000_1111_1110|0000_0000_1000_0000|...]
+//                                                  bit = [0000_0000_0001_0000]0000_0000_0001_0000|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">d0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span><span class="w"> </span><span class="c1">//   d0 = [0000_0000_0001_0000|0000_0000_0000_0000|...]
+</span><span class="w">                                                </span><span class="c1">//                      ^                   ^
+// 4. fill word with *negation* of data bit
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">d1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi32</span><span class="p">(</span><span class="n">d0</span><span class="p">,</span><span class="w"> </span><span class="n">zero</span><span class="p">);</span><span class="c1">//   d1 = [0000_0000_0000_0000|1111_1111_1111_1111|...]
+</span><span class="w">
+</span><span class="c1">// 5. keep the mask bit, iff data[k] == 1
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">m3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_andnot_si256</span><span class="p">(</span><span class="n">d1</span><span class="p">,</span><span class="w"> </span><span class="n">m2</span><span class="p">);</span><span class="w"> </span><span class="c1">//   m3 = [0000_0000_0100_0000|0000_0000_0000_0000|...]
+</span><span class="w">
+</span><span class="c1">// 6. update the out
+</span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_or_si256</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">m3</span><span class="p">);</span><span class="w">
+</span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">m1</span><span class="p">;</span><span class="w">
+
+</span><span class="c1">// 7. the next bit in data to check
+</span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi32</span><span class="p">(</span><span class="n">bit</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span>
+</pre>
+</div>
+<div class="section" id="avx-512-implementation-1">
+<span id="pdep-avx512"></span><h3>AVX-512 implementation</h3>
+<p>AVX-512 code uses the same approach as <tt class="docutils literal">PEXT</tt> implementation. We transfer k-th bits
+from data word to a mask register and then use masked <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/VPTERNLOGD_VPTERNLOGQ.html">VPTERNLOGD</a> to conditionally
+bit-or the m-th bits into the result words.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// 1. get k-th data bits in a mask register
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_test_epi32_mask</span><span class="p">(</span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// 2. isolate the first non-zoro bit set of mask (at m)
+</span><span class="w">
+</span><span class="c1">//                                                 mask = [0101_1001_1100_0000|0000_1110_1100_1000|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">m0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">one</span><span class="p">);</span><span class="w"> </span><span class="c1">// m0   = [0101_1001_1011_1111|0000_1110_1100_0111|...]
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">m1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m0</span><span class="p">);</span><span class="w">  </span><span class="c1">// m1   = [0101_1001_1000_0000|0000_1110_1100_0000|...]
+</span><span class="w">
+</span><span class="c1">// 3. out = out | (mask ^ m1)
+</span><span class="n">out</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_ternarylogic_epi32</span><span class="p">(</span><span class="n">out</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">m1</span><span class="p">,</span><span class="w"> </span><span class="mh">0xf6</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// 4. the next mask value
+</span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">m1</span><span class="p">;</span><span class="w">
+
+</span><span class="c1">// 5. the next bit in data to update
+</span><span class="n">bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">bit</span><span class="p">,</span><span class="w"> </span><span class="n">bit</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<p>The baseline code uses <tt class="docutils literal">PDEP</tt> or <tt class="docutils literal">PEXT</tt> invoked in a simple loop. It's a bit
+unrealistic solution, but can be seen it as a theoretical limit.  More realistic
+scenario is when we have some computations done on vector registers and we have
+to switch to scalar code to perform <tt class="docutils literal">PDEP</tt> or <tt class="docutils literal">PEXT</tt>.</p>
+<p>Summary:</p>
+<ul class="simple">
+<li>The vectorized approaches have complexity proportional to the number of 1 bits
+in mask values.</li>
+<li>AVX2 code is never faster than scalar code.</li>
+<li>AVX-512 code is faster only on IceLake, when the mask values have
+a few bits (6 or 8 in tests).</li>
+</ul>
+<p>All test programs were compiled with options <tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-march=native</span></tt> on each machine
+running tests.</p>
+<table border="1" class="docutils">
+<caption>Tested PEXT procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Procedure</th>
+<th class="head">Comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">pext scalar</tt></td>
+<td><tt class="docutils literal">PEXT</tt> baseline</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 32-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 (early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 32-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 (6 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 6-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 <span class="pre">(6-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 6-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 (8 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 8-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 <span class="pre">(8-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 8-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 (16 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 16-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 <span class="pre">(16-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 16-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 (24 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 24-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext AVX2 <span class="pre">(24-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx2">AVX2 implementation</a> for 24-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span></tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 32-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> (early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 32-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> (6 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 6-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> <span class="pre">(6-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 6-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> (8 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 8-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> <span class="pre">(8-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 8-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> (16 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 16-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> <span class="pre">(16-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 16-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> (24 bit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 24-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pext <span class="pre">AVX-512</span> <span class="pre">(24-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pext-avx512">AVX-512 implementation</a> for 24-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<caption>Tested PDEP procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Procedure</th>
+<th class="head">Comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">pdep scalar</tt></td>
+<td><tt class="docutils literal">PDEP</tt> baseline</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 32-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 (early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 32-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 (6 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 6-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 <span class="pre">(6-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 6-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 (8 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 8-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 <span class="pre">(8-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 8-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 (16 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 16-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 <span class="pre">(16-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 16-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 (24 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 24-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep AVX2 <span class="pre">(24-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx2">AVX2 implementation</a> for 24-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span></tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 32-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> (early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 32-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> (6 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 6-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> <span class="pre">(6-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 6-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> (8 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 8-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> <span class="pre">(8-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 8-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> (16 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 16-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> <span class="pre">(16-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 16-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> (24 bit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 24-bit masks</td>
+</tr>
+<tr><td><tt class="docutils literal">pdep <span class="pre">AVX-512</span> <span class="pre">(24-bit,</span> early exit)</tt></td>
+<td><a class="reference internal" href="#pdep-avx512">AVX-512 implementation</a> for 24-bit masks, with breaking the inner loop when all masks become zero</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="ryzen-7">
+<h2>Ryzen 7</h2>
+<ul class="simple">
+<li>Compiler: gcc (Debian 14.1.0-5) 14.1.0</li>
+<li>CPU: AMD Ryzen 7 7730U with Radeon Graphics</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="30%" />
+<col width="12%" />
+<col width="10%" />
+<col width="5%" />
+<col width="43%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>1.012</td>
+<td>0.915</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2</td>
+<td>4.549</td>
+<td>4.536</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (early exit)</td>
+<td>6.174</td>
+<td>6.133</td>
+<td>0.1</td>
+<td><tt class="docutils literal"><span class="pre">█████▉</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>0.957</td>
+<td>0.918</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit)</td>
+<td>0.862</td>
+<td>0.834</td>
+<td>1.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit, early exit)</td>
+<td>0.923</td>
+<td>0.896</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>0.938</td>
+<td>0.909</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit)</td>
+<td>0.914</td>
+<td>0.896</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit, early exit)</td>
+<td>1.207</td>
+<td>1.195</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>0.938</td>
+<td>0.909</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit)</td>
+<td>2.022</td>
+<td>2.005</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit, early exit)</td>
+<td>4.169</td>
+<td>4.160</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████▋</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>0.939</td>
+<td>0.911</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit)</td>
+<td>3.314</td>
+<td>3.297</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit, early exit)</td>
+<td>5.322</td>
+<td>5.310</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">██████▊</span></tt></td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="30%" />
+<col width="12%" />
+<col width="10%" />
+<col width="5%" />
+<col width="43%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>0.924</td>
+<td>0.881</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2</td>
+<td>4.409</td>
+<td>4.398</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (early exit)</td>
+<td>6.230</td>
+<td>6.206</td>
+<td>0.1</td>
+<td><tt class="docutils literal"><span class="pre">█████▋</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>0.906</td>
+<td>0.878</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit)</td>
+<td>0.813</td>
+<td>0.798</td>
+<td>1.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit, early exit)</td>
+<td>0.931</td>
+<td>0.918</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>0.905</td>
+<td>0.876</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit)</td>
+<td>0.940</td>
+<td>0.928</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit, early exit)</td>
+<td>1.251</td>
+<td>1.240</td>
+<td>0.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>0.897</td>
+<td>0.878</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit)</td>
+<td>2.070</td>
+<td>2.055</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit, early exit)</td>
+<td>4.254</td>
+<td>4.242</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>0.902</td>
+<td>0.876</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit)</td>
+<td>3.260</td>
+<td>3.244</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit, early exit)</td>
+<td>5.397</td>
+<td>5.385</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">██████▌</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="alder-lake">
+<h2>Alder Lake</h2>
+<ul class="simple">
+<li>Compiler: gcc (Debian 13.2.0-25) 13.2.0</li>
+<li>CPU: 12th Gen Intel(R) Core(TM) i7-1255U</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="30%" />
+<col width="12%" />
+<col width="10%" />
+<col width="5%" />
+<col width="43%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>1.527</td>
+<td>1.286</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2</td>
+<td>7.556</td>
+<td>6.846</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">███████▌</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (early exit)</td>
+<td>8.778</td>
+<td>8.001</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">██████▍</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>1.471</td>
+<td>1.264</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit)</td>
+<td>1.482</td>
+<td>1.289</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit, early exit)</td>
+<td>1.673</td>
+<td>1.477</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>1.480</td>
+<td>1.273</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit)</td>
+<td>1.654</td>
+<td>1.446</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit, early exit)</td>
+<td>2.233</td>
+<td>2.006</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████▍</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>1.464</td>
+<td>1.268</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit)</td>
+<td>3.428</td>
+<td>3.042</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit, early exit)</td>
+<td>6.045</td>
+<td>5.461</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>1.491</td>
+<td>1.257</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit)</td>
+<td>5.622</td>
+<td>5.025</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit, early exit)</td>
+<td>7.925</td>
+<td>7.078</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">███████</span></tt></td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="30%" />
+<col width="12%" />
+<col width="10%" />
+<col width="5%" />
+<col width="43%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>1.512</td>
+<td>1.276</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2</td>
+<td>7.857</td>
+<td>7.091</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">███████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (early exit)</td>
+<td>8.317</td>
+<td>7.452</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">██████▊</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>1.479</td>
+<td>1.246</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit)</td>
+<td>1.472</td>
+<td>1.318</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit, early exit)</td>
+<td>1.699</td>
+<td>1.498</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>1.441</td>
+<td>1.250</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit)</td>
+<td>1.768</td>
+<td>1.517</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit, early exit)</td>
+<td>2.282</td>
+<td>2.038</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████▌</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>1.476</td>
+<td>1.270</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit)</td>
+<td>3.472</td>
+<td>3.130</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit, early exit)</td>
+<td>6.062</td>
+<td>5.497</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▏</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>1.484</td>
+<td>1.282</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit)</td>
+<td>5.795</td>
+<td>5.244</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit, early exit)</td>
+<td>7.715</td>
+<td>6.835</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">███████▌</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="ice-lake">
+<h2>Ice Lake</h2>
+<ul class="simple">
+<li>Compiler: gcc (GCC) 13.3.1 20240611 (Red Hat 13.3.1-2)</li>
+<li>CPU: Intel(R) Xeon(R) Gold 6338 CPU &#64; 2.00GHz</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="12%" />
+<col width="10%" />
+<col width="4%" />
+<col width="41%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>3.105</td>
+<td>2.968</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2</td>
+<td>18.473</td>
+<td>14.244</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (early exit)</td>
+<td>13.330</td>
+<td>12.203</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX512</td>
+<td>9.780</td>
+<td>9.657</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (early exit)</td>
+<td>9.098</td>
+<td>8.885</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">█████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2</td>
+<td>9.735</td>
+<td>9.610</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (early exit)</td>
+<td>8.421</td>
+<td>8.171</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▌</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>3.160</td>
+<td>3.050</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit)</td>
+<td>2.079</td>
+<td>1.972</td>
+<td>1.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit, early exit)</td>
+<td>2.832</td>
+<td>2.700</td>
+<td>1.1</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (6 bit)</td>
+<td>1.360</td>
+<td>1.259</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (6 bit, early exit)</td>
+<td>1.755</td>
+<td>1.600</td>
+<td>1.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (6 bit)</td>
+<td>1.282</td>
+<td>1.191</td>
+<td>2.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (6 bit, early exit)</td>
+<td>1.647</td>
+<td>1.510</td>
+<td>2.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>3.146</td>
+<td>3.022</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit)</td>
+<td>2.740</td>
+<td>2.610</td>
+<td>1.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit, early exit)</td>
+<td>3.742</td>
+<td>3.552</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (8 bit)</td>
+<td>1.695</td>
+<td>1.541</td>
+<td>2.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (8 bit, early exit)</td>
+<td>2.294</td>
+<td>2.132</td>
+<td>1.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (8 bit)</td>
+<td>1.559</td>
+<td>1.433</td>
+<td>2.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (8 bit, early exit)</td>
+<td>2.201</td>
+<td>2.026</td>
+<td>1.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>3.084</td>
+<td>2.983</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit)</td>
+<td>5.406</td>
+<td>5.146</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit, early exit)</td>
+<td>8.798</td>
+<td>8.562</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (16 bit)</td>
+<td>3.192</td>
+<td>2.936</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (16 bit, early exit)</td>
+<td>5.321</td>
+<td>5.113</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▍</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (16 bit)</td>
+<td>2.983</td>
+<td>2.746</td>
+<td>1.1</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (16 bit, early exit)</td>
+<td>4.665</td>
+<td>4.575</td>
+<td>0.7</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>3.082</td>
+<td>2.992</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit)</td>
+<td>12.732</td>
+<td>11.147</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit, early exit)</td>
+<td>13.043</td>
+<td>12.588</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▌</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (24 bit)</td>
+<td>7.410</td>
+<td>7.290</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▍</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (24 bit, early exit)</td>
+<td>8.349</td>
+<td>8.149</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (24 bit)</td>
+<td>7.384</td>
+<td>7.269</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▍</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (24 bit, early exit)</td>
+<td>7.397</td>
+<td>7.121</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▊</span></tt></td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="12%" />
+<col width="10%" />
+<col width="4%" />
+<col width="41%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.117</td>
+<td>2.969</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2</td>
+<td>19.314</td>
+<td>19.046</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">██████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (early exit)</td>
+<td>16.449</td>
+<td>16.272</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>pdep AVX512</td>
+<td>10.165</td>
+<td>9.934</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████▉</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (early exit)</td>
+<td>8.663</td>
+<td>8.252</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2</td>
+<td>9.401</td>
+<td>8.432</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (early exit)</td>
+<td>8.040</td>
+<td>7.691</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▍</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>2.839</td>
+<td>2.705</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▋</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit)</td>
+<td>2.153</td>
+<td>2.006</td>
+<td>1.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▌</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit, early exit)</td>
+<td>2.860</td>
+<td>2.678</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▉</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (6 bit)</td>
+<td>1.620</td>
+<td>1.388</td>
+<td>1.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (6 bit, early exit)</td>
+<td>1.852</td>
+<td>1.720</td>
+<td>1.6</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (6 bit)</td>
+<td>1.189</td>
+<td>1.132</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (6 bit, early exit)</td>
+<td>1.510</td>
+<td>1.422</td>
+<td>1.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.128</td>
+<td>3.035</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▌</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit)</td>
+<td>3.115</td>
+<td>2.948</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit, early exit)</td>
+<td>4.122</td>
+<td>3.870</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">████████████▉</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (8 bit)</td>
+<td>1.769</td>
+<td>1.678</td>
+<td>1.8</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (8 bit, early exit)</td>
+<td>2.220</td>
+<td>2.159</td>
+<td>1.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (8 bit)</td>
+<td>1.295</td>
+<td>1.254</td>
+<td>2.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (8 bit, early exit)</td>
+<td>1.822</td>
+<td>1.695</td>
+<td>1.8</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.157</td>
+<td>3.042</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit)</td>
+<td>6.010</td>
+<td>5.802</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit, early exit)</td>
+<td>9.223</td>
+<td>8.982</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (16 bit)</td>
+<td>3.616</td>
+<td>3.364</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (16 bit, early exit)</td>
+<td>5.407</td>
+<td>5.180</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (16 bit)</td>
+<td>2.452</td>
+<td>2.343</td>
+<td>1.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (16 bit, early exit)</td>
+<td>4.449</td>
+<td>4.290</td>
+<td>0.7</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▊</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.131</td>
+<td>3.042</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit)</td>
+<td>13.123</td>
+<td>10.766</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████▎</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit, early exit)</td>
+<td>15.508</td>
+<td>12.937</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (24 bit)</td>
+<td>7.661</td>
+<td>7.438</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▎</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (24 bit, early exit)</td>
+<td>8.637</td>
+<td>8.416</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (24 bit)</td>
+<td>7.110</td>
+<td>6.954</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (24 bit, early exit)</td>
+<td>6.173</td>
+<td>5.914</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████▌</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-x">
+<h2>Skylake-X</h2>
+<ul class="simple">
+<li>Compiler: gcc (GCC) 11.2.0</li>
+<li>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="12%" />
+<col width="10%" />
+<col width="4%" />
+<col width="41%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>2.943</td>
+<td>2.894</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2</td>
+<td>13.043</td>
+<td>13.019</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (early exit)</td>
+<td>12.986</td>
+<td>12.952</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX512</td>
+<td>10.296</td>
+<td>10.267</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (early exit)</td>
+<td>11.788</td>
+<td>11.756</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2</td>
+<td>10.263</td>
+<td>10.232</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (early exit)</td>
+<td>10.896</td>
+<td>10.853</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▋</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>2.986</td>
+<td>2.958</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit)</td>
+<td>2.910</td>
+<td>2.894</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (6 bit, early exit)</td>
+<td>3.143</td>
+<td>3.103</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (6 bit)</td>
+<td>3.009</td>
+<td>2.979</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (6 bit, early exit)</td>
+<td>3.339</td>
+<td>3.223</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (6 bit)</td>
+<td>3.109</td>
+<td>2.963</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (6 bit, early exit)</td>
+<td>3.172</td>
+<td>3.124</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>2.980</td>
+<td>2.957</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit)</td>
+<td>3.254</td>
+<td>3.224</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (8 bit, early exit)</td>
+<td>3.821</td>
+<td>3.791</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (8 bit)</td>
+<td>3.311</td>
+<td>3.234</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (8 bit, early exit)</td>
+<td>3.852</td>
+<td>3.799</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (8 bit)</td>
+<td>3.159</td>
+<td>3.122</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (8 bit, early exit)</td>
+<td>3.644</td>
+<td>3.616</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>2.974</td>
+<td>2.948</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit)</td>
+<td>5.719</td>
+<td>5.697</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (16 bit, early exit)</td>
+<td>9.145</td>
+<td>9.118</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (16 bit)</td>
+<td>4.774</td>
+<td>4.747</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (16 bit, early exit)</td>
+<td>7.565</td>
+<td>7.541</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▋</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (16 bit)</td>
+<td>4.572</td>
+<td>4.548</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (16 bit, early exit)</td>
+<td>7.293</td>
+<td>7.262</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▏</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pext scalar</td>
+<td>3.037</td>
+<td>2.963</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit)</td>
+<td>9.721</td>
+<td>9.704</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX2 (24 bit, early exit)</td>
+<td>12.069</td>
+<td>12.038</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (24 bit)</td>
+<td>7.816</td>
+<td>7.790</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▏</span></tt></td>
+</tr>
+<tr><td>pext AVX512 (24 bit, early exit)</td>
+<td>10.960</td>
+<td>10.934</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▊</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (24 bit)</td>
+<td>7.752</td>
+<td>7.722</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▎</span></tt></td>
+</tr>
+<tr><td>pext AVX512 v2 (24 bit, early exit)</td>
+<td>9.947</td>
+<td>9.915</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">███████████▉</span></tt></td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="12%" />
+<col width="10%" />
+<col width="4%" />
+<col width="41%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">time in cycles per byte</th>
+<th class="head" colspan="2">speed-up</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">average</th>
+<th class="head">best</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">any 32-bit mask</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.051</td>
+<td>2.878</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2</td>
+<td>12.760</td>
+<td>12.741</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">█████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (early exit)</td>
+<td>16.604</td>
+<td>16.584</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">██████▉</span></tt></td>
+</tr>
+<tr><td>pdep AVX512</td>
+<td>10.707</td>
+<td>10.686</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (early exit)</td>
+<td>11.476</td>
+<td>11.448</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2</td>
+<td>8.677</td>
+<td>8.636</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">█████████████▎</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (early exit)</td>
+<td>10.570</td>
+<td>10.543</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▉</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 6 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.012</td>
+<td>2.983</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit)</td>
+<td>3.012</td>
+<td>2.990</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (6 bit, early exit)</td>
+<td>3.280</td>
+<td>3.240</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (6 bit)</td>
+<td>3.162</td>
+<td>3.110</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (6 bit, early exit)</td>
+<td>3.419</td>
+<td>3.399</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (6 bit)</td>
+<td>2.863</td>
+<td>2.841</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (6 bit, early exit)</td>
+<td>3.106</td>
+<td>3.075</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 8 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>2.961</td>
+<td>2.937</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit)</td>
+<td>3.332</td>
+<td>3.295</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (8 bit, early exit)</td>
+<td>4.052</td>
+<td>4.020</td>
+<td>0.7</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (8 bit)</td>
+<td>3.431</td>
+<td>3.394</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (8 bit, early exit)</td>
+<td>3.940</td>
+<td>3.915</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (8 bit)</td>
+<td>2.976</td>
+<td>2.958</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (8 bit, early exit)</td>
+<td>3.497</td>
+<td>3.408</td>
+<td>0.9</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 16 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>3.019</td>
+<td>2.981</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit)</td>
+<td>5.505</td>
+<td>5.481</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (16 bit, early exit)</td>
+<td>8.897</td>
+<td>8.870</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">█████████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (16 bit)</td>
+<td>4.782</td>
+<td>4.758</td>
+<td>0.6</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (16 bit, early exit)</td>
+<td>7.411</td>
+<td>7.381</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (16 bit)</td>
+<td>3.978</td>
+<td>3.952</td>
+<td>0.8</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (16 bit, early exit)</td>
+<td>6.199</td>
+<td>6.180</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">mask has no more than 24 bits</td>
+</tr>
+<tr><td>pdep scalar</td>
+<td>2.956</td>
+<td>2.935</td>
+<td>1.0</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit)</td>
+<td>9.169</td>
+<td>9.155</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▊</span></tt></td>
+</tr>
+<tr><td>pdep AVX2 (24 bit, early exit)</td>
+<td>13.622</td>
+<td>13.597</td>
+<td>0.2</td>
+<td><tt class="docutils literal"><span class="pre">████████▋</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (24 bit)</td>
+<td>8.199</td>
+<td>8.159</td>
+<td>0.4</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▍</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 (24 bit, early exit)</td>
+<td>11.098</td>
+<td>11.069</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">██████████▌</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (24 bit)</td>
+<td>6.560</td>
+<td>6.515</td>
+<td>0.5</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████</span></tt></td>
+</tr>
+<tr><td>pdep AVX512 v2 (24 bit, early exit)</td>
+<td>9.406</td>
+<td>9.383</td>
+<td>0.3</td>
+<td><tt class="docutils literal"><span class="pre">████████████▌</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample implementation is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-pdep-pext">GitHub</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-05-simd-pdep-pext.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:24 GMT -->
+</html>

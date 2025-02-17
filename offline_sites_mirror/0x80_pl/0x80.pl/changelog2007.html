@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/changelog2007.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:10 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Zmiany na stronie &mdash; 2007</title>
+<link rel="stylesheet" href="index.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="zmiany-na-stronie-2007">
+<h1 class="title">Zmiany na stronie &mdash; 2007</h1>
+
+<p><a class="reference external" href="index-2.html">Strona główna</a></p>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>2007-09-06</dt>
+<dd><ul class="first last">
+<li>W artykule nt zastosowania <a class="reference external" href="articles/mmx_mpeg.html">rozkazów SIMD w kompresji wideo</a> dodałem
+sekcję opisującą wykorzystanie rozkazów <a class="reference external" href="http://pl.wikipedia.org/wiki/SSE4">SSE4</a>: <tt class="docutils literal">MPSADBW</tt> oraz
+<tt class="docutils literal">PHMINPOSUW</tt>.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>2007-08-31</dt>
+<dd><ul class="first last">
+<li>SSE2 &amp; <tt class="docutils literal">string.h</tt> &mdash; pierwsza wersja <a class="reference external" href="https://github.com/WojciechMula/sse2string">biblioteki</a> zawierająca
+implementację kilku funkcji ze <tt class="docutils literal">string.h</tt>.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>2007-08-09</dt>
+<dd><ul class="first last">
+<li>Ulepszona MMX-owa funkcja <tt class="docutils literal">strcmp</tt> &mdash; zostało usunięte jedno
+niepotrzebne porównanie, a sama procedura nieco uproszczona.
+Szczegóły w stosownym <a class="reference external" href="articles/string.h.asm.html">artykule</a>.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>2007-07-14</dt>
+<dd><ul class="first last">
+<li>Demonstracja algorytmu rozmywania obrazów grayscale.
+<a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/blur">Program</a> zawiera implementacje wzorcową w C oraz asemblerową
+używającą rozkazów MMX; algorytm kiedyś dość szczegółowo <a class="reference external" href="articles/blur.html">opisałem</a>.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2007-06-28</dt>
+<dd><ul class="first last">
+<li><p class="first">W artykule <a class="reference external" href="articles/saturated_add.html">Dodawanie z nasyceniem</a> poprawiłem metodę nr 3 (MMX)
+dodawania pikseli 16-bitowych &mdash; wyleciały 4 nadmiarowe instrukcje
+(dwie błędne, dwie niepotrzebne).</p>
+<p>Jest też dostępny <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/saturated-add/saturated_add.c">przykładowy program</a> zawierający metody pierwszą
+(x86) i trzecią (MMX).  Program możne działać albo wsadowo i wówczas
+wykonuje wybraną procedurę n razy (profilowanie, pomiar wydajności)
+albo interaktywnie &mdash; ładuje wskazany obrazek PPM, wyświetla w oknie
+(X Window) i wykonuje dodawanie z nasyceniem.</p>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2007-06-24</dt>
+<dd><ul class="first last">
+<li><p class="first">Liczący sobie już 5 lat artykuł <a class="reference external" href="articles/string.h.asm.html">Operacje na łańcuchach ASCII-Z w asemblerze</a>
+został odświeżony i została dodana funkcja <tt class="docutils literal">strchr</tt>.</p>
+<p>Przy okazji... właściwie to &bdquo;odświeżenie&rdquo; było przy okazji, pojawiły
+się procedury przeznaczone dla GCC (inline asm): <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/mmx-string/mmx_string.c">mmx_string.c</a>.</p>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2007-06-18</dt>
+<dd><ul class="first last">
+<li><p class="first"><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/ttyscreenshot">ttyscreenshot</a> &mdash; do zrzucania zawartości konsoli linuksowej do pliku
+graficznego PNM; uwzględniane są bieżące kolory i załadowane fonty.
+Wymaga wyższych uprawień, przynajmniej możliwości odczytu <tt class="docutils literal">/dev/vcsa*</tt>
+i <tt class="docutils literal">/dev/tty*</tt> (i pewnie czegoś jeszcze...).</p>
+<p>Przykład &mdash; zawartość konsoli na której program <a class="reference external" href="notespl.html#fbi-text-4-01-2007">fbi_text</a> modyfikuje
+fonty, aby przedstawić obrazek;  ze zrzutów zostało wycięte czarne tło.</p>
+<p>Zrzut konsoli po lewej: znaki na konsoli mają szerokość 9 pikseli
+(standardowo na kartach EGA/VGA &mdash; wyraźnie widać zakłócenia na
+wyświetlanym przez <tt class="docutils literal">fbi_text</tt> obrazku).   Zrzut konsoli po
+prawej: znaki o szerokości 8 pikseli (niestandardowe ustawienia,
+możliwość zmiany tylko z poziomu konta <tt class="docutils literal">root</tt>; jak widać obrazek jest
+już przedstawiony bez zakłóceń).</p>
+<img alt="img/tty9pix.png" src="img/tty9pix.png" />
+<img alt="img/tty8pix.png" src="img/tty8pix.png" />
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>2007-06-10</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="http://github.com/WojciechMula/locatedb">Biblioteka/program</a> do odczytu i zapisu plików dla GNU locate;
+napisana w Pythonie, wydana oczywiście na licencji BSD.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>2007-04-05</dt>
+<dd><ul class="first last">
+<li><a class="reference external" href="http://github.com/WojciechMula/aspell-python">aspell-python</a> &mdash; dostępna jest wersja całkowicie pythonowa,
+używająca modułu <a class="reference external" href="http://docs.python.org/lib/module-ctypes.html">ctypes</a>.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul class="simple">
+<li><dl class="first docutils">
+<dt>2007-03-22</dt>
+<dd><ul class="first last">
+<li>Moduł <a class="reference external" href="http://github.com/WojciechMula/canvas2svg">canvasvg</a> umożliwia łatwy zapis zawartości <tt class="docutils literal">canvas</tt> w
+pliku SVG.  Wszystkie obiekty geometryczne są poprawnie zapisywane,
+także wygładzone łamane i wielokąty.  Teksty także, za wyjątkiem
+wielowierszowych (atrybut <tt class="docutils literal">width = 0</tt>).  Obrazki oraz okna są
+pomijane.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>2007-03-13</dt>
+<dd><ul class="first last">
+<li>Program <a class="reference external" href="http://github.com/WojciechMula/pydvi2svg">SVGfrags</a> zastępuje w istniejącym dokumencie SVG fragmenty tekstu,
+tekstem złożonym w (La)TeX-u &mdash; działa podobnie do znanego z LaTeXa
+pakietu <tt class="docutils literal">psfrags</tt>.  Poza zwykłym zastępowaniem tekstu, potrafi także
+wstawiać TeXowe fragmenty do prostokątów, przeskalować do żądanych
+rozmiarów itp.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2007-03-07</dt>
+<dd><ul class="first simple">
+<li><a class="reference external" href="http://github.com/WojciechMula/pydvi2svg">pydvi2svg</a> &mdash; dzięki nieocenionej pomocy i uwagom <strong>R (Chandra) Chandrasekhara</strong>
+<tt class="docutils literal">pydvi2svg</tt> znacząco zyskał, że wspomnę tylko o łatwiejszej
+istalacji i użytkowaniu, konwersji fontów <a class="reference external" href="http://pl.wikipedia.org/wiki/METAFONT">METAFONTowych</a>
+(via <tt class="docutils literal">mftrace</tt>) i wyliczaniu dokładnego pudełka otaczającego.</li>
+<li><a class="reference external" href="roles.html">reSTowe rozszerzenia</a> &mdash; ulepszona dyrektywa
+<tt class="docutils literal">math</tt>/<tt class="docutils literal">cmath</tt>, m.in. nazwy funkcji są pisane czcionką prostą,
+liczby są tokenami (tj.  <tt class="docutils literal">x_{12}</tt> i <tt class="docutils literal">x_12</tt> są równoważne).</li>
+</ul>
+<ul class="simple">
+<li><a class="reference external" href="articles/tree_layout/index.html#binarne-drzewa-pe-ne">Automatyczne rysowanie drzew</a> &mdash; dodana metoda rysowania
+binarnych drzew pełnych (każdy węzeł ma dokładnie dwa następniki,
+liście znajdują się na jednym poziomie).  Podejrzewam, że da się tę
+metodę uogólnić na drzewa pełne wyższych rzędów; do następnej
+bezsennej nocy &mdash; nierozstrzygnięte.</li>
+</ul>
+<ul class="last simple">
+<li><a class="reference external" href="articles/filltri.html">Wypełnianie trójkątów i czworokątów wypukłych</a> &mdash; dokładnie
+opisane wypełnianie czworokątów, oraz dodany przykładowy program.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>2007-02-17</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/Cohen_Sutherland-demo.svg">Interaktywne demo</a> algorytmu Cohena-Sutherlanda
+wykorzystujące SVG + Javascript &mdash; zadziała w nowych
+przeglądarkach (Firefox 1.5+, Opera 8+).
+Algorytm jest opisany na polskiej <a class="reference external" href="http://pl.wikipedia.org/wiki/Algorytm Cohena-Sutherlanda">Wikipedii</a>, a także we <em>Wprowadzeniu do
+grafiki komputerowej</em> Foleya, van Damma.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2007-02-13</dt>
+<dd><ul class="first simple">
+<li>Artykuł <a class="reference external" href="articles/tree_layout/index.html#drzewa-binarne">Automatyczne rysowanie dowolnych drzew</a> został rozszerzony
+o przykładową, bardzo prostą i krótką, procedurę służącą do rysowania
+drzew binarnych (specjalny przypadek opisanej tam metody 1).</li>
+</ul>
+<ul class="last">
+<li><p class="first">Jako suplement do artykułu <a class="reference external" href="articles/point_in_polygon.html#inne-metody">Punkt wewnątrz wielokąta</a> pojawiło się
+demo pokazujące w jaki sposób, po opisaniu wielokąta za pomocą drzew
+BSP, można klasyfikować punkty, tj. stwierdzać, czy leżą wewnątrz/na
+zewnątrz wielokąta.</p>
+<img alt="articles/img/bsp-tree-tkdemo.png" class="align-center" src="articles/img/bsp-tree-tkdemo.png" />
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>2007-02-04</dt>
+<dd><ul class="first last simple">
+<li>Demonstracje <a class="reference external" href="articles/bresenham.html">algorytmu Bresenhama</a> wykorzystujące JavaScript oraz
+<a class="reference external" href="http://en.wikipedia.org/wiki/Canvas_(HTML_element)">element canvas</a>:<ul>
+<li><a class="reference external" href="articles/bresenham-demo-line.html">rysowanie odcinka</a></li>
+<li><a class="reference external" href="articles/bresenham-demo-circle.html">rysowanie okręgu</a></li>
+<li><a class="reference external" href="articles/bresenham-demo-ellipse.html">rysowanie elipsy</a></li>
+<li>źródła: <a class="reference external" href="articles/bresenham.js">bresenham.js</a> (procedury rysujące), <a class="reference external" href="articles/bresenham-demo.js">bresenham-demo.js</a>
+(procedury pomocnicze)</li>
+</ul>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2007-01-06</dt>
+<dd><ul class="first last">
+<li><p class="first">Tkinterowe demo automatycznego rysowania drzew &mdash; program pozwala na
+interaktywną edycję drzewa (dodawanie węzłów, usuwanie poddrzew), a także
+zmianę podpisu węzła oraz jego koloru i kształtu: prostokąt, koło, prostokąt
+z zaokrąglonymi rogami (wykonanie tego ostatniego w Tkinterze jest niespecjalnie
+łatwe).</p>
+<img alt="articles/tree_layout/tree_layout-tkdemo2.png" class="align-center" src="articles/tree_layout/tree_layout-tkdemo2.png" style="width: 50%;" />
+<p>Szczegóły na stronie <a class="reference external" href="articles/tree_layout/index.html#binarne-drzewa-pe-ne">Automatyczne rysowanie drzew</a></p>
+<p>Przy okazji napisałem minimalistyczną paletkę 16 HTML-owych kolorów
+<a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/tkinter/tkcolorpicker.py">tkcolorpicker.py</a> &mdash; może się przydać również w innych projektach.
+(Tak, wiem że jest <tt class="docutils literal">tkColorChooser</tt> ale nie odpowiadało mi).</p>
+<img alt="img/tkcolorpicker.png" src="img/tkcolorpicker.png" />
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<blockquote>
+<ul class="simple">
+<li><a class="reference external" href="http://pl.wikipedia.org/wiki/Algorytm_Grahama">Algorytm Grahama</a> (wyszukiwanie otoczki wypukłej zbioru punktów):</li>
+</ul>
+<blockquote>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/graham.py">implementacja w Pythonie</a></li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/graham-tkdemo.py">demo - Tkinter</a></li>
+</ul>
+<img alt="img/graham-tkdemo.png" class="align-center" src="img/graham-tkdemo.png" />
+</blockquote>
+</blockquote>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/changelog2007.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:24 GMT -->
+</html>

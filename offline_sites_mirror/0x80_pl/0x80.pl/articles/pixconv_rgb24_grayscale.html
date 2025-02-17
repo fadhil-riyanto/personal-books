@@ -1,0 +1,485 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/pixconv_rgb24_grayscale.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:07 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Konwersja pikseli 24/32bpp na/z grayscale</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="konwersja-pikseli-24-32bpp-na-z-grayscale">
+<h1 class="title">Konwersja pikseli 24/32bpp na/z grayscale</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">16.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">30.04.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#konwersja-grayscale-na-24bpp-32bpp" id="toc-entry-1">Konwersja grayscale na 24bpp (32bpp)</a></li>
+<li><a class="reference internal" href="#kod-x86" id="toc-entry-2">Kod x86</a></li>
+<li><a class="reference internal" href="#kod-mmx" id="toc-entry-3">Kod MMX</a></li>
+<li><a class="reference internal" href="#kod-sse-ssse3" id="toc-entry-4">Kod SSE (SSSE3)</a></li>
+<li><a class="reference internal" href="#konwersja-24bpp-32bpp-na-grayscale" id="toc-entry-5">Konwersja 24bpp/32bpp na grayscale</a></li>
+<li><a class="reference internal" href="#srednia-arytmetyczna" id="toc-entry-6">Średnia arytmetyczna</a><ul>
+<li><a class="reference internal" href="#kod-x86-1" id="toc-entry-7">Kod x86</a></li>
+<li><a class="reference internal" href="#kod-mmx-1" id="toc-entry-8">Kod MMX</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#srednia-wazona-kod-mmx" id="toc-entry-9">Średnia ważona &mdash; kod MMX</a><ul>
+<li><a class="reference internal" href="#section-1" id="toc-entry-10">#1</a></li>
+<li><a class="reference internal" href="#section-2" id="toc-entry-11">#2</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#rownanie-3" id="toc-entry-12">Równanie 3.</a><ul>
+<li><a class="reference internal" href="#kod-x86-2" id="toc-entry-13">kod x86</a></li>
+<li><a class="reference internal" href="#kod-mmx2" id="toc-entry-14">kod MMX2</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="konwersja-grayscale-na-24bpp-32bpp">
+<h1>Konwersja grayscale na 24bpp (32bpp)</h1>
+<pre class="literal-block">
+|g3|g2|g1|g0| -&gt; |00|g3|g3|g3|00|g2|g2|g2|00|g1|g1|g1|00|g0|g0|g0|
+</pre>
+</div>
+<div class="section" id="kod-x86">
+<h1>Kod x86</h1>
+<pre class="literal-block">
+; wejście: al  -- pixel  8bpp - poziom szarości
+; wyjście: eax -- pixel 32bpp
+
+                    ; eax=|xx|xx|xx|gg|
+and eax, 0x000000ff ; eax=|00|00|00|gg|
+mov  ah, al         ; eax=|00|00|gg|gg|
+shl eax, 8          ; eax=|00|gg|gg|00|
+mov  al, ah         ; eax=|00|gg|gg|gg|
+</pre>
+</div>
+<div class="section" id="kod-mmx">
+<h1>Kod MMX</h1>
+<pre class="literal-block">
+; wejście: eax     -- 4 pixele 8bpp
+; wyjście: mm1:mm0 -- 4 pixele 32bpp
+
+
+movd      mm0, eax ; mm0 = 0000000044332211
+puncpklbw mm0, mm0 ; mm0 = 4444333322221111
+movq      mm1, mm0 ;
+puncpklbw mm0, mm0 ; mm0 = 2222222211111111
+puncpkhbw mm1, mm1 ; mm1 = 4444444433333333
+
+; -- gdy koniecznie trzeba wyzerować najstarsze bajty
+psrld     mm0, 8   ; mm0 = 0022222200111111
+psrld     mm1, 8   ; mm1 = 0044444400333333
+</pre>
+</div>
+<div class="section" id="kod-sse-ssse3">
+<h1>Kod SSE (SSSE3)</h1>
+<p>Zobacz przykład zamieszczony w <a class="reference external" href="avx-riscop.html">innym artykule</a>.</p>
+</div>
+<div class="section" id="konwersja-24bpp-32bpp-na-grayscale">
+<h1>Konwersja 24bpp/32bpp na grayscale</h1>
+<p>Przedstawionych zostanie kilka programów wyznaczających poziomy szarości z
+obrazów RGB &mdash; 24/32bpp. Zakładam, że składowe R, G i B mają szerokość
+8 bitów.</p>
+<p>Znane są mi trzy sposoby na obliczenie poziomu szarości piksela:</p>
+<ol class="arabic simple">
+<li><span class="math"><i>gray</i> = (R + G + B)/3</span></li>
+<li><span class="math"><i>gray</i> = 0.299R + 0.587G + 0.114B</span></li>
+<li><span class="math"><i>gray</i> = ((R + G)<i>div</i>2 + B)<i>div</i>2</span></li>
+</ol>
+<p>Pierwsza zależność to oczywiście zwykła średnia arytmetyczna, natomiast
+druga jest średnią ważoną &mdash; uwzględniona została czułość oka ludzkiego na
+poszczególne składowe. Trzecia zależność nadaje się do zastosowań gdzie
+szybkość przedkłada się nad jakość &mdash; jak widać wystarczą zaledwie dwa
+przesunięcia bitowe i dwa sumowania.</p>
+</div>
+<div class="section" id="srednia-arytmetyczna">
+<h1>Średnia arytmetyczna</h1>
+<div class="section" id="kod-x86-1">
+<h2>Kod x86</h2>
+<p>Dzielenie na x86 jest bardzo czasochłonne, dlatego też proponuję użycie
+tabliczki dzielenia; wyrażenie wyznaczające jasność piksela będzie miało postać:</p>
+<pre class="literal-block">
+gray = div_table[R+G+B];
+</pre>
+<p>Rozmiar tablicy jest równy <span class="math">R<sub>max</sub> + G<sub>max</sub> + B<sub>max</sub> = 3 &sdot; 255 = 765</span>.</p>
+<p>Samo przygotowanie tablicy nie wymaga nawet dzielenia, tak więc kod
+asemblerowy będzie krótki i szybki. Jeśli jakaś liczba <span class="math"><i>n</i></span> dzieli
+się bez reszty przez 3 i <span class="math"><i>n</i><i>div</i>3 = <i>k</i></span>, to również
+<span class="math">(<i>n</i> + 1)<i>div</i>3 = <i>k</i></span>, oraz <span class="math">(<i>n</i> + 2)<i>div</i>3 = <i>k</i></span> &mdash; tak więc 3 kolejne
+liczby w tablicy mają tę samą wartość.</p>
+<pre class="literal-block">
+byte div_table[3*255];
+// ...
+
+for (int i=0; i&lt;255; i++)
+    div_table[i*3 + 0] = div_table[i*3 + 1] = div_table[i*3 + 2] = i
+</pre>
+<p>Poniżej implementacja w asemblerze.</p>
+<pre class="literal-block">
+segment .data
+
+div_table_8bpp  times(3*255) db 0x00       ; tablica konwersji na obrazy 8bpp
+div_table_32bpp times(3*255) dw 0x00000000 ; i 32 bpp
+
+segment .text
+
+; funkcja wypełnia tablicę div_table_8bpp
+precalc_8bpp:
+        mov  cl, 0
+        mov esi, div_table_8bpp
+   .fill:
+        mov [esi+0], cl
+        mov [esi+1], cl
+        mov [esi+2], cl
+
+        add  esi, byte 3
+        inc  cl
+        jnc  .fill
+        ret
+
+; funkcja wypełnia tablicę div_table_32bpp
+precalc_32bpp:
+        mov ecx, 0x00000000
+        mov esi, div_table_32bpp
+   .fill:
+        mov [esi+0], ecx
+        mov [esi+4], ecx
+        mov [esi+8], ecx
+
+        add  esi, byte 3*4
+
+        add  ecx, 0x01010101
+        jnc  .fill
+        ret
+
+; esi -&gt; wskaźnik na obraz wejściowy 32bpp
+; edi -&gt; wskaźnik na obraz wyjściowy 8bpp
+; ecx = ilość pikseli
+convert:
+        xor ebx, ebx
+        xor edx, edx
+   .loop:
+        mov eax, [esi]  ; eax = |x|R|G|B|
+
+        mov  bl, al     ; ebx = |0|0|0|B|
+        mov  dl, ah     ; edx = |0|0|0|G|
+        shr eax, 16     ; eax = |0|0|x|R|
+        mov  ah, 0      ; eax = |0|0|0|R|
+
+        ; ***
+        add eax, ebx    ; eax = R+B
+
+        mov    al, [div_table_8bpp+eax+edx]
+        mov [edi], al
+
+        add esi, byte 4
+        inc edi
+        loop .loop
+</pre>
+<p>Dla konwersji RGB 32bpp -&gt; grayscale kod różni się nieznacznie
+(pokazany fragment).</p>
+<pre class="literal-block">
+; ...
+;
+; ***
+add eax, ebx    ; eax = R+G+B
+add eax, ecx    ;
+
+mov   eax, [div_table + eax*4]
+mov [edi], eax
+
+add esi, byte 4
+add edi, byte 4
+loop .loop
+</pre>
+</div>
+<div class="section" id="kod-mmx-1">
+<h2>Kod MMX</h2>
+<p>Przy użyciu podstawowych rozkazów MMX trochę kłopotliwe jest dodanie do
+siebie składowych.</p>
+<p>Dzielenie przez 3 wbrew pozorom można wykonać bardzo łatwo, poprzez
+mnożenie przez odwrotność: <tt class="docutils literal">65536/3 = 2184 = 0x5555</tt>. Ponieważ
+odwrotność jest dodatkowo mnożona przez 65536, więc wynikiem będzie
+starsze słowo wyniku &mdash; wynik działania rozkazu <tt class="docutils literal">pmulhw</tt>.  Zarówno
+suma R+G+B jak i odwrotność są mniejsze od 0x8000, są więc w zapisie U2
+liczbami dodatnimi. Nie będzie więc problemów z wykorzystaniem
+wspomnianego rozkazu.</p>
+<p>Poniższy kod jest zoptymalizowana, tak by maksymalnie wykorzystać
+obliczenia równoległe. (W komentarzach suma składowych będzie oznaczana
+jako <tt class="docutils literal">rgbx</tt>).</p>
+<pre class="literal-block">
+movq mm0, [edi+0]  ; mm0 = |0 |b1|g1|r1|0 |b0|g0|r0|
+movq mm1, mm0
+movq mm2, mm0
+
+movq mm3, [edi+8]  ; mm1 = |0 |b3|g3|r3|0 |b2|g2|r2|
+movq mm4, mm3
+movq mm5, mm3
+
+pand  mm0, packed_dword(0x000000ff) ; mm0 = |0 |0 |0 |r1|0 |0 |0 |r0|
+pand  mm3, packed_dword(0x000000ff) ; mm3 = |0 |0 |0 |r3|0 |0 |0 |r2|
+
+psrld mm1, 16                       ; mm1 = |0 |0 |0 |b1|0 |0 |0 |b0|
+psrld mm4, 16                       ; mm4 = |0 |0 |0 |b3|0 |0 |0 |b2|
+
+psrlw mm2, 8                        ; mm2 = |0 |0 |0 |g1|0 |0 |0 |g0|
+psrlw mm5, 8                        ; mm5 = |0 |0 |0 |g3|0 |0 |0 |g2|
+
+paddd mm0, mm1                      ;
+paddd mm3, mm4                      ; R+B
+paddd mm0, mm2                      ; mm0 = |   rgb1    |    rgb0   | -- R+G+B
+paddd mm3, mm5                      ; mm3 = |   rgb3    |    rgb2   |
+
+packssdw mm0, mm3                   ; mm0 = |   rgb3    |   rgb2    |   rgb1    |   rgb0    |
+pmulhw   mm0, packed_word(0x5555)   ; mm0 = |   gray3   |   gray2   |   gray1   |   gray0   |
+packuswb mm0, mm0                   ; mm0 = |g3|g2|g1|g0|g3|g2|g1|g0|
+</pre>
+<p>Użycie rozkazu <tt class="docutils literal">PSADBW</tt> (rozszerzenie MMX) znacznie upraszcza kod.</p>
+<pre class="literal-block">
+pxor      mm7, mm7   ; mm7 = packed_byte(0x00)
+
+; piksele 0 i 1
+movq      mm1, [edi+0] ; mm1 = |0 |b1|g1|r1|0 |b0|g0|r0|
+movd      mm0, mm1     ; mm0 = |0 |0 |0 |0 |0 |b0|g0|r0|
+
+psadbw    mm0, mm7     ; mm0 = |  0  |  0  |  0  | rgb0      |
+
+psadbw    mm1, mm7     ; mm1 = |  0  |  0  |  0  | rgb0+rgb1 |
+psubw     mm1, mm0     ; mm1 = |  0  |  0  |  0  | rgb1      |
+
+; piksele 2 i 3
+movq      mm3, [edi+8] ; mm3 = |0 |b3|g3|r3|0 |b2|g2|r2|
+movd      mm2, mm3     ; mm2 = |0 |0 |0 |0 |0 |b2|g2|r2|
+
+psadbw    mm2, mm7     ; mm2 = |  0  |  0  |  0  | rgb2      |
+
+psadbw    mm3, mm7     ; mm3 = |  0  |  0  |  0  | rgb2+rgb3 |
+psubw     mm3, mm2     ; mm3 = |  0  |  0  |  0  | rgb3      |
+
+; łącznie
+punpcklwd mm0, mm1     ; mm0 = |  0  |  0  |rgb 1|rgb 0|
+punpcklwd mm2, mm3     ; mm2 = |  0  |  0  |rgb 3|rgb 2|
+punpckldq mm0, mm2     ; mm0 = |rgb 3|rgb 2|rgb 1|rgb 0|
+
+; dzielenie przez 3
+pmulhw    mm0, packed_word(0x5555)
+packsswdw mm0, mm0
+</pre>
+</div>
+</div>
+<div class="section" id="srednia-wazona-kod-mmx">
+<h1>Średnia ważona &mdash; kod MMX</h1>
+<div class="section" id="section-1">
+<h2>#1</h2>
+<p>Aby maksymalnie wykorzystać obliczenia równoległe należy przetwarzać
+równocześnie 4 piksele. Wcześniej należy zreorganizować dane, tak
+by otrzymać 3 wektory:</p>
+<pre class="literal-block">
+mm0 = | r3 | r2 | r1 | r0 |
+mm1 = | g3 | g2 | g1 | g0 |
+mm2 = | b3 | b2 | b1 | b0 |
+</pre>
+<p>Wystarczą wtedy zaledwie 3 rozkazy klasy <tt class="docutils literal">pmul</tt> i dwa dodawania.</p>
+<p>Oczywiście należy przygotować wektory wag pikseli &mdash; ponieważ są to liczby
+ułamkowe skorzystamy z formatu fixed-point, jednym problemem jest wybór
+mnożnika. Wykorzystanie mnożnika 65536 wyklucza użycie standardowego zestawu
+instrukcji MMX (rozkaz <tt class="docutils literal">pmulhw</tt>), bowiem <span class="math">0.587 &sdot; 65536 = 0<i>x</i>9645</span>,
+a jest to liczba ujemna (jasne jest, że rozkaz <tt class="docutils literal">pmuluhw</tt> takich
+ograniczeń nie nakłada). Tak więc by móc używać standardowych instrukcji
+MMX powinniśmy zrezygnować z dokładności &mdash; mnożnik 256, czyli 8 bitów
+po przecinku, zapewnia wystarczającą dokładność.</p>
+<pre class="literal-block">
+segment .data
+
+weight_r_8  dw 0x004c, 0x004c, 0x004c, 0x004c ; int(0.299*256)
+weight_g_8  dw 0x0096, 0x0096, 0x0096, 0x0096 ; int(0.587*256)
+weight_b_8  dw 0x0024, 0x0024, 0x0024, 0x0024 ; int(0.144*256)
+
+weight_r_16 dw 0x4c8b, 0x4c8b, 0x4c8b, 0x4c8b
+weight_g_16 dw 0x9645, 0x9645, 0x9645, 0x9645
+weight_b_16 dw 0x24dd, 0x24dd, 0x24dd, 0x24dd
+
+segment .text
+
+; wejście - mm0, mm1, mm2 - zawartość j.w.
+convert_MMX:
+        pmullw   mm0, [weigt_r_8] ; przemnożenie składowych przez współczynniki
+        pmullw   mm1, [weigt_g_8] ;
+        pmullw   mm2, [weigt_b_8] ;
+
+        paddw    mm0, mm1         ; sumowanie
+        paddw    mm0, mm2         ; mm0 = (|gray3|gray2|gray1|gray0|)*256
+
+        psrlw    mm0, 8           ; mm0 =  |gray3|gray2|gray1|gray0|
+        packsswb mm0, mm0         ; mm0 =  |g3|g2|g1|g0|g3|g2|g1|g0|
+        ret
+
+convert_MMX2:
+        pmuluhw  mm0, [weigt_r_16]; przemnożenie składowych przez współczynniki
+        pmuluhw  mm1, [weigt_g_16];
+        pmuluhw  mm2, [weigt_b_16];
+
+        paddw    mm0, mm1         ; sumowanie
+        paddw    mm0, mm2         ; mm0 = |gray3|gray2|gray1|gray0|
+
+        packsswb mm0, mm0         ; mm0 = |g3|g2|g1|g0|g3|g2|g1|g0|
+        ret
+</pre>
+<p>Pokażę jeszcze dwa sposoby jak przekonwertować dane wejściowe na format
+wymagany przez funkcje <tt class="docutils literal">convert_MMX</tt> i <tt class="docutils literal">convert_MMX2</tt>.</p>
+<pre class="literal-block">
+; funkcja używa podstawowych rozkazów MMX
+shuffle_rgb_MMX:
+        movq mm0, [edi]                     ; mm0 = |0 |b1|g1|r1|0 |b0|g0|r0|
+        movq mm1, mm0
+        movq mm2, mm0
+
+        movq mm3, [edi+8]                   ; mm3 = |0 |b3|g3|r3|0 |b2|g2|r2|
+        movq mm4, mm3
+        movq mm5, mm3
+
+        pand  mm0, packed_dword(0x000000ff) ; mm0 = |0 |0 |0 |r1|0 |0 |0 |r0|
+        pand  mm3, packed_dword(0x000000ff) ; mm3 = |0 |0 |0 |r3|0 |0 |0 |r2|
+
+        psrld mm1, 16                       ; mm1 = |0 |0 |0 |b1|0 |0 |0 |b0|
+        psrld mm4, 16                       ; mm4 = |0 |0 |0 |b3|0 |0 |0 |b2|
+
+        psrlw mm2, 8                        ; mm2 = |0 |0 |0 |g1|0 |0 |0 |g0|
+        psrlw mm5, 8                        ; mm5 = |0 |0 |0 |g3|0 |0 |0 |g2|
+
+        packssdw mm0, mm3                   ; mm0 = | r3  | r2  | r1  | r0  |
+        packssdw mm1, mm4                   ; mm1 = | b3  | b2  | b1  | b0  |
+        packssdw mm2, mm5                   ; mm2 = | g3  | g2  | g1  | g0  |
+        ret
+
+; funkcja używa rozszerzonych rozkazów MMX
+shuffle_rgb_MMX2:
+        movq      mm0, [edi]                ; mm0 = |0 |b1|g1|r1|0 |b0|g0|r0|
+        movq      mm2, [edi+8]              ; mm2 = |0 |b3|g3|r3|0 |b2|g2|r2|
+
+                                                       3     1     2     0
+        pshufw    mm0, mm0, 0b11011000      ; mm0 = |0 |b1|0 |b0|g1|r1|g0|r0|
+        pshufw    mm2, mm2, 0b11011000      ; mm2 = |0 |b3|0 |b2|g3|r3|g2|r2|
+        movq      mm1, mm0
+        movq      mm3, mm2
+
+        punpcklwd mm0, mm2                  ; mm0 = |g3|r3|g2|r2|g1|r1|g0|r0|
+        punpckhwd mm1, mm3                  ; mm1 = |0 |b3|0 |b2|0 |b1|0 |b0|
+
+        movq      mm2, mm0
+        psrlw     mm0, 8                    ; mm0 = |0 |g3|0 |g2|0 |g1|0 |g0|
+        pand      mm2, packed_word(0x00ff)  ; mm2 = |0 |r3|0 |r2|0 |r1|0 |r0|
+        ret
+</pre>
+</div>
+<div class="section" id="section-2">
+<h2>#2</h2>
+<pre class="literal-block">
+; 13.03.2002
+; 18.10.2002
+;
+; gray = 0.299 * R + 0.587 * G + 0.114 * B
+; gray =(  4ch * R +   95h * G +   1eh * B) &gt;&gt; 8
+
+
+movq mm0, [edi+0h] ; mm0 = |a1|r1|g1|b1|a0|r0|g0|b0| ; załaduj
+movq mm1, mm0
+
+movq mm2, [edi+8h] ; mm1 = |a3|r3|g3|b3|a2|r2|g2|b2| ; 4 pixele
+movq mm3, mm2
+
+
+; obliczenie czynnika  4ch*R + 95h*G
+pand     mm0, {0x00ff, 0x00ff, 0x00ff, 0x00ff} ; mm0 = |0 |r1|0 |b1|0 |r0|0 |b0|
+pand     mm2, {0x00ff, 0x00ff, 0x00ff, 0x00ff} ; mm2 = |0 |r3|0 |b3|0 |r2|0 |b2|
+
+pmaddwd  mm0, {0x004c, 0x001e, 0x004c, 0x001e} ; mm0 = |r1*4ch + b1*1eh|r0*4ch + b0*1eh|
+pmaddwd  mm2, {0x004c, 0x001e, 0x004c, 0x001e} ; mm2 = |r3*4ch + b3*1eh|r2*4ch + b2*1eh|
+
+; obliczenie czynnika 1eh*B
+pand     mm1, {0x0000, 0xff00, 0x0000, 0xff00} ; mm1 = |0 |0 |g1|0 |0 |0 |g0|0 |
+pand     mm3, {0x0000, 0xff00, 0x0000, 0xff00} ; mm3 = |0 |0 |g3|0 |0 |0 |g2|0 |
+
+psrlw    mm1, 8                                ; mm1 = |0 |0 |0 |g1|0 |0 |0 |g0|
+psrlw    mm3, 8                                ; mm3 = |0 |0 |0 |g3|0 |0 |0 |g2|
+packsswd mm1, mm3                              ; mm1 = |0 |g3|0 |g2|0 |g1|0 |g0|
+
+pmullw   mm1, {0x0095, 0x0095, 0x0095, 0x0095} ; mm1 = |g3*95h |g3*95h |g3*95h |g3*95h |
+
+; sumowanie czynników i dzielenie przez 256
+packssdw mm0, mm2                              ; mm0 = |  rb3  |  rb2  |  rb1  |  rb0  |
+paddw    mm0, mm1                              ; mm0 = |rb3+g3 |rb2+g2 |rb1+g1 |rb0+g0 |
+psrlw    mm0, 8                                ; mm0 = | gray3 | gray2 | gray1 | gray0 |
+</pre>
+</div>
+</div>
+<div class="section" id="rownanie-3">
+<h1>Równanie 3.</h1>
+<p>Jego stosowanie jest korzystne w przypadku kodu dla x86 &mdash; dla MMX mija się
+z celem, zważywszy na duże kłopoty z liczeniem średniej dwóch liczb.</p>
+<p>W MMX2 (czyli wraz z SSE) wprowadzono rozkaz <tt class="docutils literal">PAVGB</tt>, które oblicza
+średnią wg wzoru <tt class="docutils literal">(A + B + <span class="pre">1)/2</span></tt>.</p>
+<div class="section" id="kod-x86-2">
+<h2>kod x86</h2>
+<pre class="literal-block">
+; wejście: edi - wskaźnik do obrazu 32bpp
+;          esi - wskaźnik do obrazu 8bpp
+;          ecx - ilość pikseli
+
+convert:
+        mov eax, [edi] ; eax = |a|b|g|r|
+
+        add  ah, al    ;
+        rcr  ah, 1     ; eax = |   a   |   b   |(g+r)/2|   r   |
+
+        shr eax, 8     ; eax = |   0   |   a   |   b   |(g+r)/2|
+
+        add  al, ah    ;
+        rcr  al, 1     ; eax = |   0   |   a   |   b   |(b+(g+r)/2)/2|
+
+        mov [esi], al
+
+        add edi, byte 4
+        inc esi
+
+        loop convert
+        ret
+</pre>
+</div>
+<div class="section" id="kod-mmx2">
+<h2>kod MMX2</h2>
+<p>Aby maksymalnie wykorzystać obliczenia równoległe należy przetwarzać
+równocześnie 4 piksele. Wcześniej należy zreorganizować dane, tak
+by otrzymać 3 wektory:</p>
+<pre class="literal-block">
+mm0 = | r3 | r2 | r1 | r0 |
+mm1 = | g3 | g2 | g1 | g0 |
+mm2 = | b3 | b2 | b1 | b0 |
+</pre>
+<p>Wystarczą wówczas dwa wywołania <tt class="docutils literal">PAVGB</tt></p>
+<pre class="literal-block">
+pavgb   %mm1, %mm0
+pavgb   %mm2, %mm0
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/pixconv_rgb24_grayscale.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:07 GMT -->
+</html>

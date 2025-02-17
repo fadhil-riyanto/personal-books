@@ -1,0 +1,471 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/num2ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Wyświetlanie liczb</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="wyswietlanie-liczb">
+<h1 class="title">Wyświetlanie liczb</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">3.05.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">30.04.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wyswietlanie-liczb-w-systemie-dwojkowym" id="toc-entry-1">1. Wyświetlanie liczb w systemie dwójkowym</a><ul>
+<li><a class="reference internal" href="#kod-x86" id="toc-entry-2">1.1. Kod x86</a></li>
+<li><a class="reference internal" href="#kod-z-wykorzystaniem-mmx" id="toc-entry-3">1.2. Kod z wykorzystaniem MMX</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#wyswietlanie-liczb-w-systemie-dziesietnym" id="toc-entry-4">2. Wyświetlanie liczb w systemie dziesiętnym</a><ul>
+<li><a class="reference internal" href="#pobieranie-najmlodszej-cyfry" id="toc-entry-5">2.1. Pobieranie najmłodszej cyfry</a><ul>
+<li><a class="reference internal" href="#odwracanie-lancucha" id="toc-entry-6">2.1.1. Odwracanie łańcucha</a></li>
+<li><a class="reference internal" href="#liczby-o-znanej-ilosci-cyfr" id="toc-entry-7">2.1.2. Liczby o znanej ilości cyfr</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#pobieranie-najstarszej-cyfry" id="toc-entry-8">2.2. Pobieranie najstarszej cyfry</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#wyswietlanie-liczb-w-systemie-szesnastkowym" id="toc-entry-9">3. Wyświetlanie liczb w systemie szesnastkowym</a><ul>
+<li><a class="reference internal" href="#tablicowanie-kod-x86" id="toc-entry-10">3.1. Tablicowanie (kod x86)</a></li>
+<li><a class="reference internal" href="#bezposrednie-obliczenia" id="toc-entry-11">3.2. Bezpośrednie obliczenia</a><ul>
+<li><a class="reference internal" href="#kod-x86-bez-rozgalezien" id="toc-entry-12">3.2.1. Kod x86 (bez rozgałęzień!)</a></li>
+<li><a class="reference internal" href="#kod-mmx" id="toc-entry-13">3.2.2. Kod MMX</a></li>
+<li><a class="reference internal" href="#kod-ssse3" id="toc-entry-14">3.2.3. Kod SSSE3</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wyswietlanie-liczb-w-systemie-dwojkowym">
+<h1>1. Wyświetlanie liczb w systemie dwójkowym</h1>
+<p>Poniższe programy zamieniają liczbę zapisaną w rejestrze <tt class="docutils literal">AL</tt>, na
+reprezentację binarną w łańcuchu ASCII-Z.</p>
+<div class="section" id="kod-x86">
+<h2>1.1. Kod x86</h2>
+<pre class="literal-block">
+; wejście: al
+; wyjście: _string (zakończony zerem)
+
+segment .data
+
+_string db &quot;????????&quot;, 0
+
+segment .text
+
+        mov cx, 8       ; 8-bitów do przetworzenia
+        mov di, _string ; offset łańcucha
+_conv:
+        mov bl, 0       ; bl = 0
+        rol al, 1       ; CF = MSB(al)
+        adc bl, '0'     ; bl = ascii(CF)
+
+        mov [di], bl    ; [di++] = bl
+        inc di          ;
+        loop _conv
+</pre>
+</div>
+<div class="section" id="kod-z-wykorzystaniem-mmx">
+<h2>1.2. Kod z wykorzystaniem MMX</h2>
+<pre class="literal-block">
+; wejście: al
+; wyjście: mm0
+
+segment .data
+
+mmx_bits db 0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01 ; maska dla kolejnych bitów
+mmx_asc0 db 0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x30 ; 0x30 = ascii('0')
+
+_string  db &quot;????????&quot;,0
+
+segment .text
+
+                          ; np. a = 0xe9 (11101001b)
+movd      mm1, eax        ; mm1 = |00|00|00|00|xx|xx|xx|e9|
+punpcklbw mm1, mm1        ; mm1 = |00|00|00|00|xx|xx|e9|e9|
+punpcklbw mm1, mm1        ; mm1 = |xx|xx|xx|xx|e9|e9|e9|e9|
+punpcklbw mm1, mm1        ; mm1 = |e9|e9|e9|e9|e9|e9|e9|e9|
+
+                          ; zostaw pojedyncze bity w każdym bajcie
+pand      mm1, [mmx_bits] ; mm1 = |01|00|00|01|00|01|01|01|
+pcmpeqb   mm1, [mmx_bits] ; mm1 = |ff|00|00|ff|00|ff|ff|ff|
+
+movq      mm0, [mmx_asc0] ; mm0 = |30|30|30|30|30|30|30|30|
+psubb     mm0, mm1        ; mm0 = |31|30|30|31|30|31|31|31| = &quot;11101001&quot;
+
+movq      [_string], mm0
+</pre>
+</div>
+</div>
+<div class="section" id="wyswietlanie-liczb-w-systemie-dziesietnym">
+<h1>2. Wyświetlanie liczb w systemie dziesiętnym</h1>
+<p>By wyświetlić liczbę, należy odczytać poszczególne cyfry. Najprościej jest
+pobrać najmłodszą cyfrę &mdash; jest to reszta z dzielenia przez 10 (ogólnie:
+przez podstawę systemu). Z kolei wynikiem dzielenia liczby przez wagę
+najstarszej cyfry jest właśnie najstarsza cyfra. Generalnie, odczyt
+dowolnej cyfry przedstawia się następująco.</p>
+<pre class="literal-block">
+// x         - liczba                    (np. 10506)
+// digit_pos - pozycja cyfry (&gt;0)        (        2)
+// base      - podstawa systemu liczenia (       10)
+int get_digit(int x, int digit_pos, int base=10) {
+                           // x = 10506
+ x /= pow(base, digit_pos) // x = 105
+ x %= base                 // x = 5
+ return x;
+}
+</pre>
+<div class="section" id="pobieranie-najmlodszej-cyfry">
+<h2>2.1. Pobieranie najmłodszej cyfry</h2>
+<p>Wadą tego rozwiązania jest uzyskiwanie cyfr w odwrotnej kolejności (od
+najmłodszej do najstarszej), ale można to rozwiązać na co najmniej dwa
+sposoby:</p>
+<ul class="simple">
+<li>odwracając wynikowy łańcuch;</li>
+<li>zapisując od końca łańcucha &mdash; trzeba znać maksymalną ilość cyfr.</li>
+</ul>
+<div class="section" id="odwracanie-lancucha">
+<h3>2.1.1. Odwracanie łańcucha</h3>
+<p>Zwykłe odwracanie łańcucha jest oczywiście dość proste, ale ja proponuję
+inne podejście. Otóż można użyć stosu do niejawnego odwrócenia łańcucha, a
+właściwie do odwrócenia kolejności zapisów do łańcucha.</p>
+<pre class="literal-block">
+void display_uint(unsigned int x) {
+ if (!x) return
+ display_uint(x/10);
+ // wyświetlenie cyfry
+ putchar(x % 10 + '0');
+}
+</pre>
+<p>Przy rekursji stos jest wykorzystywany zupełnie naturalnie, ale można również
+bezpośrednio użyć struktury stosowej.</p>
+<pre class="literal-block">
+void push(char);
+char pop();
+int  stack_empty();
+
+void display_uint(unsigned int x)
+{
+ do {
+     push(x%10 + '0');
+     x /= 10;
+ }
+ while (x)
+
+ while (!stack_empty())
+   putchar(pop());
+}
+</pre>
+<p>W asemblerze użycie powyższego sposobu jest nadzwyczaj proste, ponieważ
+procesor wspiera operacje na stosie poprzez instrukcje <tt class="docutils literal">push</tt>
+i <tt class="docutils literal">pop</tt>.</p>
+<pre class="literal-block">
+; edi - wskaźnik na łańcuch - minimum 11 bajtów
+; eax - zamieniana wartość (bez znaku!)
+dword2dec_ascii:
+
+pushad
+
+mov ecx, 10
+
+mov ebp, esp                            ; zapisz wierzchołek stosu
+.conv:
+        xor     edx, edx                ; edx = eax % 10
+        div     ecx                     ;
+
+        lea     ebx, [edx + '0']        ; ebx = ASCII(edx)
+        push    bx
+
+        or      eax, eax                ; do ... while (eax)
+        jnz     .conv                   ; /
+
+cld
+.create_string:
+        cmp     ebp, esp                ; while(!stack_empty()) - dopóki
+        je      .end                    ; oryginalna zawartość stosu
+                                        ; nie zostanie odtworzona
+
+        pop     ax                      ; stos jest opróżniany
+        stosb                           ; a zapisane na nim uprzednio litery
+                                        ; zapisywane do łańcucha [edi]
+        jmp     .create_string
+.end:
+
+mov [edi], byte 0  ; zapisz kończący symbol
+popad
+ret
+</pre>
+</div>
+<div class="section" id="liczby-o-znanej-ilosci-cyfr">
+<h3>2.1.2. Liczby o znanej ilości cyfr</h3>
+<p>W tym przypadku łańcuch wypełnia się od końca, a funkcja zwraca wskaźnik do
+ostatnio zapisanego znaku.</p>
+<pre class="literal-block">
+#define size 20 /* ilość cyfr */
+
+char string[size+1] = {0};
+
+char* uint2ascii(unsigned int x)
+{
+ char *c = &amp;string[size-1]; // przedostatni znak
+
+ do
+   {
+   *c-- = x % 10 + '0';
+    x  /= 10;
+   }
+ while (x)
+
+ return c;
+}
+</pre>
+<p>W asemblerze kod jest równie prosty, a nawet bardziej, bowiem rozkaz
+<tt class="docutils literal">div</tt> zarówno dzieli jak i liczy resztę. W C zdefiniowano
+funkcję <tt class="docutils literal">div</tt>, która działa analogicznie do rozkazu <tt class="docutils literal">div</tt>.</p>
+<pre class="literal-block">
+; esi = c &gt; string[size]
+; eax = x
+uint2ascii:
+        mov ebx, 10
+  .conv:
+        div   eax, ebx ; eax = eax/10
+                       ; edx = eax%10
+        add   dl , '0' ;  dl = ASCII(dl)
+        mov [esi], dl
+        dec  esi
+
+        test  eax, eax ; if (x != 0) goto .conv
+        jnz   .conv
+        ret
+</pre>
+</div>
+</div>
+<div class="section" id="pobieranie-najstarszej-cyfry">
+<h2>2.2. Pobieranie najstarszej cyfry</h2>
+<p>Jest to czasochłonna metoda, jednak dość ciekawa. Za darmo można
+uzyskać zera wiodące (ang. <em>leading zeros</em>), co być może w
+niektórych zastosowaniach się przyda, aczkolwiek wymaga większej liczby
+obliczeń.</p>
+<pre class="literal-block">
+void display_uint(unsigned int x)
+{                    // 4294967295 -- maksymalna wartość dword'a
+ unsigned int weight =  1000000000;
+
+ do {
+     putchar(x/weight + '0'); // wyświetlenie najstarszej cyfry
+
+     x      %= weight;        // &quot;wycięcie&quot; najstarszej cyfry
+     weight /= 10;            // następna cyfra
+    }
+ while (x);
+}
+</pre>
+</div>
+</div>
+<div class="section" id="wyswietlanie-liczb-w-systemie-szesnastkowym">
+<h1>3. Wyświetlanie liczb w systemie szesnastkowym</h1>
+<p>Funkcje konwertujące liczby na system szesnastkowy.</p>
+<div class="section" id="tablicowanie-kod-x86">
+<h2>3.1. Tablicowanie (kod x86)</h2>
+<p>Najprostszym sposobem jest tablicowanie cyfr szesnastkowych:</p>
+<pre class="literal-block">
+segment .data
+
+hax_digits db &quot;0123456789abcdef&quot;
+string     db &quot;????????&quot;, 0      ; null terminated string
+
+segment .text
+
+dword2hex:
+; eax - liczba do wyświetlania
+
+mov edi, string+8 ; offset ostatniego znaku
+
+mov ecx, 8        ; ilość tetrad (ang. nibbles)
+                  ; tetrada to 4 kolejne bity, czyli tyle ile wymaga do
+                  ; zapisania 1 cyfra szesnastkowa
+
+xor ebx, ebx
+_conv:
+        mov bl, al               ; eax = |hg|fe|dc|ba|
+        and bl, 0x0f             ; ebx = |00|00|00|0a|
+
+        mov bl, [hex_digits+ebx] ; bl = 'a';
+
+        mov [edi], bl            ; zapisz znak
+        dec edi
+
+        shr eax, 4               ; eax = |0h|gf|ed|cb| -- następna tetrada
+        loop _conv
+</pre>
+</div>
+<div class="section" id="bezposrednie-obliczenia">
+<h2>3.2. Bezpośrednie obliczenia</h2>
+<p>Można obyć się bez tablicy; proszę przyjrzeć się kodom ASCII poszczególnych liter:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+<col width="6%" />
+</colgroup>
+<tbody valign="top">
+<tr><td>0</td>
+<td>1</td>
+<td>2</td>
+<td>3</td>
+<td>4</td>
+<td>5</td>
+<td>6</td>
+<td>7</td>
+<td>8</td>
+<td>9</td>
+<td>a</td>
+<td>b</td>
+<td>c</td>
+<td>d</td>
+<td>e</td>
+<td>f</td>
+</tr>
+<tr><td>0x30</td>
+<td>0x31</td>
+<td>0x32</td>
+<td>0x33</td>
+<td>0x34</td>
+<td>0x35</td>
+<td>0x36</td>
+<td>0x37</td>
+<td>0x38</td>
+<td>0x39</td>
+<td>0x61</td>
+<td>0x62</td>
+<td>0x63</td>
+<td>0x64</td>
+<td>0x65</td>
+<td>0x66</td>
+</tr>
+</tbody>
+</table>
+<p>Wybór litery jest prosty:</p>
+<ul class="simple">
+<li>Jeśli tetrada <tt class="docutils literal">t</tt> jest w zakresie 0..9 to kod litery uzyskuje
+się dodając <tt class="docutils literal">0x30</tt> do <tt class="docutils literal">t</tt>.</li>
+<li>Jeśli tetrada jest większa od 9 to kod litery uzyskuje się prawie
+tak samo łatwo: <tt class="docutils literal"><span class="pre">t-10</span> + 0x61</tt>.</li>
+</ul>
+<pre class="literal-block">
+char hex_digit(unsigned int nibble)
+{
+ if (nibble &gt; 0xa) return = nibble + '0';
+              else return = (nibble-10) + 'a';
+}
+</pre>
+<div class="section" id="kod-x86-bez-rozgalezien">
+<h3>3.2.1. Kod x86 (bez rozgałęzień!)</h3>
+<pre class="literal-block">
+;  2-02-02
+
+; wejście: al - tetrada
+; wyjście: bl - bl='0' + (al &gt;= 9) ? al : al+('a'-10-'0');
+; niszczy: cl
+
+mov bl, '0'
+mov cl, 9
+
+cmp cl, al ; CF = al&gt;cl
+sbb cl, cl ; cl = -1 jeśli CF==1
+
+and cl, 'a'-10-'0'
+
+add bl, al
+add bl, cl
+</pre>
+</div>
+<div class="section" id="kod-mmx">
+<h3>3.2.2. Kod MMX</h3>
+<pre class="literal-block">
+segment .text
+
+_word2ascii_mmx:
+; eax - liczba           ; eax: hgfedcba
+
+; Pierwszym krokiem jest odwrócenie kolejność tetrad,
+; ponieważ pierwszy jest wyświetlany bajt o młodszym adresie, a
+; na pierwszej pozycji jest zawsze najstarsza cyfra.
+; Stąd całe zamieszanie
+
+bswap     eax            ; eax: badcfehg
+
+; Kolejnym krokiem jest &quot;rozpakowanie&quot; tetrad do
+; bajtów
+
+movd      mm0, eax       ; mm0: 00000000badcfehg
+movd      mm1, eax       ; mm1: 00000000badcfehg
+psrlq     mm0, 4         ; mm0: 000000000badcfeh
+
+punpcklbw mm0, mm1       ; mm0: ba 0b dc ad fe cf hg eh
+pand      mm0, [mm_mask] ; mm0: 0a 0b 0c 0d 0e 0f 0g 0h
+
+; Na końcu właściwa konwersja
+
+                         ; np.
+movq      mm1, mm0       ; mm1: 0a 01 07 0f 0d 00 08 0c
+pcmpgtb   mm1, [mm_nine] ; mm1: ff 00 00 ff ff 00 00 ff ; mm1 &gt; 9
+pand      mm1, [mm_corr] ; mm2: 27 00 00 27 27 00 00 27
+
+paddb     mm0, [mm_zero] ;
+paddb     mm0, mm1       ;
+
+movq [string], mm0
+
+ret;urn
+
+segment .data
+
+mm_mask dd 0x0f0f0f0f, 0x0f0f0f0f  ; maska dla młodszych tetrad
+mm_nine dd 0x09090909, 0x09090909  ; packed_byte(0x9)
+mm_zero dd 0x30303030, 0x30303030  ; packed_byte('0')
+mm_corr dd 0x27272727, 0x27272727  ; packed_byte('a' - 10)
+
+string db '????????',0
+</pre>
+</div>
+<div class="section" id="kod-ssse3">
+<h3>3.2.3. Kod SSSE3</h3>
+<p>Zobacz wpis w osobnym <a class="reference external" href="../notesen/2008-04-29-sse-hexprint.html">artykule</a>.</p>
+</div>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/num2ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+</html>

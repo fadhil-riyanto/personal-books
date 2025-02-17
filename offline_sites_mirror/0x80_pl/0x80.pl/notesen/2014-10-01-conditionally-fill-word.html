@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-01-conditionally-fill-word.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Conditionally fill word (for limited set of input values)</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="conditionally-fill-word-for-limited-set-of-input-values">
+<h1 class="title">Conditionally fill word (for limited set of input values)</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="article field"><th class="docinfo-name">Article:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-10-01</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-03-11</td>
+</tr>
+</tbody>
+</table>
+<p>&quot;Limited&quot; means a value where at most one bit is set. I.e. values
+are zero and all powers of two.  Specification:</p>
+<ol class="arabic simple">
+<li>if x is zero then result is also zero,</li>
+<li>if x is power of two result is word full of zeros.</li>
+</ol>
+<p>Naive implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">fill_word_naive</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mh">0xffffffff</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>GCC 4.8.2 produces following code:</p>
+<pre class="literal-block">
+89 c2        mov    %eax,%edx
+f7 da        neg    %edx
+21 c2        and    %eax,%edx
+39 c2        cmp    %eax,%edx
+0f 94 c0     sete   %al
+0f b6 c0     movzbl %al,%eax
+</pre>
+<p>Not bad, but this can be done much simpler. We know that a value is zero or
+have exactly one bit set &mdash; first we have to copy this bit to the highest
+position, and then populate the MSB using arithmetic shift right.</p>
+<p>Copying a bit can be done using single operation &mdash; <strong>arithmetic negation</strong>:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">x</th>
+<th class="head">-x</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">00000000</tt></td>
+<td><tt class="docutils literal">00000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000001</tt></td>
+<td><tt class="docutils literal">ffffffff</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000002</tt></td>
+<td><tt class="docutils literal">fffffffe</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000004</tt></td>
+<td><tt class="docutils literal">fffffffc</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000008</tt></td>
+<td><tt class="docutils literal">fffffff8</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000010</tt></td>
+<td><tt class="docutils literal">fffffff0</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000020</tt></td>
+<td><tt class="docutils literal">ffffffe0</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000040</tt></td>
+<td><tt class="docutils literal">ffffffc0</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000080</tt></td>
+<td><tt class="docutils literal">ffffff80</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000100</tt></td>
+<td><tt class="docutils literal">ffffff00</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000200</tt></td>
+<td><tt class="docutils literal">fffffe00</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000400</tt></td>
+<td><tt class="docutils literal">fffffc00</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00000800</tt></td>
+<td><tt class="docutils literal">fffff800</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00001000</tt></td>
+<td><tt class="docutils literal">fffff000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00002000</tt></td>
+<td><tt class="docutils literal">ffffe000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00004000</tt></td>
+<td><tt class="docutils literal">ffffc000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00008000</tt></td>
+<td><tt class="docutils literal">ffff8000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00010000</tt></td>
+<td><tt class="docutils literal">ffff0000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00020000</tt></td>
+<td><tt class="docutils literal">fffe0000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00040000</tt></td>
+<td><tt class="docutils literal">fffc0000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00080000</tt></td>
+<td><tt class="docutils literal">fff80000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00100000</tt></td>
+<td><tt class="docutils literal">fff00000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00200000</tt></td>
+<td><tt class="docutils literal">ffe00000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00400000</tt></td>
+<td><tt class="docutils literal">ffc00000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">00800000</tt></td>
+<td><tt class="docutils literal">ff800000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">01000000</tt></td>
+<td><tt class="docutils literal">ff000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">02000000</tt></td>
+<td><tt class="docutils literal">fe000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">04000000</tt></td>
+<td><tt class="docutils literal">fc000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">08000000</tt></td>
+<td><tt class="docutils literal">f8000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">10000000</tt></td>
+<td><tt class="docutils literal">f0000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">20000000</tt></td>
+<td><tt class="docutils literal">e0000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">40000000</tt></td>
+<td><tt class="docutils literal">c0000000</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">80000000</tt></td>
+<td><tt class="docutils literal">80000000</tt></td>
+</tr>
+</tbody>
+</table>
+<p>Now the procedure could be saved as:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">fill_word_naive</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="kt">int32_t</span><span class="p">)(</span><span class="o">-</span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">31</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The compilation result:</p>
+<pre class="literal-block">
+f7 d8        neg    %eax
+c1 f8 1f     sar    $0x1f,%eax
+</pre>
+<p>Just two simple instructions.</p>
+<p>2018-03-11: GCC 7.2 still compiles <tt class="docutils literal">fill_word_naive</tt> the same way, but clang 6.0
+produces the final, two-instruction sequence.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-01-conditionally-fill-word.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

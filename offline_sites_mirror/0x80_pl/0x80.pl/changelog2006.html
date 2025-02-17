@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/changelog2006.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:24 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Zmiany na stronie &mdash; 2006</title>
+<link rel="stylesheet" href="index.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="zmiany-na-stronie-2006">
+<h1 class="title">Zmiany na stronie &mdash; 2006</h1>
+
+<p><a class="reference external" href="index-2.html">Strona główna</a></p>
+<ul>
+<li><dl class="first docutils">
+<dt>2006-10-16</dt>
+<dd><ul class="first last">
+<li><p class="first"><a class="reference external" href="http://github.com/WojciechMula/pydvi2svg">pydvi2svg</a> &mdash; od dziś potrafi automatycznie wczytywać fonty Type1
+jeśli tylko program FontForge lub fnt2meta są
+dostępne w systemie. Dzięki temu <strong>nie trzeba w
+ogóle martwić się o fonty</strong>, o ile rzecz jasna
+posiadacie je w swojej instalacji TeX-a, w wspomniane
+programy będą w stanie te fonty przekonwertować.</p>
+<p>Póki co próbowałem z <em>Computer Moder</em> oraz <em>Antykwą
+Półtawskiego</em> i żadnych problemów nie zanotowałem.</p>
+<p><tt class="docutils literal">fnt2meta</tt> to prosty programik wykorzystujący
+bibliotekę <a class="reference external" href="http://www.freetype.org/">FreeType2</a>, który na standardowe wyjście
+wypisuje kształty poszczególnych glifów z podanego
+fontu, a <tt class="docutils literal">pydvi2svg</tt> wczytuje te dane bezpośrednio
+do plików pamięci podręcznej.</p>
+</li>
+<li><p class="first"><a class="reference external" href="http://github.com/WojciechMula/svg_scl/">SVG style cleanup</a> &mdash; programik odchudzający pliki SVG.  Usuwa te wszystkie
+własności zapisane w stylach konkretnych elementów,
+które: a) nie są przypisane do elementu, b) mają
+wartości domyślne, c) wartość jest taka sama
+jak dziedziczona.  Efekty dobrze widać na plikach
+generowanych przez Inkscape, który &bdquo;na oślep&rdquo;
+zapisuje w stylach wszystkie własności.</p>
+</li>
+<li><p class="first"><a class="reference external" href="http://github.com/WojciechMula/fbi16">fbi16</a> &mdash; drobna poprawka: program nie wywala się, jeśli nie
+zostanie uruchomiony w wirtualnym terminalu, ale np. z
+poziomu <tt class="docutils literal">mc</tt>.  Niestety trzeba czasem kilka razy
+odświeżyć obraz,  co jest niezwykle wkurzające, ale
+raczej nie do obejścia.</p>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2006-10-15</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="http://github.com/WojciechMula/pydvi2svg">pydvi2svg</a> -- dodana nowa opcja <tt class="docutils literal"><span class="pre">--enc-method</span></tt> dzięki której
+powinno stać się łatwiejsze wskazanie kodowania
+fontów w niejasnych przypadkach &mdash; dodatkowe
+funkcje przeglądają pliki <tt class="docutils literal">.map</tt> oraz próbują
+znaleźć najlepiej pasujący zestaw znaków.  Z
+pewnością metody te nie dają 100% gwarancji
+powodzenia, ale lepsze to niż pozostawienie
+użytkownika samego sobie.</li>
+<li><a class="reference external" href="http://github.com/WojciechMula/fbi16">fbi16</a> &mdash; obrazki są automatycznie centrowane.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>2006-10-13</dt>
+<dd><ul class="first last simple">
+<li>poprawiony jeden błąd w <a class="reference external" href="http://github.com/WojciechMula/fbi16">fbi16_2</a></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p class="first">2006-10-12</p>
+<blockquote>
+<ul class="simple">
+<li><a class="reference external" href="http://github.com/WojciechMula/fbi16">fbi16_2</a>: prosty programik do przeglądania 16-kolorowych
+obrazków w tyleżsamokolorowym buforze ramki (moduł vga16fb).
+Wymaga [niestety] uprawnień roota.
+Ależ te karty EGA koszmarnie się programuje...</li>
+</ul>
+</blockquote>
+</li>
+<li><dl class="first docutils">
+<dt>2006-10-11</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="articles/tree_layout/index.html">Automatyczne rysowanie drzew (struktur danych)</a> ---
+Dwa algorytmy (opracowane przeze mnie), które
+automatycznie rozmieszczają węzły drzew.
+Efekty są naprawdę przyzwoite i to niewielkim
+nakładem środków.</li>
+<li><a class="reference external" href="http://github.com/WojciechMula/fbi16">fbi16</a> &mdash; prosty programik do przeglądania czarno-białych
+obrazków w 16-kolorowym buforze ramki (moduł vga16fb).
+Popularny program <tt class="docutils literal">fbi</tt> powiada iż &bdquo;can handle only
+packed pixel frame buffers&rdquo;.</li>
+<li><a class="reference external" href="roles.html">pycode</a> &mdash; poprawiona i usprawniona implementacja tej
+jakże użytecznej dla mnie reSTowej dyrektywy.</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/blender-gui">blender-gui</a> &mdash; wrócił na stronę.</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+<ul>
+<li><dl class="first docutils">
+<dt>2006-10-06</dt>
+<dd><ul class="first last">
+<li><p class="first">Kolejna odsłona <a class="reference external" href="http://github.com/WojciechMula/pydvi2svg">pydvi2svg</a>: została dodana obsługa różnych kodowań znaków,
+a jeśli automatyka zawiedzie, można bez większych kłopotów przetestować
+alternatywne.  Ponadto zoptymalizowałem generator SVG, dzięki czemu
+wynikowe pliki są mniejsze.</p>
+<p>Rozszerzyłem też nieco dokumentację, choć nie jest ona jeszcze wystarczająca.
+Ale jak to mówią: <em>Z dokumentacją jest jak z seksem &mdash; jakakolwiek lepsza niż
+żadna</em>.</p>
+<p>Praktycznie bez kłopotów skonwertowałem pliki DVI z polskimi fontami (<tt class="docutils literal">pl*</tt>)
+a także teksty składane <a class="reference external" href="http://pl.wikipedia.org/wiki/Antykwa_Półtawskiego">Antykwą Półtawskiego</a>.
+Wcześniej oczywiście nie było kłopotów z <em>Computer Modern</em>, co chyba gdzieś tam
+zaznaczyłem.</p>
+<p>Zapraszam do testowania i zgłaszania uwag.</p>
+</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>2006-10-02</dt>
+<dd><ul class="first last simple">
+<li><a class="reference external" href="http://github.com/WojciechMula/pydvi2svg">pydvi2svg</a>: wersja <em>BETA</em> konwertera DVI -&gt; SVG</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/changelog2006.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:24 GMT -->
+</html>

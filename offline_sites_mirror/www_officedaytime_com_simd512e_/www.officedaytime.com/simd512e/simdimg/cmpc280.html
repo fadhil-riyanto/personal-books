@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/cmp.php?f=VCMPGE_OQPS by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:36 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/cmp.php?f=VCMPGE_OQPS" />
+<link rel="alternate" hreflang="en" href="cmpc280.html?f=VCMPGE_OQPS" />
+    <title>vcmpge_oqps</title>
+</head>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+
+<h2>VCMPGE_OQPS - CoMPare Greater Equal Ordered Quiet Packed Single<br /></h2>
+VCMPGE_OQPS<span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br>
+<span class="intr">__m128 _mm_cmp_ps(__m128 a, __m128 b, _CMP_GE_OQ)</span><br><div style="height: 2px;"></div><img src="binop_dword_2.png" /><br />
+<span style="padding-left: 110px">For each float, if (1) &gt;= (2) set 1, else  set 0,  to all bits of the corresponding float of (3).</span><br />
+<div style="height: 30px"></div>
+VCMPGE_OQPS<span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br>
+<span class="intr">__m256 _mm256_cmp_ps(__m256 a, __m256 b, _CMP_GE_OQ)</span><br><div style="height: 2px;"></div><img src="binop_dword_3.png" /><br />
+<span style="padding-left: 110px">For each float, if (1) &gt;= (2) set 1, else  set 0,  to all bits of the corresponding float of (3).</span><br />
+<div style="height: 30px"></div>
+VCMPGE_OQPS<span class="operand"> k1{k2}, xmm2, xmm3/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__mmask8 _mm_cmp_ps_mask(__m128 a, __m128 b, _CMP_GE_OQ)</span><br><span class="intr">__mmask8 _mm_mask_cmp_ps_mask(__mmask8 k2, __m128 a, __m128 b, _CMP_GE_OQ)</span><br><div style="height: 2px;"></div><img src="cmp_dword_1.png" /><br />
+<div style="padding-left: 110px">For each float, if (1) &gt;= (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VCMPGE_OQPS<span class="operand"> k1{k2}, ymm2, ymm3/m256/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__mmask8 _mm256_cmp_ps_mask(__m256 a, __m256 b, _CMP_GE_OQ)</span><br><span class="intr">__mmask8 _mm256_mask_cmp_ps_mask(__mmask8 k2, __m256 a, __m256 b, _CMP_GE_OQ)</span><br><div style="height: 2px;"></div><img src="cmp_dword_2.png" /><br />
+<div style="padding-left: 110px">For each float, if (1) &gt;= (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VCMPGE_OQPS<span class="operand"> k1{k2}, zmm2, zmm3/m512/m32bcst{sae}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br>
+<span class="intr">__mmask16 _mm512_cmp_ps_mask(__m512 a, __m512 b, _CMP_GE_OQ)</span><br><span class="intr">__mmask16 _mm512_mask_cmp_ps_mask(__mmask16 k2, __m512 a, __m512 b, _CMP_GE_OQ)</span><br><span class="intr">__mmask16 _mm512_cmp_round_ps_mask(__m512 a, __m512 b, _CMP_GE_OQ, int sae)</span><br><span class="intr">__mmask16 _mm512_mask_cmp_round_ps_mask(__mmask16 k2, __m512 a, __m512 b, _CMP_GE_OQ, int sae)</span><br><div style="height: 2px;"></div><img src="cmp_dword_3.png" /><br />
+<div style="padding-left: 110px">For each float, if (1) &gt;= (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+This instruction is:<br>Ordered - If either or both of source operands is NaN, condition unmet.<br>Quiet - No exception on QNaN<br><a href="cmpimm0f16.html?f=CMPPS" target="_blank">VCMPPS instrucion</a> imm8 value = 1Dh<br><hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=VCMPGE_OQPS" target="_blank">Feedback</a>
+
+
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/cmp.php?f=VCMPGE_OQPS by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:36 GMT -->
+</html>

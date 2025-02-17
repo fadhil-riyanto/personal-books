@@ -1,0 +1,826 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-10-18-simd-byte-lookup.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:40 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMDized check which bytes are in a set</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simdized-check-which-bytes-are-in-a-set">
+<h1 class="title">SIMDized check which bytes are in a set</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-10-18</td>
+</tr>
+<tr class="updated field"><th class="docinfo-name">Updated:</th><td class="field-body">2019-03-27 (mistake pointed by <a class="reference external" href="https://github.com/marcusklaas">Marcus Klaas</a>) 2018-10-28 (add Geoff's algorithm, fixes/updates pointed by Michael)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#simd-algorithms" id="toc-entry-2">SIMD algorithms</a></li>
+<li><a class="reference internal" href="#universal-algorithm" id="toc-entry-3">Universal algorithm</a><ul>
+<li><a class="reference internal" href="#example" id="toc-entry-4">Example</a></li>
+<li><a class="reference internal" href="#implementation" id="toc-entry-5">Implementation</a></li>
+<li><a class="reference internal" href="#alternative-implementation" id="toc-entry-6">Alternative implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#special-case-1-small-sets" id="toc-entry-7">Special case 1 &mdash; small sets</a></li>
+<li><a class="reference internal" href="#special-case-2-constant-nibble" id="toc-entry-8">Special case 2 &mdash; constant nibble</a></li>
+<li><a class="reference internal" href="#special-case-3-unique-lower-and-higher-nibbles" id="toc-entry-9">Special case 3 &mdash; unique lower and higher nibbles</a></li>
+<li><a class="reference internal" href="#basic-simd-methods" id="toc-entry-10">Basic SIMD methods</a></li>
+<li><a class="reference internal" href="#acknowledgements" id="toc-entry-11">Acknowledgements</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-12">See also</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-13">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>The problem is defined as follows: there's <strong>a stream of bytes</strong> and we want to
+get a byte-mask (or a bit-mask) that indicates which bytes are in <strong>the
+predefined set</strong>.</p>
+<p>Thanks to SIMD instructions this task can be performed faster than scalar code.
+Jobs like input validation or parsing (for instance CSV files), might benefit
+from a vectorized approach.</p>
+<p>In this text I show several SIMD methods:</p>
+<ul class="simple">
+<li><strong>The universal algorithm</strong> that can handle arbitrary sets (from 1 to 255
+elements) with a few instructions.</li>
+<li>Several specialized algorithms, that handle small sets of peculiar
+properties. They require fewer instructions than the universal algorithm.
+However, the algorithms are rather meant for compilers/code generators, where
+we can statically determine the best code sequence for a predefined set.</li>
+<li>For sake of completeness I describe <a class="reference internal" href="#basicmethods">basic SIMD methods</a>. If the set has
+a few elements then no fancy algorithm is needed. Likewise, if the set
+can be represented as a union of ranges the code is also not complicated.</li>
+</ul>
+</div>
+<div class="section" id="simd-algorithms">
+<h1>SIMD algorithms</h1>
+<p>The main ingredient of the techniques shown below is instruction <tt class="docutils literal">pshufb</tt>
+(<tt class="docutils literal">_mm_shuffle_epi8</tt>), which is present in SSE, AVX2 and also AVX512BW.  The
+instruction does parallel byte lookup in a 16-byte register (or <em>lane</em>, in AVX2
+and AVX512 variants) using <strong>4-bit</strong> indices from another vector.</p>
+<p>A C-like code shows the <tt class="docutils literal">pshufb</tt> algorithm:</p>
+<pre class="code cpp literal-block">
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">VECTOR_SIZE</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">indices_vector</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">index</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="p">)</span><span class="w">
+        </span><span class="n">result</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00</span><span class="p">;</span><span class="w">
+    </span><span class="k">else</span><span class="w">
+        </span><span class="n">result</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup_vector</span><span class="p">[</span><span class="n">index</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0f</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="universal-algorithm">
+<span id="universal"></span><h1>Universal algorithm</h1>
+<p>In this algorithm the set is represented as a bitmap of size 16 x 16 bits,
+where a bit of value 1 indicates that given element is in the set. The bitmap
+is addressed with <strong>nibbles</strong>, i.e. 4-bit halves of a byte.</p>
+<p>The lower nibble of each input byte selects the bitmap's row, i.e. a 16-bit
+value. The higher nibble selects the column on the bitmap &mdash; once we fetched
+a row row, the higher nibble points at specific bit.</p>
+<p>Scalar code which deals with such representation is quite simple:</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">in_set</span><span class="p">(</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">bitmap</span><span class="p">[</span><span class="mi">16</span><span class="p">],</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xf</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">bitset</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">bitmap</span><span class="p">[</span><span class="n">lo_nibble</span><span class="p">];</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">uint16_t</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">hi_nibble</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">bitset</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">bitmask</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="example">
+<h2>Example</h2>
+<p>Let's consider following set; for better visibility zeroes are shown with dots,
+and ones with the 'x':</p>
+<div class="asciidiag"><pre class="asciidiag">
+lo / hi nibble
+  ┌───────────────────────────────╴
+  │ 0 1 2 3 4 5 6 7 8 9 <span style="font-weight: bold">a</span> b c d e f
+╶─┼───────────────────────────────╴
+0 │ x x . . . . x . . . x . . x . .
+1 │ x x x x . x x . . . . . x x . x
+2 │ . x . . x . x . . . x . . x . .
+3 │ . x x . . . . x . . x . x . x .
+4 │ . . . . . . . . . . . . x x x x
+5 │ <span style="color: blue">x</span> <span style="color: blue">x</span> . . <span style="color: blue">x</span> . <span style="color: blue">x</span> <span style="color: blue">x</span> <span style="color: blue">x</span> . <span style="color: blue">x</span> . . . <span style="color: blue">x</span> <span style="color: blue">x</span>
+6 │ x . . . . x . x . . x . x . . .
+7 │ . . x . . . . . . . . x . . x .
+8 │ . . x x . . . . . . . . . . . x
+9 │ . . x x x . . x . . x . . . . .
+a │ . . . . . . x . . . x . . . . x
+b │ . . . x . . x . . . . . . . . .
+c │ x . . . x . . . . . . . . . x x
+d │ . . . x x x . x . . x x . . . .
+e │ x . x . . . . x . x . x . . . .
+f ╵ x x . . . . x . . . . . x x x .</pre></div><p>We want to check if byte <tt class="docutils literal">0xa5</tt> is in the set. Its lower nibble is 5, so
+we select the highlighted row, getting 16-bit value <tt class="docutils literal">1100_0101_1101_0011</tt>.
+The higher nibble is 10 (<tt class="docutils literal">0xa</tt>), thus we're testing this bit:</p>
+<pre class="literal-block">
+1100_0101_1101_0011
+      ^
+</pre>
+<p>It's set and that means <tt class="docutils literal">0xa5</tt> belongs to the set.</p>
+</div>
+<div class="section" id="implementation">
+<h2>Implementation</h2>
+<p>Since the instruction <tt class="docutils literal">pshufb</tt> maps bytes into bytes, it necessary to store
+two halves of a bitmap, i.e. 16 x 8 bit arrays. These sub-bitmaps are
+highlighted with blue and magenta below.</p>
+<div class="asciidiag"><pre class="asciidiag">
+lo / hi nibble
+  ┌───────────────────────────────╴
+  │ 0 1 2 3 4 5 6 7 8 9 a b c d e f
+╶─┼───────────────────────────────╴
+0 │ <span style="color: blue">x x . . . . x .</span> <span style="color: magenta">. . x . . x . .</span>
+1 │ <span style="color: blue">x x x x . x x .</span> <span style="color: magenta">. . . . x x . x</span>
+2 │ <span style="color: blue">. x . . x . x .</span> <span style="color: magenta">. . x . . x . .</span>
+3 │ <span style="color: blue">. x x . . . . x</span> <span style="color: magenta">. . x . x . x .</span>
+4 │ <span style="color: blue">. . . . . . . .</span> <span style="color: magenta">. . . . x x x x</span>
+5 │ <span style="color: blue">x x . . x . x x</span> <span style="color: magenta">x . x . . . x x</span>
+6 │ <span style="color: blue">x . . . . x . x</span> <span style="color: magenta">. . x . x . . .</span>
+7 │ <span style="color: blue">. . x . . . . .</span> <span style="color: magenta">. . . x . . x .</span>
+8 │ <span style="color: blue">. . x x . . . .</span> <span style="color: magenta">. . . . . . . x</span>
+9 │ <span style="color: blue">. . x x x . . x</span> <span style="color: magenta">. . x . . . . .</span>
+a │ <span style="color: blue">. . . . . . x .</span> <span style="color: magenta">. . x . . . . x</span>
+b │ <span style="color: blue">. . . x . . x .</span> <span style="color: magenta">. . . . . . . .</span>
+c │ <span style="color: blue">x . . . x . . .</span> <span style="color: magenta">. . . . . . x x</span>
+d │ <span style="color: blue">. . . x x x . x</span> <span style="color: magenta">. . x x . . . .</span>
+e │ <span style="color: blue">x . x . . . . x</span> <span style="color: magenta">. x . x . . . .</span>
+f ╵ <span style="color: blue">x x . . . . x .</span> <span style="color: magenta">. . . . x x x .</span></pre></div><p>Fetching a row from the bitmap requires two lookups: to get &quot;blue&quot; and &quot;magenta&quot;
+parts of the row.  Then, depending on higher nibble, we test a bit in &quot;blue&quot; (for
+higher nibble in range 0..7) or &quot;magenta&quot; part (for higher nibble in range
+8..15).</p>
+<p>A note on calculating <tt class="docutils literal">bitmask</tt>. In the scalar code it's just <tt class="docutils literal">1 &lt;&lt; hi_nibble</tt>,
+here we must evaluate <tt class="docutils literal">(1 &lt;&lt; higher_nibble) % 8</tt>. Fortunately, this is possible
+with single <tt class="docutils literal">pshufb</tt> invocation.</p>
+<p>Below is a scalar code that show the algorithm:</p>
+<pre class="code cpp literal-block">
+<span class="cm">/*   */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo_nibble</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0f</span><span class="p">;</span><span class="w">
+</span><span class="cm">/*   */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+
+</span><span class="cm">/* 1 */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">bitset_0_7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">bitmap_0_7</span><span class="p">[</span><span class="n">lo_nibble</span><span class="p">];</span><span class="w">
+</span><span class="cm">/* 2 */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">bitset_8_15</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bitmap_8_15</span><span class="p">[</span><span class="n">lo_nibble</span><span class="p">];</span><span class="w">
+
+</span><span class="cm">/* 3 */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7</span><span class="p">))</span><span class="w">
+
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">bitset</span><span class="p">;</span><span class="w">
+</span><span class="cm">/* 4 */</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w">
+            </span><span class="n">bitset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">row_0_7</span><span class="p">;</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+            </span><span class="n">bitset</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">row_8_15</span><span class="p">;</span><span class="w">
+
+</span><span class="cm">/* 5 */</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">bitset</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">bitmask</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+</pre>
+<p>Instructions 1, 2 and 3 are <tt class="docutils literal">pshufb</tt>. The fourth expression might be
+expressed by vector blend instruction (<tt class="docutils literal">x[i] ? t[i] : f[i]</tt>). The last, 5th
+instruction, is simple bit-and followed by conversion into a bytemask.
+Following code shows a detailed SSE implementation of the above steps.</p>
+<ol class="arabic">
+<li><p class="first">Load 16 input bytes; hex digits are shown.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// example values in set: {0x10, 0x21, 0xbd}
+//            not in set: {0x36, 0x91, 0xed}
+</span><span class="w">
+</span><span class="c1">// input          = [36|10|91|21|10|ed|ed|21|36|bd|36|21|91|91|ed|10]
+//                      ^^    ^^ ^^       ^^    ^^    ^^          ^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">ptr</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Extract lower nibbles. Simple bit-and is needed.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lower_nibbles  = [06|00|01|01|00|0d|0d|01|06|0d|06|01|01|01|0d|00]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Extract higher nibbles, this requires also a bit shift.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// higher_nibbles = [03|01|09|02|01|0e|0e|02|03|0b|03|02|09|09|0e|01]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">higher_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Pick rows for lower nibble (0..7).</p>
+<pre class="code cpp literal-block">
+<span class="k">static</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitmap_0_7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mh">0x43</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01000011 */</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mh">0x6f</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01101111 */</span><span class="w">
+    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mh">0x52</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01010010 */</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mh">0x86</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10000110 */</span><span class="w">
+    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00000000 */</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mh">0xd3</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 11010011 */</span><span class="w">
+    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mh">0xa1</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10100001 */</span><span class="w">
+    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="mh">0x04</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00000100 */</span><span class="w">
+    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="mh">0x0c</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00001100 */</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="mh">0x9c</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10011100 */</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="mh">0x40</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01000000 */</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="mh">0x48</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01001000 */</span><span class="w">
+    </span><span class="cm">/* c */</span><span class="w"> </span><span class="mh">0x11</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00010001 */</span><span class="w">
+    </span><span class="cm">/* d */</span><span class="w"> </span><span class="mh">0xb8</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10111000 */</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="mh">0x85</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10000101 */</span><span class="w">
+    </span><span class="cm">/* f */</span><span class="w"> </span><span class="mh">0x43</span><span class="w">  </span><span class="cm">/* 01000011 */</span><span class="w">
+</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// row_0_7        = [a1|43|6f|6f|43|b8|b8|6f|a1|b8|a1|6f|6f|6f|b8|43]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row_0_7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">bitmap_0_7</span><span class="p">,</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Likewise pick rows for higher nibble (8..15).</p>
+<pre class="code cpp literal-block">
+<span class="k">static</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitmap_8_15</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mh">0x24</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00100100 */</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mh">0xb0</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10110000 */</span><span class="w">
+    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mh">0x24</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00100100 */</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mh">0x54</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01010100 */</span><span class="w">
+    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mh">0xf0</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 11110000 */</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mh">0xc5</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 11000101 */</span><span class="w">
+    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mh">0x14</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00010100 */</span><span class="w">
+    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="mh">0x48</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 01001000 */</span><span class="w">
+    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="mh">0x80</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10000000 */</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="mh">0x04</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00000100 */</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="mh">0x84</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 10000100 */</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00000000 */</span><span class="w">
+    </span><span class="cm">/* c */</span><span class="w"> </span><span class="mh">0xc0</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 11000000 */</span><span class="w">
+    </span><span class="cm">/* d */</span><span class="w"> </span><span class="mh">0x0c</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00001100 */</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="mh">0x0a</span><span class="p">,</span><span class="w"> </span><span class="cm">/* 00001010 */</span><span class="w">
+    </span><span class="cm">/* f */</span><span class="w"> </span><span class="mh">0x70</span><span class="w">  </span><span class="cm">/* 01110000 */</span><span class="w">
+</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// row_8_15       = [14|24|b0|b0|24|0c|0c|b0|14|0c|14|b0|b0|b0|0c|24]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row_8_15</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">bitmap_8_15</span><span class="p">,</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Calculate a bitmask, i.e. <tt class="docutils literal">(1 &lt;&lt; hi_nibble % 8)</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">static</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitmask_lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+        </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="mi">-128</span><span class="p">,</span><span class="w">
+        </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">64</span><span class="p">,</span><span class="w"> </span><span class="mi">-128</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// bitmasks       = [08|02|02|02|02|40|40|02|08|08|08|04|02|02|40|02]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">bitmask_lookup</span><span class="p">,</span><span class="w"> </span><span class="n">higher_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Choose rows halves depending on higher nibbles.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// mask           = [ff|ff|00|ff|ff|00|00|ff|ff|00|ff|ff|00|00|00|ff]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">higher_nibbles</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">8</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// bitsets        = [ff|ff|00|ff|ff|00|00|ff|ff|00|ff|ff|00|00|00|ff]
+//                ? [a1|43|..|6f|43|..|..|6f|a1|..|a1|6f|..|..|..|43]
+//                : [..|..|b0|..|..|0c|0c|..|..|0c|..|..|b0|b0|0c|..]
+//
+//                = [a1|43|b0|6f|43|0c|0c|6f|a1|0c|a1|6f|b0|b0|0c|43]
+</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitsets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_blendv_epi8</span><span class="p">(</span><span class="n">row_0_7</span><span class="p">,</span><span class="w"> </span><span class="n">row_8_15</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Finally check which bytes belong to the set.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// tmp            = [a1|43|b0|6f|43|0c|0c|6f|a1|0c|a1|6f|b0|b0|0c|43]
+//                &amp; [08|02|02|02|02|40|40|02|08|08|08|04|02|02|40|02]
+</span><span class="w">
+</span><span class="c1">//                = [00|02|00|02|02|00|00|02|00|08|00|04|00|00|00|02]
+//                      ^^    ^^ ^^       ^^    ^^    ^^          ^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">tmp</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">bitsets</span><span class="p">,</span><span class="w"> </span><span class="n">bitmask</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// result         = [00|ff|00|ff|ff|00|00|ff|00|ff|00|ff|00|00|00|ff]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">bitmask</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>3 x bit-and;</li>
+<li>1 x shift;</li>
+<li>3 x shuffle bytes;</li>
+<li>2 x comparison;</li>
+<li>1 x blend.</li>
+</ul>
+</div>
+<div class="section" id="alternative-implementation">
+<h2>Alternative implementation</h2>
+<p><a class="reference external" href="https://twitter.com/geofflangdale/status/1053227022795722752">Geoff Langdale</a> pointed out that we might get rid of the blend instruction,
+which is not the fastest one. Instead, we use <tt class="docutils literal">pshufb</tt>, that zeros
+destination bytes when the highest bit of index is 1.</p>
+<p>This requires different indices when fetching <tt class="docutils literal">row_0_7</tt> and <tt class="docutils literal">row_8_15</tt>. The
+indices for <tt class="docutils literal">bitmap_0_7</tt> keep bits 0..3 and also <strong>the most significant</strong>, i.e.
+7th bit of the input. Similarly the indices for <tt class="docutils literal">bitmap_8_15</tt> have also bits 0..3,
+but the bit 7th is negated.</p>
+<p>When the most significant bit is set, it means that the higher nibble is greater
+or equal 8 &mdash; in such situation <tt class="docutils literal">bitset_0_7</tt> is zeroed and <tt class="docutils literal">bitset_8_15</tt> kept.</p>
+<p>The modified algorithm:</p>
+<ol class="arabic">
+<li><p class="first">Load 16 input bytes.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">ptr</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Extract indices for <tt class="docutils literal">row_0_7</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices_0_7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x8f</span><span class="p">));</span><span class="w"> </span><span class="c1">// 0b1000_1111</span>
+</pre>
+</li>
+<li><p class="first">Extract indices for <tt class="docutils literal">row_8_15</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">msb</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi</span><span class="p">(</span><span class="mh">0x80</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">indices_8_15</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_xor_si128</span><span class="p">(</span><span class="n">indices_0_7</span><span class="p">,</span><span class="w"> </span><span class="n">msb</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Fetch <tt class="docutils literal">row_0_7</tt> and <tt class="docutils literal">row_8_15</tt>:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row_0_7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">bitmap_0_7</span><span class="p">,</span><span class="w"> </span><span class="n">indices_0_7</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">row_8_15</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">bitmap_8_15</span><span class="p">,</span><span class="w"> </span><span class="n">indices_8_15</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Calculate a bitmask, i.e. <tt class="docutils literal">(1 &lt;&lt; hi_nibble % 8)</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">bitmask_lookup</span><span class="p">,</span><span class="w"> </span><span class="n">higher_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Choose rows halves depending on higher nibbles.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">bitsets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">row_0_7</span><span class="p">,</span><span class="w"> </span><span class="n">row_8_15</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Finally check which bytes belong to the set.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">tmp</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">bitsets</span><span class="p">,</span><span class="w"> </span><span class="n">bitmask</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">bitmask</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>3 x bit-and,</li>
+<li>1 x bit-or,</li>
+<li>1 x bit-xor,</li>
+<li>3 x shuffle,</li>
+<li>1 x compare.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="special-case-1-small-sets">
+<h1>Special case 1 &mdash; small sets</h1>
+<p>This method handles up to eight distinct elements.</p>
+<p>Let's consider this sample set: {0x01, 0x31, 0xc1, 0x35, 0x65, 0x77, 0x8b, 0x3e};
+elements are labelled with letters K .. R.</p>
+<div class="asciidiag"><pre class="asciidiag">
+lo / hi nibble
+  ┌───────────────────────────────╴
+  │ 0 1 2 3 4 5 6 7 8 9 a b c d e f
+╶─┼───────────────────────────────╴
+0 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+1 │ <span style="font-weight: bold">K</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">L</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">M</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+2 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+3 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+4 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+5 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">N</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">O</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+6 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+7 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">P</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+8 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+9 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+a │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+b │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">Q</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+c │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+d │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+e │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">R</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+f ╵ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span></pre></div><p>We separately consider lower and higher nibble, i.e. rows and columns in the
+diagram above. We associate a subset with each nibble, for lower nibbles there
+are following subsets:</p>
+<ul class="simple">
+<li>1: {K, L, M}</li>
+<li>5: {N, O}</li>
+<li>7: {P}</li>
+<li>b: {Q}</li>
+<li>e: {R}</li>
+</ul>
+<p>For higher nibbles we have:</p>
+<ul class="simple">
+<li>0: {K}</li>
+<li>3: {L, N, R}</li>
+<li>6: {O}</li>
+<li>7: {P}</li>
+<li>8: {Q}</li>
+<li>c: {M}</li>
+</ul>
+<p>These subsets are encoded using <strong>bit sets</strong>, i.e. each element has assigned a bit
+in a byte (this is the source of size limit). For the example data we might have
+following mapping:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">empty</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">K</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x01
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x02
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">M</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x04
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">N</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x08
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">O</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x10
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">P</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">5</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x20
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">Q</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">6</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x40
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">R</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">7</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x80</span>
+</pre>
+<p>And then lookup tables are:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo_nibbles_lookup</span><span class="p">[</span><span class="mi">16</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mh">0x07</span><span class="p">,</span><span class="w"> </span><span class="c1">// K | L | M
+</span><span class="w">    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mh">0x18</span><span class="p">,</span><span class="w"> </span><span class="c1">// N | O
+</span><span class="w">    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="c1">// P
+</span><span class="w">    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="mh">0x40</span><span class="p">,</span><span class="w"> </span><span class="c1">// Q
+</span><span class="w">    </span><span class="cm">/* c */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* d */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="mh">0x80</span><span class="p">,</span><span class="w"> </span><span class="c1">// R
+</span><span class="w">    </span><span class="cm">/* f */</span><span class="w"> </span><span class="mh">0x00</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi_nibbles_lookup</span><span class="p">[</span><span class="mi">16</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mh">0x01</span><span class="p">,</span><span class="w"> </span><span class="c1">// K
+</span><span class="w">    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mh">0x8a</span><span class="p">,</span><span class="w"> </span><span class="c1">// L | N | R
+</span><span class="w">    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mh">0x10</span><span class="p">,</span><span class="w"> </span><span class="c1">// O
+</span><span class="w">    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="c1">// P
+</span><span class="w">    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="mh">0x40</span><span class="p">,</span><span class="w"> </span><span class="c1">// Q
+</span><span class="w">    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* c */</span><span class="w"> </span><span class="mh">0x04</span><span class="p">,</span><span class="w"> </span><span class="c1">// M
+</span><span class="w">    </span><span class="cm">/* d */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* f */</span><span class="w"> </span><span class="mh">0x00</span><span class="w">
+</span><span class="p">};</span>
+</pre>
+<p>Algorithm consist following steps (SSE code is shown in example):</p>
+<ol class="arabic">
+<li><p class="first">Load 16 input bytes.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// input          = [11|31|11|35|8b|ff|ee|77|11|c1|11|8b|11|11|ff|01]
+//                      ^^    ^^ ^^       ^^    ^^    ^^          ^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">ptr</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Extract lower nibbles.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lower_nibbles  = [01|01|01|05|0b|0f|0e|07|01|01|01|0b|01|01|0f|01]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Extract higher nibbles.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// higher_nibbles = [01|03|01|03|08|0f|0e|07|01|0c|01|08|01|01|0f|00]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">higher_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Translate the lower and higher nibbles (the lookup tables are defined above).</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lo_translated  = [07|07|07|18|40|00|80|20|07|07|07|40|07|07|00|07]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo_translated</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="w">
+                                </span><span class="n">_mm_load_si128</span><span class="p">(</span><span class="n">lo_nibbles_lookup</span><span class="p">),</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// hi_translated  = [00|8a|00|8a|40|00|00|20|00|04|00|40|00|00|00|01]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi_translated</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="w">
+                                </span><span class="n">_mm_load_si128</span><span class="p">(</span><span class="n">hi_nibbles_lookup</span><span class="p">),</span><span class="w"> </span><span class="n">higher_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Test bitsets for intersection.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lo_translated  = [07|07|07|18|40|00|80|20|07|07|07|40|07|07|00|07]
+// hi_translated  = [00|8a|00|8a|40|00|00|20|00|04|00|40|00|00|00|01]
+// intersection   = [00|02|00|08|40|00|00|20|00|04|00|40|00|00|00|01]
+//                      ^^    ^^ ^^       ^^    ^^    ^^          ^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">intersection</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lo_translated</span><span class="p">,</span><span class="w"> </span><span class="n">hi_translated</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Fix up if necessary. Convert all non-zero elements into <tt class="docutils literal">0xff</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// t0             = [ff|00|ff|00|00|ff|ff|00|ff|00|ff|00|ff|ff|ff|00]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">intersection</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">());</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">());</span>
+</pre>
+</li>
+</ol>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>2 x bit-and;</li>
+<li>1 x shift</li>
+<li>2 x shuffle bytes;</li>
+<li>1 x comparison [optional];</li>
+<li>1 x bit-andnot [optional].</li>
+</ul>
+</div>
+<div class="section" id="special-case-2-constant-nibble">
+<span id="constantnibble"></span><h1>Special case 2 &mdash; constant nibble</h1>
+<p>When either higher or lower nibbles of set values are constant, a single
+invocation of <tt class="docutils literal">pshufb</tt> is sufficient to classify up to 16-element set.</p>
+<p>The <strong>variable</strong> nibble addresses a lookup vector which contains elements from
+the set; nibbles not present in the set are marked with some other value. The
+translated vector is finally compared for equal with the input vector, yielding
+zeros for bytes that are not in the set.</p>
+<p>Let's consider set {0x10, 0x12, 0x14, 0x15, 0x17, 0x18, 0x1a, 0x1f}.</p>
+<div class="asciidiag"><pre class="asciidiag">
+lo / hi nibble
+  ┌───────────────────────────────╴
+  │ 0 1 2 3 4 5 6 7 8 9 a b c d e f
+╶─┼───────────────────────────────╴
+0 │ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+1 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+2 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+3 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+4 │ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+5 │ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+6 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+7 │ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+8 │ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+9 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+a │ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+b │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+c │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+d │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+e │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+f ╵ <span style="color: lightgray">.</span> <span style="font-weight: bold">x</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span></pre></div><p>The higher nibble is constant, equal to 0x10; we will map lower, <em>variable</em>
+nibbles as shown below.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="mi">16</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mh">0x10</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mh">0x12</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mh">0x14</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mh">0x15</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="mh">0x17</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="mh">0x18</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* a */</span><span class="w"> </span><span class="mh">0x1a</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* c */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* d */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* e */</span><span class="w"> </span><span class="mh">0x00</span><span class="p">,</span><span class="w"> </span><span class="c1">// not in the set
+</span><span class="w">    </span><span class="cm">/* f */</span><span class="w"> </span><span class="mh">0x1f</span><span class="p">,</span><span class="w">
+</span><span class="p">};</span>
+</pre>
+<p>Algorithm consist following steps:</p>
+<ol class="arabic">
+<li><p class="first">Load 16 input bytes.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// input = [21|12|13|15|14|fa|ca|17|55|aa|2a|1a|3a|ff|af|1f]
+//             ^^    ^^ ^^       ^^          ^^          ^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">ptr</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Extract the variable nibble. If it's lower one, then simple bit-and is needed;
+for higher nibble also a shift right is required.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lower_nibbles  = [01|02|03|05|04|0a|0a|07|05|0a|0a|0a|0a|0f|0f|0f]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// higher_nibbles = [02|01|01|01|01|0f|0c|01|05|0a|02|01|03|0f|0a|01]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">higher_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// in our example we use lower nibbles
+// nibbles        = [01|02|03|05|04|0a|0a|07|05|0a|0a|0a|0a|0f|0f|0f]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lower_nibbles</span><span class="p">;</span>
+</pre>
+</li>
+<li><p class="first">Translate the nibbles using lookup table.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// translated     = [10|12|10|15|14|1a|1a|17|15|1a|1a|1a|1a|1f|1f|1f]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">translated</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">_mm_load_si128</span><span class="p">(</span><span class="n">lookup</span><span class="p">),</span><span class="w"> </span><span class="n">nibbles</span><span class="p">)</span>
+</pre>
+</li>
+<li><p class="first">Compare the translated vector with the input one.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// input          = [21|12|13|15|14|fa|ca|17|55|aa|2a|1a|3a|ff|af|1f]
+//                      ^^    ^^ ^^       ^^          ^^          ^^
+// translated     = [10|12|10|15|14|1a|1a|17|15|1a|1a|1a|1a|1f|1f|1f]
+// eq             = [00|ff|00|ff|ff|00|00|ff|00|00|00|ff|00|00|00|ff]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">translated</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>1 x bit-and;</li>
+<li>1 x shift (if higher nibble is variable);</li>
+<li>1 x shuffle bytes;</li>
+<li>1 x comparison.</li>
+</ul>
+</div>
+<div class="section" id="special-case-3-unique-lower-and-higher-nibbles">
+<h1>Special case 3 &mdash; unique lower and higher nibbles</h1>
+<p>When none of lower and higher nibbles repeats then just two invocations of
+<tt class="docutils literal">pshufb</tt> are needed to classify a vector. In this case up to 16-elements
+sets are supported.</p>
+<p>Let's consider following 11-element set {0x20, 0x31, 0x42, 0x53, 0x64, 0x75,
+0x86, 0x97, 0xa8, 0xb9, 0xca}. Lower nibbles are {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+a}, higher nibbles are {2, 3, 4, 5, 6, 7, 8, 9, a, b, c} &mdash; as we see, the both
+sets contain unique values.</p>
+<div class="asciidiag"><pre class="asciidiag">
+lo / hi nibble
+  ┌───────────────────────────────╴
+  │ 0 1 2 3 4 5 6 7 8 9 a b c d e f
+╶─┼───────────────────────────────╴
+0 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">K</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+1 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">L</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+2 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">M</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+3 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">N</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+4 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">O</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+5 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">P</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+6 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">Q</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+7 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">R</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+8 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">S</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+9 │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">T</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+a │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="font-weight: bold">U</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+b │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+c │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+d │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+e │ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span>
+f ╵ <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span> <span style="color: lightgray">.</span></pre></div><p>The idea is to label each set element with unique index and then map lower and
+higher nibbles to that index. If the indices are equal, it means that both
+nibbles form set's element.  Mapping for nibbles outside the valid set must
+yield different values, so comparison is always false.</p>
+<p>For instance, we might have following mapping:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">K</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">M</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">N</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">O</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">P</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">Q</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">R</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">7</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">S</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">T</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">9</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">U</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo_outside</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x10</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi_outside</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x20</span><span class="p">;</span><span class="w"> </span><span class="c1">// lo_outside != hi_outside</span>
+</pre>
+<p>Algorithm:</p>
+<ol class="arabic">
+<li><p class="first">Load 16 bytes.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// in   = [20|21|ca|cb|aa|a8|86|42|43|12|44|75|86|8f|fa|97]
+//         ^^    ^^       ^^ ^^ ^^          ^^ ^^       ^^
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">ptr</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Extract lower nibbles.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// lo   = [ 0| 1| a| b| a| 8| 6| 2| 3| 2| 4| 5| 6| f| a| 7]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Extract higher nibbles.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// hi   = [ 2| 2| c| c| a| a| 8| 4| 4| 1| 4| 7| 8| 8| f| 9]
+</span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi16</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+</span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">hi</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Translate lower nibbles into indices.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo_lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mh">0xa</span><span class="p">,</span><span class="w">
+    </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="w">
+</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// lo     = [ 0| 1| a| b| a| 8| 6| 2| 3| 2| 4| 5| 6| f| a| 7]
+// lo_idx = [ 0| 1| a|20| a| 8| 6| 2| 3| 2| 4| 5| 6|20| a| 7]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo_idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lo</span><span class="p">,</span><span class="w"> </span><span class="n">lo_lookup</span><span class="p">)</span>
+</pre>
+</li>
+<li><p class="first">Translate higher nibbles into indices.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi_lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mh">0x10</span><span class="p">,</span><span class="w"> </span><span class="mh">0x10</span><span class="p">,</span><span class="w">
+    </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mh">0xa</span><span class="p">,</span><span class="w">
+    </span><span class="mh">0x10</span><span class="p">,</span><span class="w"> </span><span class="mh">0x10</span><span class="p">,</span><span class="w"> </span><span class="mh">0x10</span><span class="w">
+</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// hi     = [ 2| 2| c| c| a| a| 8| 4| 4| 1| 4| 7| 8| 8| f| 9]
+// hi_idx = [ 0| 0| a| a| 8| 8| 6| 2| 2|10| 2| 5| 6| 6|10| 7]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi_idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">hi</span><span class="p">,</span><span class="w"> </span><span class="n">hi_lookup</span><span class="p">)</span>
+</pre>
+</li>
+<li><p class="first">Compare translated nibbles &mdash; if they match, it means that
+bytes also match.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// in     = [20|21|ca|cb|aa|a8|86|42|43|12|44|75|86|8f|fa|97]
+//           ^^    ^^       ^^ ^^ ^^          ^^ ^^       ^^
+// lo_idx = [ 0| 1| a|20| a| 8| 6| 2| 3| 2| 4| 5| 6|20| a| 7]
+// hi_idx = [ 0| 0| a| a| 8| 8| 6| 2| 2|10| 2| 5| 6| 6|10| 7]
+// result = [ff|00|ff|00|00|ff|ff|ff|00|00|00|ff|ff|00|00|ff]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">lo_idx</span><span class="p">,</span><span class="w"> </span><span class="n">hi_idx</span><span class="p">)</span>
+</pre>
+</li>
+</ol>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>2 x bit-and;</li>
+<li>1 x shift;</li>
+<li>2 x shuffle bytes;</li>
+<li>1 x comparison.</li>
+</ul>
+</div>
+<div class="section" id="basic-simd-methods">
+<span id="basicmethods"></span><h1>Basic SIMD methods</h1>
+<p>Just to make this text complete, we'll enumerate naive SIMD methods:</p>
+<ol class="arabic">
+<li><p class="first">Tiny sets might be classified by compare each element of set with the input
+vector and merge partial results using bit-or. For instance, if the set is
+{' ', 't', 'n'}, then following code matches it.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">data</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq_32</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">' '</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq_13</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">'\n'</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq_09</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">'\t'</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// any_eq = eq_32 | eq_13 | eq_09
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">any_eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">eq_32</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">eq_13</span><span class="p">,</span><span class="w"> </span><span class="n">eq_03</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">If a set is described by ranges, like 0-9, A-Z and a-z, it's sufficient just
+to compare input vector with ranges' boundaries and bit-or partial result.
+Please be aware that both SSE and AVX2 do not support unsigned byte comparisons.
+Thus only when boundaries are non-negative, code shown below works correctly.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">data</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// check range 0-9 [ASCII: 48, 57]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_48</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_58</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'9'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">lt_48</span><span class="p">,</span><span class="w"> </span><span class="n">lt_58</span><span class="p">);</span><span class="w"> </span><span class="c1">// not (x &lt; 48) and (x &lt; 58) =
+</span><span class="w">                                                      </span><span class="c1">//     (x &gt;= 48) and (x &lt; 58)
+</span><span class="w">
+</span><span class="c1">// check range A-Z [ASCII: 65, 90]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_65</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_91</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'Z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">lt_65</span><span class="p">,</span><span class="w"> </span><span class="n">lt_91</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// check range a-z [ASCII: 97, 122]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_97</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'a'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_123</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">lt_97</span><span class="p">,</span><span class="w"> </span><span class="n">lt_123</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">t2</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Range with holes. For instance, we want to match range A-Z except K.  This
+can be expressed as sum of two ranges A-J and L-Z. Then we have: four
+comparisons, two bit-andnot operations, and one bit-or.  However, it's easier
+to check the whole range and then check for excluded element(s). Then, there
+are three comparisons and two bit-andnot operations.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// check range A-Z [ASCII: 65, 90]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_65</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_91</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="sc">'Z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">lt_65</span><span class="p">,</span><span class="w"> </span><span class="n">lt_91</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// exclude K
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq_K</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="sc">'K'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">eq_K</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="acknowledgements">
+<h1>Acknowledgements</h1>
+<p>Thanks to <strong>Geoff Langdale</strong> and <strong>Michael Howard</strong> for their comments and fixes.</p>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/intel/hyperscan">Intel Hyperscan</a>, that use similar algorithms</li>
+</ul>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Source code is available on <a class="reference external" href="https://github.com/WojciechMula/simd-byte-lookup">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-10-18-simd-byte-lookup.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:40 GMT -->
+</html>

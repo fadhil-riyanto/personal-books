@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/calculating-the-norm-of-a-complex-number/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:09 GMT -->
+<head>
+    <title>Calculating the norm of a complex number - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Calculating the norm of a complex number">
+                        Calculating the norm of a complex number
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> October 17, 2024 at 19:45</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/math.html">Math</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>In this quick post I'll dispel a common confusion in the basic math
+of complex numbers. It's often useful to calculate the norm-square (also
+known as <a class="reference external" href="https://mathworld.wolfram.com/AbsoluteSquare.html">absolute square</a>)
+of a complex number <em>z</em>. This norm-square is denoted <object class="valign-m5" data="../../images/math/360ebdabd39e1822650a9e06af52bafa42c612d1.svg" style="height: 20px;" type="image/svg+xml">|z|^2</object>. One
+could naively expect that:</p>
+<object class="align-center" data="../../images/math/0ba9970d4320810ab52d4760cc3710f8b1aa4d2f.svg" style="height: 22px;" type="image/svg+xml">\[|z|^2=zz\]</object>
+<p>However, that's false! The way to calculate norm-square is:</p>
+<object class="align-center" data="../../images/math/93a6ea8b04b9e10b4ac45e52aee614cda725e38f.svg" style="height: 22px;" type="image/svg+xml">\[|z|^2=zz^*\]</object>
+<p>Where <object class="valign-0" data="../../images/math/3c28f425f15b96a78602a12bc367a48e1708c344.svg" style="height: 12px;" type="image/svg+xml">z^*</object> is the <a class="reference external" href="https://en.wikipedia.org/wiki/Complex_conjugate">complex conjugate</a> of <em>z</em>.
+But why? To understand the mechanics of this calculation, let's start by
+defining what a <em>norm</em> is.</p>
+<div class="section" id="the-norm-of-a-complex-number">
+<h2>The norm of a complex number</h2>
+<p>Informally, a <em>norm</em> is a generalization of the
+concept of &quot;length&quot; or &quot;size&quot;. For a real number <em>r</em>, the norm is its absolute
+value <object class="valign-m5" data="../../images/math/5a43d0019ad191c183202219f9300ad0d99ecdf3.svg" style="height: 19px;" type="image/svg+xml">|r|</object>. No matter if the number is positive or negative, the norm is
+its &quot;length&quot; - the distance from the origin.</p>
+<p>A norm is defined similarly for complex numbers. Here's a standard geometrical
+interpretation of a complex number <em>z</em>, showing both cartesian and polar
+coordinates:</p>
+<img alt="Cartesian and polar representation of a complex number" class="align-center" src="../../images/2024/complex-cartesian-polar.png" />
+<p>The &quot;norm&quot; of <em>z</em> is the length of the blue line, or the distance of its
+endpoint from the origin (<a class="reference external" href="../notes-on-the-euler-formula/index.html">in the polar representation</a><object class="valign-0" data="../../images/math/0d8a226a76f59bb6b9b4b23b11fbb18118336c40.svg" style="height: 15px;" type="image/svg+xml">z=re^{i\theta}</object>,
+it's exactly <em>r</em>). The norm of a complex number uses the same notation
+as the absolute value: <object class="valign-m5" data="../../images/math/0d4ebef37595cd27057748de36eab66c6d8e1e04.svg" style="height: 19px;" type="image/svg+xml">|z|</object>, because it means the same thing. Another
+common name for the norm of complex numbers is <a class="reference external" href="https://mathworld.wolfram.com/ComplexModulus.html">modulus</a>.</p>
+</div>
+<div class="section" id="norm-a-formal-definition">
+<h2>Norm: a formal definition</h2>
+<p>The formal definition of a norm (<a class="reference external" href="https://en.wikipedia.org/wiki/Norm_(mathematics)">from Wikipedia</a>)
+talks about generalized vector spaces. Since complex numbers are also a vector
+space (of dimension 1), we can simplify the definition just for
+<object class="valign-0" data="../../images/math/706e4005d6760527e1bd99f36d2e91c4f60ad91f.svg" style="height: 12px;" type="image/svg+xml">\mathbb{C}</object> as follows:</p>
+<p>A norm on <object class="valign-0" data="../../images/math/706e4005d6760527e1bd99f36d2e91c4f60ad91f.svg" style="height: 12px;" type="image/svg+xml">\mathbb{C}</object> is a real-valued function <object class="valign-m4" data="../../images/math/633a6c4d4c130b45fb1b8ef67cd28851444288bf.svg" style="height: 16px;" type="image/svg+xml">p:\mathbb{C}\rightarrow\mathbb{R}</object>
+with the following properties:</p>
+<ol class="arabic simple">
+<li>Triangle inequality: <object class="valign-m5" data="../../images/math/209e13884ab8dafefe1963d183fdda62ba1864fa.svg" style="height: 19px;" type="image/svg+xml">p(z+w)\leq p(z)+p(w)</object> for all <object class="valign-m4" data="../../images/math/3eb34c306327bdc359651378e76a616fb3b0f8cb.svg" style="height: 16px;" type="image/svg+xml">z,w\in \mathbb{C}</object></li>
+<li>Absolute homogeneity: <object class="valign-m5" data="../../images/math/bac398d257afc0a11114fbcd2cf4f79ad9aa2b57.svg" style="height: 19px;" type="image/svg+xml">p(sz)=|s|p(z)</object> for all <object class="valign-m1" data="../../images/math/b1bc0cc92c24cfcad20c59b6d677cb462cdfe104.svg" style="height: 13px;" type="image/svg+xml">z\in \mathbb{C}</object> and
+all <object class="valign-m1" data="../../images/math/3062e83c8f48712f2e4e6d14b50bf3c6a2695b2c.svg" style="height: 13px;" type="image/svg+xml">s\in \mathbb{R}</object></li>
+<li>Positive definiteness: for all <object class="valign-m1" data="../../images/math/b1bc0cc92c24cfcad20c59b6d677cb462cdfe104.svg" style="height: 13px;" type="image/svg+xml">z\in \mathbb{C}</object> if <object class="valign-m5" data="../../images/math/fcd0d0402f66de0afbe427cfb03a753e7acce3ec.svg" style="height: 19px;" type="image/svg+xml">p(z)=0</object>
+then <object class="valign-0" data="../../images/math/f44367dd295fad0767e7cdf7174fec85da66458c.svg" style="height: 12px;" type="image/svg+xml">z=0</object>.</li>
+<li>Non-negativity: <object class="valign-m5" data="../../images/math/749c1daf2a7faa84adf6091934867be7a53d5cc3.svg" style="height: 19px;" type="image/svg+xml">p(z)\geq 0</object> for all <object class="valign-m1" data="../../images/math/b1bc0cc92c24cfcad20c59b6d677cb462cdfe104.svg" style="height: 13px;" type="image/svg+xml">z\in \mathbb{C}</object></li>
+</ol>
+<p>For a complex number <em>z</em>, setting <object class="valign-m5" data="../../images/math/4d1a7f50f65484a5c2db197377fffed5044490a7.svg" style="height: 19px;" type="image/svg+xml">p(z)=|z|</object> makes all these properties
+work out intuitively:</p>
+<ol class="arabic simple">
+<li>Graphically, complex numbers add like vectors; therefore, given <em>z</em> and <em>w</em>,
+the length <object class="valign-m5" data="../../images/math/6fb540afab729a6a220cbf521596adbce4e36e30.svg" style="height: 19px;" type="image/svg+xml">|z+w|</object> is always <em>at most</em> the combined lengths
+<object class="valign-m5" data="../../images/math/a88991833b27e12c9974180b9db252ee7c7d225d.svg" style="height: 19px;" type="image/svg+xml">|z|+|w|</object>.</li>
+<li>When we scale <em>z</em> by a scalar <em>s</em>, its length is scaled similarly. Think
+about the polar representation of a complex number: <object class="valign-0" data="../../images/math/0d8a226a76f59bb6b9b4b23b11fbb18118336c40.svg" style="height: 15px;" type="image/svg+xml">z=re^{i\theta}</object>.
+Multiplying that by <em>s</em>, we get <object class="valign-0" data="../../images/math/d8b19ba3f76e67da5a34bc2e85deea9a9eda4905.svg" style="height: 15px;" type="image/svg+xml">sz=sre^{i\theta}</object>, which has length
+<em>sr</em>.</li>
+<li>In the polar representation: if <object class="valign-m5" data="../../images/math/c6087094ab24bf158bda02a759a6f464d1878133.svg" style="height: 19px;" type="image/svg+xml">|z|=0</object>, then <object class="valign-0" data="../../images/math/fa05edcebc0b56a6ac848cede267b8ff43b01a41.svg" style="height: 12px;" type="image/svg+xml">r=0</object>,
+meaning that <object class="valign-0" data="../../images/math/f44367dd295fad0767e7cdf7174fec85da66458c.svg" style="height: 12px;" type="image/svg+xml">z=0</object>.</li>
+<li>By definition, a length is non-negative; it's the distance from the origin.</li>
+</ol>
+</div>
+<div class="section" id="why-z-squared-is-not-a-norm-square">
+<h2>Why <em>z</em> squared is not a norm-square</h2>
+<p>Now it's time to go back to the question we started the post with. Why isn't
+<object class="valign-0" data="../../images/math/d7dacae2c968388960bf8970080a980ed5c5dcb7.svg" style="height: 8px;" type="image/svg+xml">zz</object> (or <object class="valign-0" data="../../images/math/0409c5da5b5540f8df097997a3201c82e674414e.svg" style="height: 15px;" type="image/svg+xml">z^2</object>) the norm-square?</p>
+<p>For a general <object class="valign-m4" data="../../images/math/a8630c2c602beeac9c7d604f7a5c4c72b6235adf.svg" style="height: 16px;" type="image/svg+xml">z=x+iy</object>, we can calculate <object class="valign-0" data="../../images/math/d7dacae2c968388960bf8970080a980ed5c5dcb7.svg" style="height: 8px;" type="image/svg+xml">zz</object> as follows:</p>
+<object class="align-center" data="../../images/math/24bdce64d3c2d2516903588c116cb27f42269503.svg" style="height: 75px;" type="image/svg+xml">\[\begin{align*}
+  zz&amp;=(x+iy)(x+iy)\\
+    &amp;=x^2+iyx+ixy-y^2\\
+    &amp;=x^2-y^2+2ixy
+\end{align*}\]</object>
+<p>This is clearly a complex number, with a real and an imaginary component. It
+doesn't seem to fit the requirement of being a &quot;length&quot; or distance from the
+origin, which we'd expect to be a real quantity.</p>
+<p>Multiplying <em>z</em> by itself in polar coordinates can be insightful:</p>
+<object class="align-center" data="../../images/math/2a9ebafa3b0b745bb3d84494376be884791a5747.svg" style="height: 75px;" type="image/svg+xml">\[\begin{align*}
+  zz&amp;=re^{i\theta}re^{i\theta}\\
+  &amp;=rre^{i\theta+i\theta}\\
+  &amp;=r^2 e^{i\cdot 2\theta}
+\end{align*}\]</object>
+<p>It seems like we <em>almost</em> get what we want, because the magnitude of <object class="valign-0" data="../../images/math/d7dacae2c968388960bf8970080a980ed5c5dcb7.svg" style="height: 8px;" type="image/svg+xml">zz</object>
+is <object class="valign-0" data="../../images/math/23b008c61c26b6b07c237ebcd14cc1bd5590d5b7.svg" style="height: 15px;" type="image/svg+xml">r^2</object>, which seems like the right magnitude for the square of the
+distance from origin; but there's still an angle... Here's how it looks
+geometrically:</p>
+<img alt="Polar representation of zz" class="align-center" src="../../images/2024/complex-squared.png" />
+<p>Recall that when multiplying two complex numbers - their magnitudes multiply,
+but their angles add. In this case, we got the <object class="valign-0" data="../../images/math/23b008c61c26b6b07c237ebcd14cc1bd5590d5b7.svg" style="height: 15px;" type="image/svg+xml">r^2</object> we needed, but with
+an angle of <object class="valign-0" data="../../images/math/bcafa268aec732fa30f1ca94c5a71c2c51a835c2.svg" style="height: 12px;" type="image/svg+xml">2\theta</object>, which is not what we need. If only we could get
+rid of the angle somehow... keep this thought in your head for the next
+section.</p>
+<p>Looking at the formal definition of the norm, it's clear right away that
+<object class="valign-0" data="../../images/math/d7dacae2c968388960bf8970080a980ed5c5dcb7.svg" style="height: 8px;" type="image/svg+xml">zz</object> won't do. The norm is defined as a <em>real-valued</em> function, whereas
+<object class="valign-0" data="../../images/math/d7dacae2c968388960bf8970080a980ed5c5dcb7.svg" style="height: 8px;" type="image/svg+xml">zz</object> is not real-valued.</p>
+</div>
+<div class="section" id="zz-is-a-norm-square">
+<h2><em>zz*</em> is a norm-square</h2>
+<p>The conjugate <object class="valign-0" data="../../images/math/3c28f425f15b96a78602a12bc367a48e1708c344.svg" style="height: 12px;" type="image/svg+xml">z^*</object> of <em>z</em> is defined as:</p>
+<object class="align-center" data="../../images/math/f97bf5145b4f109dd873f026dd19b6261bee8e7a.svg" style="height: 18px;" type="image/svg+xml">\[z^*=x-iy\]</object>
+<p>Or in polar form:</p>
+<object class="align-center" data="../../images/math/cb428cca8c7c2334e82204dcc6ec8500cc6abd3e.svg" style="height: 17px;" type="image/svg+xml">\[z^*=re^{-i\theta}\]</object>
+<p>Recall how we had that pesky angle remaining when calculating <object class="valign-0" data="../../images/math/d7dacae2c968388960bf8970080a980ed5c5dcb7.svg" style="height: 8px;" type="image/svg+xml">zz</object>?
+Let's find a way to get rid of it; since angles add when we multiply complex
+numbers, to get rid of <img alt="\theta" class="valign-0" src="../../images/math/cb005d76f9f2e394a770c2562c2e150a413b3216.png" style="height: 12px;" /> we should multiply <em>z</em> by something with
+an angle of <object class="valign-0" data="../../images/math/1d89455d52a663f9bd876993dab3244eca9825bf.svg" style="height: 12px;" type="image/svg+xml">-\theta</object>. Do you see where this is going?</p>
+<object class="align-center" data="../../images/math/38969c078a5e7218ff67a0757edd77f69ef33926.svg" style="height: 18px;" type="image/svg+xml">\[zz^*=re^{i\theta}re^{-i\theta}=r^2e^{i(\theta-\theta)}=r^2\]</object>
+<p>Voila! Multiplying <em>z</em> by its complex conjugate gives us a real number. Moreover,
+it gives us exactly the number we want - <object class="valign-0" data="../../images/math/23b008c61c26b6b07c237ebcd14cc1bd5590d5b7.svg" style="height: 15px;" type="image/svg+xml">r^2</object>. This is the norm-square,
+or <object class="valign-m5" data="../../images/math/360ebdabd39e1822650a9e06af52bafa42c612d1.svg" style="height: 20px;" type="image/svg+xml">|z|^2</object>. The norm of <em>z</em> is <object class="valign-m5" data="../../images/math/0d4ebef37595cd27057748de36eab66c6d8e1e04.svg" style="height: 19px;" type="image/svg+xml">|z|</object> and is precisely <em>r</em>, the
+&quot;length&quot; of the complex number.</p>
+<p>Let's verify this works in cartesian coordinates:</p>
+<object class="align-center" data="../../images/math/e9ad74b17f3c7c150032032ba187665192af9c3c.svg" style="height: 75px;" type="image/svg+xml">\[\begin{align*}
+  zz^*&amp;=(x+iy)(x-iy)\\
+    &amp;=x^2+iyx-ixy+y^2\\
+    &amp;=x^2+y^2
+\end{align*}\]</object>
+<p>Indeed, this makes intuitive sense because:</p>
+<object class="align-center" data="../../images/math/1fc08c47d9bde9c56ce120223f02d6e4e4aa119c.svg" style="height: 23px;" type="image/svg+xml">\[|z|=\sqrt{zz*}=\sqrt{x^2+y^2}\]</object>
+<p>And this is exactly what we expect when calculating the length of <em>z</em>.</p>
+</div>
+<div class="section" id="conclusion">
+<h2>Conclusion</h2>
+<p>The norm square of a complex number <em>z</em> is denoted <object class="valign-m5" data="../../images/math/360ebdabd39e1822650a9e06af52bafa42c612d1.svg" style="height: 20px;" type="image/svg+xml">|z|^2</object>. In this post
+we've seen why</p>
+<object class="align-center" data="../../images/math/be43c9bbc0688fbd5bd2a5ccbbcbfc490e8157ec.svg" style="height: 22px;" type="image/svg+xml">\[|z|^2\neq z^2\]</object>
+<p>(even though the mathematical notation makes it seem like this should be true).
+Instead, this is how the norm-square is actually calculated:</p>
+<object class="align-center" data="../../images/math/93a6ea8b04b9e10b4ac45e52aee614cda725e38f.svg" style="height: 22px;" type="image/svg+xml">\[|z|^2=zz^*\]</object>
+<p>With the norm itself being</p>
+<object class="align-center" data="../../images/math/17853097cca6756851e0ae03c50c118bbc0ba3d9.svg" style="height: 22px;" type="image/svg+xml">\[|z|=\sqrt{zz^*}\]</object>
+</div>
+<div class="section" id="appendix-1-zz-and-the-formal-definition-of-norm">
+<h2>Appendix 1: <em>zz*</em> and the formal definition of norm</h2>
+<p>Let's get back to the formal definition of norm and show that <object class="valign-0" data="../../images/math/4e7ff76404faee9370867212b4d0db77fbef2153.svg" style="height: 9px;" type="image/svg+xml">zz*</object>
+satisfies it.</p>
+<p>First of all, we've already seen that <object class="valign-0" data="../../images/math/4e7ff76404faee9370867212b4d0db77fbef2153.svg" style="height: 9px;" type="image/svg+xml">zz*</object> is a <em>real</em> number, no matter
+what <em>z</em> is. Therefore, it can indeed serve as a real-valued function
+<object class="valign-m4" data="../../images/math/633a6c4d4c130b45fb1b8ef67cd28851444288bf.svg" style="height: 16px;" type="image/svg+xml">p:\mathbb{C}\rightarrow\mathbb{R}</object>.</p>
+<p>The proof of property 1 is a bit tedious,
+<a class="reference external" href="https://proofwiki.org/wiki/Triangle_Inequality/Complex_Numbers">but straightforward using the Cauchy-Schwartz inequality</a>.</p>
+<p>For property 2, since <em>s</em> is a real number, the square root of its square is
+just its absolute value:</p>
+<object class="align-center" data="../../images/math/cda157a5549a049536ef4b3a9f9ae2405702a85c.svg" style="height: 23px;" type="image/svg+xml">\[|sz|=\sqrt{(sx)^2+(sy)^2}=\sqrt{s^2(x^2+y^2)}=|s|\sqrt{x^2+y^2}=|s||z|\]</object>
+<p>For property 3, consider a <em>z</em> such that:</p>
+<object class="align-center" data="../../images/math/8f9c2e89345d32212e440f1784f96b4b38537cc8.svg" style="height: 23px;" type="image/svg+xml">\[|z|=\sqrt{x^2+y^2}=0\]</object>
+<p>Since neither addend inside the square root can be negative,
+clearly both <em>x</em> and <em>y</em> must be zero, meaning that <object class="valign-0" data="../../images/math/f44367dd295fad0767e7cdf7174fec85da66458c.svg" style="height: 12px;" type="image/svg+xml">z=0</object>.</p>
+<p>Property 4 is similarly straightforward: given real components <em>x</em> and <em>y</em>,
+<object class="valign-m5" data="../../images/math/20fbc79261e6506fa206545e608a128dfe7f96fb.svg" style="height: 22px;" type="image/svg+xml">|z|=\sqrt{x^2+y^2}</object> is non-negative.</p>
+</div>
+<div class="section" id="appendix-2-norms-of-expressions">
+<h2>Appendix 2: norms of expressions</h2>
+<p>Say we want to calculate the norm squared of some expression involving complex
+numbers; the simplest example would be a sum of <em>z</em> and <em>w</em>:</p>
+<object class="align-center" data="../../images/math/ee8259923714f60717a9d19affab1c2468c15961.svg" style="height: 22px;" type="image/svg+xml">\[|z+w|^2\]</object>
+<p>We go about it pretty much the same way:</p>
+<object class="align-center" data="../../images/math/3b8d01185756bc07e6d5e7a85ea5eca1e0e49d81.svg" style="height: 103px;" type="image/svg+xml">\[\begin{align*}
+|z+w|^2&amp;=(z+w)(z+w)^*\\
+&amp;=(z+w)(z^*+w^*)\\
+&amp;=zz^*+zw^*+wz^*+ww^*\\
+&amp;=|z|^2+|w|^2+wz^*+zw^*
+\end{align*}\]</object>
+<p>If we want to push a little further, the imaginary components of
+<object class="valign-m2" data="../../images/math/39c0a484bf8140d0769ee249ddb031251bd9c65d.svg" style="height: 14px;" type="image/svg+xml">wz^*+zw^*</object> cancel out, while their real components are duplicates;
+so we end up with:</p>
+<object class="align-center" data="../../images/math/0458b649a4c34e3aa1c88de2d04fc06c67c810f1.svg" style="height: 22px;" type="image/svg+xml">\[|z+w|^2=|z|^2+|w|^2+2Re(zw^*)\]</object>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/calculating-the-norm-of-a-complex-number/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:09 GMT -->
+</html>

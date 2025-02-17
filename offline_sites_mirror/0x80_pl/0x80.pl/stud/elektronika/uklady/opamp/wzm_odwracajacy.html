@@ -1,0 +1,25 @@
+Wzmacniacz odwracaj±cy
+* "Wzmacniacz operacyjny.pdf", str. 8
+* Wojciech Mu³a, 15.07.2005
+
+* Ku = -R2/R1 = -9
+
+* wzmacniacz operacyjny
+X	0 3 2	opamp
+
+* pêtla sprzê¿enia zwrotnego
+R1	1 3	100
+R2	3 2	900
+
+* sygna³ wej¶ciowy
+Vin	1 0	1V
+
+.include opamp.model
+
+* analiza
+.DC Vin 1u 100u 1u
+
+* wykres: wej¶cie, wyj¶cie
+.plot DC V(1) V(2)
+
+.end

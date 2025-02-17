@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse-bitblock-transpose.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE: Transpozycja bloku bitów</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse-transpozycja-bloku-bitow">
+<h1 class="title">SSE: Transpozycja bloku bitów</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">28.04.2008</td>
+</tr>
+</tbody>
+</table>
+<p>Dany jest blok 8 bajtów:</p>
+<pre class="literal-block">
+|a0 a1 a2 a3 a4 a5 a6 a7|       bajt 0
+|b0 b1 b2 b3 b4 b5 b6 b7|
+|c0 c1 c2 c3 c4 c5 c6 c7|         .
+|d0 d1 d2 d3 d4 d5 d6 d7|         .
+|e0 e1 e2 e3 e4 e5 e6 e7|         .
+|f0 f1 f2 f3 f4 f5 f6 f7|
+|g0 g1 g2 g3 g4 g5 g6 g7|
+|h0 h1 h2 h3 h4 h5 h6 h7|       bajt 7
+</pre>
+<p>Wynikiem transpozycji ma być:</p>
+<pre class="literal-block">
+|a0 b0 c0 d0 e0 f0 g0 h0|       bajt 0
+|a1 b1 c1 d1 e1 f1 g1 h1|
+|a2 b2 c2 d2 e2 f2 g2 h2|         .
+|a3 b3 c3 d3 e3 f3 g3 h3|         .
+|a4 b4 c4 d4 e4 f4 g4 h4|         .
+|a5 b5 c5 d5 e5 f5 g5 h5|
+|a6 b6 c6 d6 e6 f6 g6 h6|
+|a7 b7 c7 d7 e7 f7 g7 h7|       bajt 7
+</pre>
+<p>Dzięki rozkazom SSE można dość łatwo dokonać tego działania.  Algorytm
+wymaga 8 iteracji (równocześnie transponowane są dwa bloki), w każdej
+wykonywane są następujące kroki:</p>
+<ol class="arabic">
+<li><p class="first">powielany jest i-ty bajt (np. i=4) &mdash; <tt class="docutils literal">PSHUFB</tt>:</p>
+<pre class="literal-block">
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+|d0 d1 d2 d3 d4 d5 d6 d7|
+</pre>
+</li>
+<li><p class="first">maskowane są kolejne bity &mdash; <tt class="docutils literal">PAND</tt>:</p>
+<pre class="literal-block">
+|d0  0  0  0  0  0  0  0|
+| 0 d1  0  0  0  0  0  0|
+| 0  0 d2  0  0  0  0  0|
+| 0  0  0 d3  0  0  0  0|
+| 0  0  0  0 d4  0  0  0|
+| 0  0  0  0  0 d5  0  0|
+| 0  0  0  0  0  0 d6  0|
+| 0  0  0  0  0  0  0 d7|
+</pre>
+</li>
+<li><p class="first">powielanie bitów &mdash; <tt class="docutils literal">PCMPEQB</tt> (właściwie powielenie negacji bitów):</p>
+<pre class="literal-block">
+|d0 d0 d0 d0 d0 d0 d0 d0|
+|d1 d1 d1 d1 d1 d1 d1 d1|
+|d2 d2 d2 d2 d2 d2 d2 d2|
+|d3 d3 d3 d3 d3 d3 d3 d3|
+|d4 d4 d4 d4 d4 d4 d4 d4|
+|d5 d5 d5 d5 d5 d5 d5 d5|
+|d6 d6 d6 d6 d6 d6 d6 d6|
+|d7 d7 d7 d7 d7 d7 d7 d7|
+</pre>
+</li>
+<li><p class="first">pozostawienie bitów na i-tej pozycji &mdash; <tt class="docutils literal">PANDN</tt>:</p>
+<pre class="literal-block">
+| 0  0  0  0 d0  0  0  0|
+| 0  0  0  0 d1  0  0  0|
+| 0  0  0  0 d2  0  0  0|
+| 0  0  0  0 d3  0  0  0|
+| 0  0  0  0 d4  0  0  0|
+| 0  0  0  0 d5  0  0  0|
+| 0  0  0  0 d6  0  0  0|
+| 0  0  0  0 d7  0  0  0|
+</pre>
+</li>
+<li><p class="first">połączenie wyników z wynikami innych iteracji &mdash; <tt class="docutils literal">POR</tt></p>
+</li>
+</ol>
+<p>Szkic programu:</p>
+<pre class="literal-block">
+;
+        pxor    %xmm1, %xmm1            ; xmm1 := packed_byte(0x00)
+        movdqa  MASK1, %xmm2            ; MASK1 = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80} * 2
+
+        pxor    %xmm7, %xmm7            ; xmm7 - wynik
+        movdqa  (%esi), %xmm3           ; załadowanie 16 bajtów
+0:
+        xor     %eax, %eax
+        movl     $16, %ecx
+        1:
+                movdqu  %xmm3,          %xmm0
+                pshufb  PATTERN(%eax),  %xmm0   ; (1)   -- PATTERN[i] = packed_byte(i)
+                pand    %xmm2,          %xmm0   ; (2)
+                pcmpeqb %xmm1,          %xmm0   ; (3)
+                pandn   MASK2(%eax),    %xmm0   ; (4)   -- MASK2[i] = packed_byte(1 &lt;&lt; i)
+
+                por     %xmm0,  %xmm7           ; (5)
+
+                addl    $16,    %eax
+                cmp     $16*16, %eax
+                jb      1b
+
+
+        subl    $1, %ecx
+        jnz     0b
+</pre>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse-bitblock-transpose.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

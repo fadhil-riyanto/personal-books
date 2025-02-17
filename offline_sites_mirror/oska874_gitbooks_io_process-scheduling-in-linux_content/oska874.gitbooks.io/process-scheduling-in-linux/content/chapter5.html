@@ -1,0 +1,1181 @@
+<!DOCTYPE html><html lang="zh">
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter5.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+<head>
+        <title>5 Scheduler Skeleton &#xB7; Linux Process Schedule</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content>
+        <meta name="generator" content="GitBook 3.1.1">
+        <meta name="author" content="Ezio Zhang">
+        
+        
+    
+    <link rel="stylesheet" href="gitbook/style.css">
+
+    
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-comment/plugin.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-highlight/website.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-search/search.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-fontsettings/website.css">
+                
+            
+        
+
+    
+
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+
+        
+    
+    
+    <meta name="HandheldFriendly" content="true">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="gitbook/images/apple-touch-icon-precomposed-152.png">
+    <link rel="shortcut icon" href="https://gstatic.gitbook.com/images/b1c4c86ca817a71628d2debe73be9a64.ico" type="image/x-icon">
+
+    
+    <link rel="next" href="chapter6.html">
+    
+    
+    <link rel="prev" href="chapter4.html">
+    
+
+    
+<style>
+    .book .book-summary .book-search,
+    .book .book-summary ul.summary {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        bottom: auto;
+    }
+    .book-summary {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        display: flex;
+        flex-direction: column;
+        -webkit-box-orient: vertical;
+        -webkit-box-direction: normal;
+        overflow-y: auto;
+    }
+    .book-summary > nav {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overflow-y: overlay;
+    }
+    .gl-wrapper {
+        margin: 0;
+        display: block;
+        padding: 0;
+        position: relative;
+        line-height: 15px;
+        background: #fafafa;
+    }
+    .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        background: -moz-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        top: -24px;
+        width: 100%;
+        height: 24px;
+        content: "";
+        display: block;
+        position: absolute;
+        background: linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+    }
+    .book.color-theme-1 .gl-wrapper {
+        background: #121212;
+    }
+    .book.color-theme-1 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: -moz-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+    }
+    .book.color-theme-2 .gl-wrapper {
+        background: #2e3243;
+    }
+    .book.color-theme-2 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: -moz-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+    }
+    .gl-wrapper .gitbook-link {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        color: #9DAAB6;
+        margin: 16px;
+        display: flex;
+        padding: 0;
+        align-items: center;
+        margin-left: 32px;
+        padding-top: 8px;
+        padding-left: 16px;
+        border-radius: 3px;
+        padding-right: 16px;
+        padding-bottom: 8px;
+        text-decoration: none;
+        background-color: #E6ECF1;
+        -webkit-box-align: center;
+    }
+    .gl-wrapper .tm-logo {
+        margin: 0;
+        display: block;
+        padding: 0;
+        font-size: 40px;
+    }
+    .gl-wrapper .tm-content {
+        flex: 1;
+        margin: 0;
+        display: block;
+        padding: 0;
+        padding-left: 16px;
+    }
+    .gl-wrapper .tm-content .container {
+        margin: 0;
+        display: block;
+        padding: 0;
+    }
+    .gl-wrapper .tm-content .tm-container .tm-text {
+        font-size: 12px;
+        font-family: "Roboto", sans-serif;
+        font-weight: 400;
+        line-height: 1.625;
+    }
+</style></head>
+    <body>
+        
+<div class="book">
+    <div class="book-summary">
+        
+            
+<div id="book-search-input" role="search">
+    <input type="text" placeholder="Type to search">
+</div>
+
+            
+                <nav role="navigation">
+                
+
+
+<ul class="summary">
+    
+    
+    
+        
+        <li>
+            <a href="https://www.gitbook.com/book/oska874/process-scheduling-in-linux" target="_blank" class="custom-link">Linux Process Schedule</a>
+        </li>
+    
+    
+
+    
+    <li class="divider"></li>
+    
+
+    
+        
+        
+    
+        <li class="chapter " data-level="1.1" data-path="./">
+            
+                <a href="index.html">
+            
+                    
+                    Introduction
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.2" data-path="chapter1.html">
+            
+                <a href="chapter1.html">
+            
+                    
+                    1 Process Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.3" data-path="chapter2.html">
+            
+                <a href="chapter2.html">
+            
+                    
+                    2 Task Classification
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.4" data-path="chapter3.html">
+            
+                <a href="chapter3.html">
+            
+                    
+                    3 Scheduling Classes
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.5" data-path="chapter4.html">
+            
+                <a href="chapter4.html">
+            
+                    
+                    4 Main Runqueue
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter active" data-level="1.6" data-path="chapter5.html">
+            
+                <a href="chapter5.html">
+            
+                    
+                    5 Scheduler Skeleton
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.7" data-path="chapter6.html">
+            
+                <a href="chapter6.html">
+            
+                    
+                    6 Short Scheduling Algorithm History
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.8" data-path="chapter7.html">
+            
+                <a href="chapter7.html">
+            
+                    
+                    7 Completely Fair Scheduler (CFS)
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.9" data-path="chapter8.html">
+            
+                <a href="chapter8.html">
+            
+                    
+                    8 CFS Implementation Details
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.10" data-path="chapter9.html">
+            
+                <a href="chapter9.html">
+            
+                    
+                    9 Soft Real-Time Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.11" data-path="chapter10.html">
+            
+                <a href="chapter10.html">
+            
+                    
+                    10 Load Balancing on SMP Systems
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.12" data-path="chapter11.html">
+            
+                <a href="chapter11.html">
+            
+                    
+                    11 Real Time Load Balancing
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.13" data-path="chapter12.html">
+            
+                <a href="chapter12.html">
+            
+                    
+                    12. Resources
+            
+                </a>
+            
+
+            
+        </li>
+    
+
+    
+
+    <li class="divider"></li>
+
+    
+</ul>
+
+
+                </nav>
+            
+        
+    
+<div class="gl-wrapper">
+    <a class="gitbook-link" href="https://www.gitbook.com/?utm_source=public_site_legacy&amp;utm_medium=referral&amp;utm_campaign=trademark&amp;utm_term=oska874&amp;utm_content=powered_by" target="blank">
+        <div class="tm-logo">
+            <svg preserveAspectRatio="xMidYMid meet" height="1em" width="1em" fill="currentColor" viewBox="0 0 1067 769" xmlns="http://www.w3.org/2000/svg" stroke="none" class="icon-7f6730be--text-3f89f380"><g><path d="M480.026 640.677c17.205 0 31.2 13.997 31.2 31.194s-13.995 31.193-31.2 31.193c-17.197 0-31.193-13.996-31.193-31.193 0-17.197 13.996-31.194 31.193-31.194m489.93-193.226c-17.203 0-31.2-13.998-31.2-31.195 0-17.204 13.997-31.2 31.2-31.2 17.198 0 31.194 13.996 31.194 31.2 0 17.197-13.996 31.195-31.193 31.195m0-127.804c-53.269 0-96.609 43.34-96.609 96.609 0 10.373 1.723 20.702 5.123 30.741L559.328 616.879c-18.132-26.128-47.521-41.617-79.302-41.617-36.821 0-70.391 21.065-86.63 54.003L106.68 478.109c-30.288-15.927-52.965-65.817-50.56-111.223 1.248-23.687 9.438-42.071 21.897-49.17 7.916-4.493 17.436-4.099 27.526 1.188l1.916 1.01c75.96 40.022 324.6 170.981 335.063 175.844 16.157 7.47 25.14 10.5 52.659-2.547l513.958-267.3c7.53-2.844 16.315-10.062 16.315-21.023 0-15.205-15.72-21.199-15.765-21.199-29.218-14.018-74.163-35.054-117.987-55.57C798.033 84.26 691.861 34.547 645.23 10.132c-40.253-21.072-72.655-3.311-78.432.282l-11.227 5.555C345.727 119.743 64.898 258.826 48.911 268.553 20.278 285.973 2.547 320.679.252 363.768c-3.586 68.304 31.261 139.506 81.069 165.634l303.172 156.354c6.83 47.306 47.55 82.725 95.532 82.725 52.78 0 95.808-42.546 96.603-95.14L910.541 492.38c16.93 13.233 37.92 20.486 59.416 20.486 53.268 0 96.61-43.341 96.61-96.61s-43.342-96.61-96.61-96.61" fill-rule="evenodd"/></g></svg>
+        </div>
+        <div class="tm-content">
+            <div class="tm-container">
+                <span class="tm-text">
+                    Powered by <b>GitBook</b>
+                </span>
+            </div>
+        </div>
+    </a>
+</div></div>
+
+    <div class="book-body">
+        
+            <div class="body-inner">
+                
+                    
+
+<div class="book-header" role="navigation">
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href=".html">5 Scheduler Skeleton</a>
+    </h1>
+</div>
+
+
+
+
+                    <div class="page-wrapper" tabindex="-1" role="main">
+                        <div class="page-inner">
+                            
+<div id="book-search-results">
+    <div class="search-noresults">
+    
+                                <section class="normal markdown-section">
+                                
+                                <h1 id="5-scheduler-skeleton">5 Scheduler Skeleton</h1>
+<h2 id="51-the-scheduler-entry-point">5.1 The Scheduler Entry Point</h2>
+<p>The main entry point into the process scheduler is the function schedule(), defined in
+kernel/sched.c. This is the function that the rest of the kernel uses to invoke the process scheduler,deciding which process to run and then running it.</p>
+<p>Its main goal is to find the next task to be run and assign it to the local variable next. In the end, it then executes a context switch to that new task. If no other task than prev is found and prev is still runnable, it is rescheduled which basically means schedule() changes nothing.</p>
+<p>Lets look at it in more detail:</p>
+<pre><code>/*
+* __schedule() is the main scheduler function.
+*/
+static void __sched __schedule(void)
+{
+    struct task_struct *prev, *next;
+    unsigned long *switch_count;
+    struct rq *rq;
+    int cpu;
+need_resched:
+    preempt_disable();
+    cpu = smp_processor_id();
+    rq = cpu_rq(cpu);
+    rcu_note_context_switch(cpu);
+    prev = rq-&gt;curr;
+    schedule_debug(prev);
+    if (sched_feat(HRTICK))
+        hrtick_clear(rq);
+    raw_spin_lock_irq(&amp;rq-&gt;lock);
+    switch_count = &amp;prev-&gt;nivcsw;
+    if (prev-&gt;state &amp;&amp; !(preempt_count() &amp; PREEMPT_ACTIVE)) {
+        if (unlikely(signal_pending_state(prev-&gt;state, prev))) {
+            prev-&gt;state = TASK_RUNNING;
+        } else {
+            deactivate_task(rq, prev, DEQUEUE_SLEEP);
+            prev-&gt;on_rq = 0;
+            /*
+            * If a worker went to sleep, notify and ask workqueue
+            * whether it wants to wake up a task to maintain
+            * concurrency.
+            */
+            if (prev-&gt;flags &amp; PF_WQ_WORKER) {
+                struct task_struct *to_wakeup;
+                to_wakeup = wq_worker_sleeping(prev, cpu);
+                if (to_wakeup)
+                    try_to_wake_up_local(to_wakeup);
+            }
+        }
+        switch_count = &amp;prev-&gt;nvcsw;
+    }
+    pre_schedule(rq, prev);
+    if (unlikely(!rq-&gt;nr_running))
+        idle_balance(cpu, rq);
+    put_prev_task(rq, prev);
+    next = pick_next_task(rq);
+    clear_tsk_need_resched(prev);
+    rq-&gt;skip_clock_update = 0;
+    if (likely(prev != next)) {
+        rq-&gt;nr_switches++;
+        rq-&gt;curr = next;
+        ++*switch_count;
+        context_switch(rq, prev, next); /* unlocks the rq */
+        /*
+        * The context switch have flipped the stack from under us
+        * and restored the local variables which were saved when
+        * this task called schedule() in the past. prev == current
+        * is still correct, but it can be moved to another cpu/rq.
+        */
+        cpu = smp_processor_id();
+        rq = cpu_rq(cpu);
+    } else
+        raw_spin_unlock_irq(&amp;rq-&gt;lock);
+    post_schedule(rq);
+    preempt_enable_no_resched();
+    if (need_resched())
+        goto need_resched;
+}
+</code></pre><p>Since the Linux kernel is pre-emptive, it can happen that a task executing code in kernel space is involuntarily pre-empted by a higher priority task. This pauses the pre-empted task within an unfinished kernel space operation that is only continued when it is scheduled next. Therefore, the first thing, the schedule function does is disabling pre-emption by calling preempt_disable() so the scheduling thread can not be pre-empted during critical operations.</p>
+<p>Secondly, it establishes another protection by locking the current CPU&apos;s runqueue lock since only one thread at a time is allowed to modify the runqueue.</p>
+<p>Next, schedule() examines the state of the previously executed task in prev. If it is not runnable and has not been pre-empted in kernel mode, then it should be removed from the runqueue. However, if it has nonblocked pending signals, its state is set to TASK_RUNNING and it is left in the runqueue.This means prev gets another chance to be selected for execution.</p>
+<p>To remove a task from the runqueue, deactivate_task() is called which internally calls the
+dequeue_task() hook of the task&apos;s scheduling class.</p>
+<pre><code>static void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+    update_rq_clock(rq);
+    sched_info_dequeued(p);
+    p-&gt;sched_class-&gt;dequeue_task(rq, p, flags);
+}
+</code></pre><p>The next action is to check if any runnable tasks exist in the CPU&apos;s runqueue. If not, idle_balance() is called to get some runnable tasks from other CPUs (see Load Balancing).</p>
+<p>put_prev_task() is a scheduling class hook that informs the task&apos;s class that the given task is about to be switched out of the CPU.</p>
+<p>Now the corresponding class is asked to pick the next suitable task to be scheduled on the CPU by calling the hook pick_next_task(). This is followed by clearing the need_resched flag which might have been set previously to invoke the schedule() function call in the first place.</p>
+<p>The need_resched is a flag in the task_struct and regularly checked by the kernel. It is a way of telling the kernel that another task deserves to run and schedule() should be executed as soon as possible.</p>
+<pre><code>/*
+* Pick up the highest-prio task:
+*/
+static inline struct task_struct *
+pick_next_task(struct rq *rq)
+{
+    const struct sched_class *class;
+    struct task_struct *p;
+    /*
+    * Optimization: we know that if all tasks are in
+    * the fair class we can call that function directly:
+    */
+    if (likely(rq-&gt;nr_running == rq-&gt;cfs.nr_running)) {
+        p = fair_sched_class.pick_next_task(rq);
+        if (likely(p))
+            return p;
+    }
+    for_each_class(class) {
+        p = class-&gt;pick_next_task(rq);
+        if (p)
+            return p;
+    }
+    BUG(); /* the idle class will always have a runnable task */
+}
+</code></pre><p>pick_next_task() is also implemented in sched.c. It iterates through our list of scheduling classes to find the class with the highest priority that has a runnable task (see Scheduling Classes above). If the class is found, the scheduling class hook is called. Since most tasks are handled by the sched_fair class, a short cut to this class is implemented in the beginning of the function.</p>
+<p>Now schedule() checks if pick_next_task() found a new task or if it picked the same task again that was running before. If the latter is the case, no task switch is performed and the current task just keeps running. If a new task is found, which is the more likely case, the actual task switch is executed by calling context_switch(). Internally, context_switch() switches to the new task&apos;s memory map and swaps register state and stack.</p>
+<p>To finish up, the runqueue is unlocked and pre-emption is reenabled. In case pre-emption was requested during the time in which it was disabled, schedule() is run again right away.</p>
+<h2 id="52-calling-the-scheduler">5.2 Calling the Scheduler</h2>
+<p>After seeing the entry point into the scheduler, lets now have a look at when the schedule() function is actually called. There are three main occasions when that happens in kernel code:</p>
+<h3 id="1-regular-runtime-update-of-currently-scheduled-task">1. Regular runtime update of currently scheduled task</h3>
+<p>The function scheduler_tick() is called regularly by a timer interrupt. Its purpose is to update runqueue clock, CPU load and runtime counters of the currently running task.</p>
+<pre><code>/*
+* This function gets called by the timer code, with HZ frequency.
+* We call it with interrupts disabled.
+*/
+void scheduler_tick(void)
+{
+    int cpu = smp_processor_id();
+    struct rq *rq = cpu_rq(cpu);
+    struct task_struct *curr = rq-&gt;curr;
+    sched_clock_tick();
+    raw_spin_lock(&amp;rq-&gt;lock);
+    update_rq_clock(rq);
+    update_cpu_load_active(rq);
+    curr-&gt;sched_class-&gt;task_tick(rq, curr, 0);
+    raw_spin_unlock(&amp;rq-&gt;lock);
+    perf_event_task_tick();
+#ifdef CONFIG_SMP
+    rq-&gt;idle_at_tick = idle_cpu(cpu);
+    trigger_load_balance(rq, cpu);
+#endif
+}
+</code></pre><p>You can see, that scheduler_tick() calls the scheduling class hook task_tick() which runs the regular task update for the corresponding class. Internally, the scheduling class can decide if a new task needs to be scheduled an would set the need_resched flag for the task which tells the kernel to invoke schedule() as soon as possible.</p>
+<p>At the end of scheduler_tick() you can also see that load balancing is invoked if SMP is configured.</p>
+<h3 id="2-currently-running-task-goes-to-sleep">2. Currently running task goes to sleep</h3>
+<p>The process of going to sleep to wait for a specific event to happen is implemented in the Linux kernel for multiple occasions. It usually follows a certain pattern:</p>
+<pre><code>/* &#x2018;q&#x2019; is the wait queue we wish to sleep on */
+DEFINE_WAIT(wait);
+add_wait_queue(q, &amp;wait);
+while (!condition)   /* condition is the event that we are waiting for */
+{
+    prepare_to_wait(&amp;q, &amp;wait, TASK_INTERRUPTIBLE);
+    if (signal_pending(current))
+        /* handle signal */
+        schedule();
+}
+finish_wait(&amp;q, &amp;wait);
+</code></pre><p>The calling task would create a wait queue and add itself to it. It would then start a loop that waits until a certain condition becomes true. In the loop, it would set its own task state to either TASK_INTERRUPTIBLE or TASK_UNITERRUPTIBLE. If the former is the case, it can be woken up for a pending signal which can then be handled.</p>
+<p>If the needed event did not occur yet, it would call schedule() and go to sleep. schedule() would then remove the task from the runqueue (See Scheduler Entry Point). If the condition becomes true, the loop is exited and the task is removed from the wait queue.</p>
+<p>You can see here, that schedule() is always called right before a task goes to sleep, to pick another task to run next.</p>
+<h3 id="3-sleeping-task-wakes-up">3. Sleeping task wakes up</h3>
+<p>The code that causes the event the sleeping task is waiting for typically calls wake_up() on the corresponding wait queue which eventually ends up in the scheduler function try_to_wake_up() (ttwu).
+This function does three things:</p>
+<ol>
+<li>It puts the task to be woken back into the runqueue.</li>
+<li>It wakes the task up by setting its state to TASK_RUNNING.</li>
+<li>If the the awakened task has higher priority than the currently running task, the need_resched flag is set to invoke schedule().</li>
+</ol>
+<pre><code>/**
+* try_to_wake_up - wake up a thread
+* @p: the thread to be awakened
+* @state: the mask of task states that can be woken
+* @wake_flags: wake modifier flags (WF_*)
+*
+* Put it on the run-queue if it&apos;s not already there. The &quot;current&quot;
+* thread is always on the run-queue (except when the actual
+* re-schedule is in progress), and as such you&apos;re allowed to do
+* the simpler &quot;current-&gt;state = TASK_RUNNING&quot; to mark yourself
+* runnable without the overhead of this.
+*
+* Returns %true if @p was woken up, %false if it was already running
+* or @state didn&apos;t match @p&apos;s state.
+*/
+static int
+try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
+{
+    unsigned long flags;
+    int cpu, success = 0;
+    smp_wmb();
+    raw_spin_lock_irqsave(&amp;p-&gt;pi_lock, flags);
+    if (!(p-&gt;state &amp; state))
+        goto out;
+    success = 1; /* we&apos;re going to change -&gt;state */
+    cpu = task_cpu(p);
+    if (p-&gt;on_rq &amp;&amp; ttwu_remote(p, wake_flags))
+        goto stat;
+#ifdef CONFIG_SMP
+    /*
+    * If the owning (remote) cpu is still in the middle of schedule() with
+    * this task as prev, wait until its done referencing the task.
+    */
+    while (p-&gt;on_cpu) {
+#ifdef __ARCH_WANT_INTERRUPTS_ON_CTXSW
+        /*
+        * In case the architecture enables interrupts in
+        * context_switch(), we cannot busy wait, since that
+        * would lead to deadlocks when an interrupt hits and
+        * tries to wake up @prev. So bail and do a complete
+        * remote wakeup.
+        */
+        if (ttwu_activate_remote(p, wake_flags))
+            goto stat;
+#else
+        cpu_relax();
+#endif
+    }
+    /*
+    * Pairs with the smp_wmb() in finish_lock_switch().
+    */
+    smp_rmb();
+    p-&gt;sched_contributes_to_load = !!task_contributes_to_load(p);
+    p-&gt;state = TASK_WAKING;
+    if (p-&gt;sched_class-&gt;task_waking)
+        p-&gt;sched_class-&gt;task_waking(p);
+    cpu = select_task_rq(p, SD_BALANCE_WAKE, wake_flags);
+    if (task_cpu(p) != cpu) {
+        wake_flags |= WF_MIGRATED;
+        set_task_cpu(p, cpu);
+    }
+#endif /* CONFIG_SMP */
+    ttwu_queue(p, cpu);
+stat:
+    ttwu_stat(p, cpu, wake_flags);
+out:
+    raw_spin_unlock_irqrestore(&amp;p-&gt;pi_lock, flags);
+    return success;
+}
+</code></pre><p>After some initial error checking and some SMP magic, the function ttwu_queue() is called which does the wake up work.</p>
+<pre><code>static void ttwu_queue(struct task_struct *p, int cpu)
+{
+    struct rq *rq = cpu_rq(cpu);
+#if defined(CONFIG_SMP)
+    if (sched_feat(TTWU_QUEUE) &amp;&amp; cpu != smp_processor_id()) {
+        sched_clock_cpu(cpu); /* sync clocks x-cpu */
+        ttwu_queue_remote(p, cpu);
+        return;
+    }
+#endif
+    raw_spin_lock(&amp;rq-&gt;lock);
+    ttwu_do_activate(rq, p, 0);
+    raw_spin_unlock(&amp;rq-&gt;lock);
+}
+static void
+ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags)
+{
+#ifdef CONFIG_SMP
+    if (p-&gt;sched_contributes_to_load)
+        rq-&gt;nr_uninterruptible--;
+#endif
+    ttwu_activate(rq, p, ENQUEUE_WAKEUP | ENQUEUE_WAKING);
+    ttwu_do_wakeup(rq, p, wake_flags);
+}
+</code></pre><p>This function locks the runqueue and calls ttwu_do_activate() which further calls ttwu_activate() to perform step 1 and ttwu_do_wakeup() to perform step 2 and 3.</p>
+<pre><code>static void ttwu_activate(struct rq *rq, struct task_struct *p, int en_flags)
+{
+    activate_task(rq, p, en_flags);
+    p-&gt;on_rq = 1;
+    /* if a worker is waking up, notify workqueue */
+    if (p-&gt;flags &amp; PF_WQ_WORKER)
+        wq_worker_waking_up(p, cpu_of(rq));
+}
+/*
+* activate_task - move a task to the runqueue.
+*/
+static void activate_task(struct rq *rq, struct task_struct *p, int flags)
+{
+    if (task_contributes_to_load(p))
+        rq-&gt;nr_uninterruptible--;
+    enqueue_task(rq, p, flags);
+    inc_nr_running(rq);
+}
+static void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+    update_rq_clock(rq);
+    sched_info_queued(p);
+    p-&gt;sched_class-&gt;enqueue_task(rq, p, flags);
+}
+</code></pre><p>If you follow the chain of ttwu_activate() you end up in a call to the corresponding scheduling class hook to enqueue_task() which we already saw in schedule() to put the task back into the runqueue.</p>
+<pre><code>/*
+* Mark the task runnable and perform wakeup-preemption.
+*/
+static void
+ttwu_do_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
+{
+    trace_sched_wakeup(p, true);
+    check_preempt_curr(rq, p, wake_flags);
+    p-&gt;state = TASK_RUNNING;
+#ifdef CONFIG_SMP
+    if (p-&gt;sched_class-&gt;task_woken)
+        p-&gt;sched_class-&gt;task_woken(rq, p);
+    if (rq-&gt;idle_stamp) {
+        u64 delta = rq-&gt;clock - rq-&gt;idle_stamp;
+        u64 max = 2*sysctl_sched_migration_cost;
+        if (delta &gt; max)
+            rq-&gt;avg_idle = max;
+        else
+            update_avg(&amp;rq-&gt;avg_idle, delta);
+        rq-&gt;idle_stamp = 0;
+    }
+#endif
+}
+static void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags)
+{
+    const struct sched_class *class;
+    if (p-&gt;sched_class == rq-&gt;curr-&gt;sched_class) {
+        rq-&gt;curr-&gt;sched_class-&gt;check_preempt_curr(rq, p, flags);
+    } else {
+        for_each_class(class) {
+            if (class == rq-&gt;curr-&gt;sched_class)
+                break;
+            if (class == p-&gt;sched_class) {
+                resched_task(rq-&gt;curr);
+                break;
+            }
+        }
+    }
+    /*
+    * A queue event has occurred, and we&apos;re going to schedule. In
+    * this case, we can save a useless back to back clock update.
+    */
+    if (rq-&gt;curr-&gt;on_rq &amp;&amp; test_tsk_need_resched(rq-&gt;curr))
+        rq-&gt;skip_clock_update = 1;
+}
+</code></pre><p>ttwu_do_wakeup() checks if the current task needs to be pre-empted by the task being woken up which is now in the runqueue. The function check_preempt_curr() ends up calling the corresponding hook into the scheduling class internally might set the need_resched flag. Afterwards the task&apos;s state is set to TASK_RUNNING, which completes the wake up process.</p>
+<hr>
+<h1 id="5-&#x8C03;&#x5EA6;&#x6846;&#x67B6;">5. &#x8C03;&#x5EA6;&#x6846;&#x67B6;</h1>
+<h2 id="51-&#x8C03;&#x5EA6;&#x5668;&#x5165;&#x53E3;">5.1. &#x8C03;&#x5EA6;&#x5668;&#x5165;&#x53E3;</h2>
+<p>&#x8FDB;&#x5165;&#x8FDB;&#x7A0B;&#x8C03;&#x5EA6;&#x5668;&#x7684;&#x4E3B;&#x5165;&#x53E3;&#x662F;&#x51FD;&#x6570; <code>schedule()</code> &#xFF0C;&#x5B9A;&#x4E49;&#x5728;&#x6587;&#x4EF6; <code>kernel/sched.c</code>&#x3002;&#x5185;&#x6838;&#x5176;&#x4F59;&#x90E8;&#x5206;&#x90FD;&#x8981;&#x4F7F;&#x7528;&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x6765;&#x8C03;&#x7528;&#x8FDB;&#x7A0B;&#x8C03;&#x5EA6;&#x5668;&#xFF0C;&#x51B3;&#x5B9A;&#x90A3;&#x4E2A;&#x8FDB;&#x7A0B;&#x8FD0;&#x884C;&#x4EE5;&#x53CA;&#x63A5;&#x4E0B;&#x6765;&#x8FD0;&#x884C;&#x90A3;&#x4E2A;&#x8FDB;&#x7A0B;&#x3002;</p>
+<p><code>schedule()</code> &#x7684;&#x4E3B;&#x8981;&#x76EE;&#x6807;&#x662F;&#x6311;&#x9009;&#x4E0B;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#xFF0C;&#x5E76;&#x4E14;&#x628A;&#x8FD9;&#x4E2A;&#x8FDB;&#x7A0B;&#x4F20;&#x7ED9;&#x672C;&#x5730;&#x53D8;&#x91CF; <code>next</code>&#x3002;&#x6700;&#x540E;&#x5B83;&#x5C31;&#x6267;&#x884C;&#x4E0A;&#x4E0B;&#x6587;&#x5207;&#x6362;&#x8FDB;&#x5165;&#x65B0;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x5982;&#x679C;&#x53EA;&#x6709; <code>prev</code> &#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x5E76;&#x4E14; <code>prev</code> &#x8FD8;&#x53EF;&#x4EE5;&#x8FD0;&#x884C;&#xFF0C;&#x90A3;&#x4E48;&#x91CD;&#x65B0;&#x8C03;&#x5EA6;&#x57FA;&#x672C;&#x4E0A;&#x5C31;&#x610F;&#x5473;&#x7740; <code>schedule()</code> &#x4EC0;&#x4E48;&#x90FD;&#x6CA1;&#x6539;&#x53D8;&#x3002;</p>
+<pre><code>/*
+* __schedule() is the main scheduler function.
+*/
+static void __sched __schedule(void)
+{
+    struct task_struct *prev, *next;
+    unsigned long *switch_count;
+    struct rq *rq;
+    int cpu;
+need_resched:
+    preempt_disable();
+    cpu = smp_processor_id();
+    rq = cpu_rq(cpu);
+    rcu_note_context_switch(cpu);
+    prev = rq-&gt;curr;
+    schedule_debug(prev);
+    if (sched_feat(HRTICK))
+        hrtick_clear(rq);
+    raw_spin_lock_irq(&amp;rq-&gt;lock);
+    switch_count = &amp;prev-&gt;nivcsw;
+    if (prev-&gt;state &amp;&amp; !(preempt_count() &amp; PREEMPT_ACTIVE)) {
+        if (unlikely(signal_pending_state(prev-&gt;state, prev))) {
+            prev-&gt;state = TASK_RUNNING;
+        } else {
+            deactivate_task(rq, prev, DEQUEUE_SLEEP);
+            prev-&gt;on_rq = 0;
+            /*
+            * If a worker went to sleep, notify and ask workqueue
+            * whether it wants to wake up a task to maintain
+            * concurrency.
+            */
+            if (prev-&gt;flags &amp; PF_WQ_WORKER) {
+                struct task_struct *to_wakeup;
+                to_wakeup = wq_worker_sleeping(prev, cpu);
+                if (to_wakeup)
+                    try_to_wake_up_local(to_wakeup);
+            }
+        }
+        switch_count = &amp;prev-&gt;nvcsw;
+    }
+    pre_schedule(rq, prev);
+    if (unlikely(!rq-&gt;nr_running))
+        idle_balance(cpu, rq);
+    put_prev_task(rq, prev);
+    next = pick_next_task(rq);
+    clear_tsk_need_resched(prev);
+    rq-&gt;skip_clock_update = 0;
+    if (likely(prev != next)) {
+        rq-&gt;nr_switches++;
+        rq-&gt;curr = next;
+        ++*switch_count;
+        context_switch(rq, prev, next); /* unlocks the rq */
+        /*
+        * The context switch have flipped the stack from under us
+        * and restored the local variables which were saved when
+        * this task called schedule() in the past. prev == current
+        * is still correct, but it can be moved to another cpu/rq.
+        */
+        cpu = smp_processor_id();
+        rq = cpu_rq(cpu);
+    } else
+        raw_spin_unlock_irq(&amp;rq-&gt;lock);
+    post_schedule(rq);
+    preempt_enable_no_resched();
+    if (need_resched())
+        goto need_resched;
+}
+</code></pre><p>&#x56E0;&#x4E3A; Linux &#x5185;&#x6838;&#x662F;&#x53EF;&#x4EE5;&#x62A2;&#x5360;&#x7684;&#xFF0C;&#x6240;&#x4EE5;&#x5728;&#x5185;&#x6838;&#x7A7A;&#x95F4;&#x6267;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x4EE3;&#x7801;&#x662F;&#x53EF;&#x4EE5;&#x88AB;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x968F;&#x65F6;&#x6253;&#x65AD;&#x7684;&#x3002;&#x8FD9;&#x5C31;&#x4F1A;&#x4F7F;&#x5F97;&#x88AB;&#x62A2;&#x5360;&#x7684;&#x4EFB;&#x52A1;&#x5728;&#x5185;&#x6838;&#x7A7A;&#x95F4;&#x6CA1;&#x6709;&#x6267;&#x884C;&#x5B8C;&#x7684;&#x64CD;&#x4F5C;&#x53EA;&#x80FD;&#x7B49;&#x5F85;&#x4E0B;&#x6B21;&#x8C03;&#x5EA6;&#x6267;&#x884C;&#x4E86;&#x3002;&#x56E0;&#x6B64;&#x8C03;&#x5EA6;&#x51FD;&#x6570;&#x8981;&#x505A;&#x7684;&#x7B2C;&#x4E00;&#x4EF6;&#x4E8B;&#x662F;&#x8C03;&#x7528; <code>preempt_disable()</code> &#x7981;&#x6B62;&#x62A2;&#x5360;&#xFF0C;&#x8FD9;&#x6837;&#x4EE5;&#x6765;&#x8C03;&#x5EA6;&#x4E2D;&#x7684;&#x7EBF;&#x7A0B;&#x5C31;&#x4E0D;&#x4F1A;&#x5728;&#x6267;&#x884C;&#x4E34;&#x754C;&#x533A;&#x64CD;&#x4F5C;&#x65F6;&#x88AB;&#x6253;&#x65AD;&#x3002;</p>
+<p>&#x7B2C;&#x4E8C;&#x6B65;&#xFF0C;&#x7CFB;&#x7EDF;&#x4F1A;&#x901A;&#x8FC7;&#x9501;&#x5B9A;&#x5F53;&#x524D; CPU &#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x9501;&#x6765;&#x5EFA;&#x7ACB;&#x53E6;&#x4E00;&#x4E2A;&#x4FDD;&#x62A4;&#xFF0C;&#x56E0;&#x4E3A;&#x67D0;&#x4E00;&#x65F6;&#x523B;&#x53EA;&#x5141;&#x8BB8;&#x4E00;&#x4E2A;&#x7EBF;&#x7A0B;&#x4FEE;&#x6539;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x3002;</p>
+<p>&#x63A5;&#x4E0B;&#x6765;&#xFF0C;<code>schedule()</code> &#x8981;&#x68C0;&#x67E5; <code>prev</code> &#x6307;&#x5411;&#x7684;&#x4E4B;&#x524D;&#x6267;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x5982;&#x679C;&#x8FD9;&#x4E2A;&#x4EFB;&#x52A1;&#x5728;&#x5185;&#x6838;&#x6A21;&#x5F0F;&#x662F;&#x4E0D;&#x53EF;&#x8FD0;&#x884C;&#x7684;&#x5E76;&#x4E14;&#x8FD8;&#x6CA1;&#x6709;&#x88AB;&#x62A2;&#x5360;&#xFF0C;&#x90A3;&#x4E48;&#x5B83;&#x5C31;&#x5E94;&#x8BE5;&#x88AB;&#x79FB;&#x51FA;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x3002;&#x7136;&#x800C;&#x5982;&#x679C;&#x8BE5;&#x4EFB;&#x52A1;&#x6709;&#x975E;&#x963B;&#x585E;&#x7684;&#x7B49;&#x5F85;&#x4FE1;&#x53F7;&#xFF0C;&#x90A3;&#x5C31;&#x628A;&#x5B83;&#x7684;&#x8FD0;&#x884C;&#x72B6;&#x6001;&#x8BBE;&#x7F6E;&#x4E3A; <code>TASK_RUNNING</code> &#x7136;&#x540E;&#x7EE7;&#x7EED;&#x7559;&#x5728;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x91CC;&#x3002;&#x8FD9;&#x5C31;&#x610F;&#x5473;&#x7740; <code>prev</code> &#x6307;&#x5411;&#x7684;&#x4EFB;&#x52A1;&#x53C8;&#x83B7;&#x53D6;&#x4E86;&#x4E00;&#x6B21;&#x88AB;&#x8C03;&#x5EA6;&#x6267;&#x884C;&#x7684;&#x673A;&#x4F1A;&#x3002;</p>
+<p>&#x8981;&#x5C06;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x79FB;&#x51FA;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x9700;&#x8981;&#x5728;&#x5185;&#x90E8;&#x8C03;&#x7528; <code>deactivate_task()</code> &#xFF0C;&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x4F1A;&#x8C03;&#x7528;&#x8BE5;&#x4EFB;&#x52A1;&#x6240;&#x5C5E;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50;&#x51FD;&#x6570; <code>dequeue_task()</code>&#x3002;</p>
+<pre><code>static void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+    update_rq_clock(rq);
+    sched_info_dequeued(p);
+    p-&gt;sched_class-&gt;dequeue_task(rq, p, flags);
+}
+</code></pre><p>&#x4E0B;&#x4E00;&#x4E2A;&#x52A8;&#x4F5C;&#x662F;&#x68C0;&#x67E5;&#x5F53;&#x524D; CPU &#x7684;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x662F;&#x5426;&#x8FD8;&#x6709;&#x53EF;&#x4EE5;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x5982;&#x679C;&#x6CA1;&#x6709;&#x7684;&#x8BDD;&#x5C31;&#x8C03;&#x7528; <code>idle_balance()</code> &#x4ECE;&#x5176;&#x4ED6; CPU &#x83B7;&#x53D6;&#x4E00;&#x4E9B;&#x53EF;&#x4EE5;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#xFF08;&#x53C2;&#x89C1;&#x8D1F;&#x8F7D;&#x5747;&#x8861;&#xFF09;&#x3002;</p>
+<p><code>put_prev_task()</code> &#x662F;&#x4E00;&#x4E2A;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50;&#x51FD;&#x6570;&#xFF0C;&#x662F;&#x7528;&#x6765;&#x544A;&#x8BC9;&#x4EFB;&#x52A1;&#x6240;&#x5C5E;&#x7684;&#x7C7B;&#x8FD9;&#x4E2A;&#x4EFB;&#x52A1;&#x5C06;&#x8981;&#x88AB;&#x5207;&#x6362;&#x51FA;&#x5F53;&#x524D; CPU &#x3002;</p>
+<p>&#x73B0;&#x5728;&#x5C31;&#x8981;&#x901A;&#x8FC7;&#x8C03;&#x7528; <code>pick_next_task()</code> &#x6765;&#x547D;&#x4EE4;&#x76F8;&#x5E94;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#x6311;&#x9009;&#x4E0B;&#x4E00;&#x4E2A;&#x9002;&#x5408;&#x5728;&#x5F53;&#x524D; CPU &#x4E0A;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x7D27;&#x63A5;&#x7740;&#x5C31;&#x662F;&#x6E05;&#x6389;&#x4E4B;&#x524D;&#x6700;&#x5F00;&#x59CB;&#x4E3A;&#x4E86;&#x8C03;&#x7528; <code>schedule()</code> &#x800C;&#x8BBE;&#x7F6E;&#x7684; <code>need_resched</code> &#x6807;&#x5FD7;&#x3002;</p>
+<p><code>need_resched</code> &#x6807;&#x5FD7;&#x4F4D;&#x4E8E;&#x7ED3;&#x6784;&#x4F53; <code>task_struct</code> &#xFF0C;&#x5E76;&#x4E14;&#x5B9A;&#x671F;&#x5185;&#x6838;&#x4F1A;&#x68C0;&#x67E5;&#x8BE5;&#x6807;&#x5FD7;&#x3002;&#x8FD9;&#x662F;&#x4E00;&#x79CD;&#x544A;&#x8BC9;&#x5185;&#x6838;&#x5176;&#x5B83;&#x4EFB;&#x52A1;&#x5E94;&#x8BE5;&#x8FD0;&#x884C;&#x4E86;&#x3001;<code>schedule()</code> &#x51FD;&#x6570;&#x9700;&#x8981;&#x5C3D;&#x5FEB;&#x88AB;&#x8C03;&#x7528;&#x7684;&#x9014;&#x5F84;&#x3002;</p>
+<pre><code>/*
+* Pick up the highest-prio task:
+*/
+static inline struct task_struct *
+pick_next_task(struct rq *rq)
+{
+    const struct sched_class *class;
+    struct task_struct *p;
+    /*
+    * Optimization: we know that if all tasks are in
+    * the fair class we can call that function directly:
+    */
+    if (likely(rq-&gt;nr_running == rq-&gt;cfs.nr_running)) {
+        p = fair_sched_class.pick_next_task(rq);
+        if (likely(p))
+            return p;
+    }
+    for_each_class(class) {
+        p = class-&gt;pick_next_task(rq);
+        if (p)
+            return p;
+    }
+    BUG(); /* the idle class will always have a runnable task */
+}
+</code></pre><p><code>pick_next_task()</code> &#x4E5F;&#x662F;&#x5728; sched.c &#x4E2D;&#x5B9E;&#x73B0;&#x7684;&#x3002;&#x5B83;&#x4F1A;&#x901A;&#x8FC7;&#x6211;&#x4EEC;&#x7684;&#x94FE;&#x8868;&#x904D;&#x5386;&#x5168;&#x90E8;&#x8C03;&#x5EA6;&#x7C7B;&#xFF0C;&#x627E;&#x51FA;&#x62E5;&#x6709;&#x53EF;&#x8FD0;&#x884C;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x6700;&#x9AD8;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#xFF08;&#x53C2;&#x89C1;&#x4E0A;&#x6587;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#xFF09;&#x3002;&#x5982;&#x679C;&#x8FD9;&#x4E2A;&#x7C7B;&#x627E;&#x5230;&#x4E86;&#xFF0C;&#x5C31;&#x4F1A;&#x8C03;&#x7528;&#x5BF9;&#x5E94;&#x7684;&#x94A9;&#x5B50;&#x51FD;&#x6570;&#x3002;&#x56E0;&#x4E3A;&#x5927;&#x90E8;&#x5206;&#x7684;&#x4EFB;&#x52A1;&#x90FD;&#x662F;&#x7531; <code>sched_fair</code> &#x8C03;&#x5EA6;&#x7C7B;&#x5904;&#x7406;&#x7684;&#xFF0C;&#x6240;&#x4EE5;&#x5728;&#x51FD;&#x6570;&#x5F00;&#x59CB;&#x4F1A;&#x6709;&#x4E00;&#x4E2A;&#x5FEB;&#x6377;&#x65B9;&#x5F0F;&#x76F4;&#x63A5;&#x8C03;&#x7528;&#x516C;&#x5E73;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50;&#x3002;</p>
+<p>&#x73B0;&#x5728; <code>schedule()</code> &#x8981;&#x68C0;&#x67E5; <code>pick_next_task()</code> &#x662F;&#x5426;&#x627E;&#x51FA;&#x4E00;&#x4E2A;&#x53EF;&#x4EE5;&#x8FD0;&#x884C;&#x7684;&#x65B0;&#x4EFB;&#x52A1;&#xFF0C;&#x6216;&#x8005;&#x627E;&#x51FA;&#x7684;&#x4EFB;&#x52A1;&#x548C;&#x5F53;&#x524D;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x662F;&#x540C;&#x4E00;&#x4E2A;&#x3002;&#x5982;&#x679C;&#x662F;&#x540E;&#x8005;&#x7684;&#x8BDD;&#xFF0C;&#x5C31;&#x4E0D;&#x4F1A;&#x8FDB;&#x884C;&#x4EFB;&#x52A1;&#x5207;&#x6362;&#xFF0C;&#x53EA;&#x9700;&#x8981;&#x8BA9;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x4FDD;&#x6301;&#x8FD0;&#x884C;&#x5C31;&#x884C;&#x4E86;&#x3002;&#x5982;&#x679C;&#x627E;&#x5230;&#x4E00;&#x4E2A;&#x65B0;&#x4EFB;&#x52A1;&#xFF0C;&#x5927;&#x591A;&#x6570;&#x60C5;&#x51B5;&#x4E0B;&#x662F;&#x8FD9;&#x6837;&#x7684;&#xFF0C;&#x90A3;&#x4E48;&#x5B9E;&#x9645;&#x7684;&#x4EFB;&#x52A1;&#x5207;&#x6362;&#x662F;&#x901A;&#x8FC7;&#x8C03;&#x7528; <code>contex_switch()</code> &#x6267;&#x884C;&#x7684;&#x3002;&#x5728;&#x51FD;&#x6570; <code>context_switch()</code> &#x4E2D;&#x4F1A;&#x6267;&#x884C;&#x5207;&#x6362;&#x5230;&#x65B0;&#x4EFB;&#x52A1;&#x7684;&#x5185;&#x5B58;&#x6620;&#x5C04;&#x8868;&#x4EE5;&#x53CA;&#x4EA4;&#x6362;&#x5BC4;&#x5B58;&#x5668;&#x72B6;&#x6001;&#x548C;&#x4EFB;&#x52A1;&#x6808;&#x64CD;&#x4F5C;&#x3002;</p>
+<p>&#x5B8C;&#x6210;&#x4E4B;&#x540E;&#xFF0C;&#x5C31;&#x8981;&#x89E3;&#x9501;&#x8FD0;&#x884C;&#x961F;&#x5217;&#xFF0C;&#x91CD;&#x65B0;&#x5141;&#x8BB8;&#x4F18;&#x5148;&#x7EA7;&#x62A2;&#x5360;&#x3002;&#x5982;&#x679C;&#x62A2;&#x5360;&#x88AB;&#x7981;&#x6B62;&#x65F6;&#x6709;&#x62A2;&#x5360;&#x88AB;&#x53D1;&#x8D77;&#xFF0C;&#x90A3;&#x4E48; <code>schedule()</code> &#x4F1A;&#x7ACB;&#x523B;&#x6267;&#x884C;&#x3002;</p>
+<h2 id="52-&#x8C03;&#x7528;&#x8C03;&#x5EA6;&#x5668;">5.2. &#x8C03;&#x7528;&#x8C03;&#x5EA6;&#x5668;</h2>
+<p>&#x5728;&#x770B;&#x4E86;&#x8C03;&#x5EA6;&#x5668;&#x5165;&#x53E3;&#x4EE3;&#x7801;&#x4E4B;&#x540E;&#xFF0C;&#x8BA9;&#x6211;&#x4EEC;&#x6765;&#x770B;&#x770B;&#x5B9E;&#x9645;&#x4E2D;&#x4F55;&#x65F6;&#x4F1A;&#x8C03;&#x7528; <code>schedule()</code> &#x51FD;&#x6570;&#x3002;&#x5728;&#x5185;&#x6838;&#x4EE3;&#x7801;&#x4E2D;&#x6709;&#x4E09;&#x4E2A;&#x4E3B;&#x8981;&#x7684;&#x65F6;&#x673A;&#x4F1A;&#x53D1;&#x751F;&#x4EFB;&#x52A1;&#x5207;&#x6362;&#xFF1A;</p>
+<h3 id="1-&#x5468;&#x671F;&#x6027;&#x66F4;&#x65B0;&#x5F53;&#x524D;&#x8C03;&#x5EA6;&#x7684;&#x4EFB;&#x52A1;">1. &#x5468;&#x671F;&#x6027;&#x66F4;&#x65B0;&#x5F53;&#x524D;&#x8C03;&#x5EA6;&#x7684;&#x4EFB;&#x52A1;</h3>
+<p>&#x51FD;&#x6570; <code>scheduler_tick()</code> &#x4F1A;&#x88AB;&#x65F6;&#x949F;&#x4E2D;&#x65AD;&#x5468;&#x671F;&#x6027;&#x8C03;&#x7528;&#x3002;&#x5B83;&#x7684;&#x76EE;&#x6807;&#x662F;&#x66F4;&#x65B0;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x7684;&#x59CB;&#x7EC8;&#xFF0C;CPU &#x8D1F;&#x8F7D;&#x4EE5;&#x53CA;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x7684;&#x8FD0;&#x884C;&#x65F6;&#x8BA1;&#x6570;&#x5668;&#x3002;</p>
+<pre><code>/*
+* This function gets called by the timer code, with HZ frequency.
+* We call it with interrupts disabled.
+*/
+void scheduler_tick(void)
+{
+    int cpu = smp_processor_id();
+    struct rq *rq = cpu_rq(cpu);
+    struct task_struct *curr = rq-&gt;curr;
+    sched_clock_tick();
+    raw_spin_lock(&amp;rq-&gt;lock);
+    update_rq_clock(rq);
+    update_cpu_load_active(rq);
+    curr-&gt;sched_class-&gt;task_tick(rq, curr, 0);
+    raw_spin_unlock(&amp;rq-&gt;lock);
+    perf_event_task_tick();
+#ifdef CONFIG_SMP
+    rq-&gt;idle_at_tick = idle_cpu(cpu);
+    trigger_load_balance(rq, cpu);
+#endif
+}
+</code></pre><p>&#x4F60;&#x53EF;&#x4EE5;&#x770B;&#x5230; <code>scheduler_tick()</code> &#x8C03;&#x7528;&#x4E86;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50; <code>task_tick()</code>&#xFF0C;&#x5B83;&#x662F;&#x76F8;&#x5E94;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#x7528;&#x6765;&#x8FDB;&#x884C;&#x5468;&#x671F;&#x6027;&#x4EFB;&#x52A1;&#x66F4;&#x65B0;&#x3002;&#x5728;&#x5176;&#x5185;&#x90E8;&#xFF0C;&#x8C03;&#x5EA6;&#x7C7B;&#x53EF;&#x4EE5;&#x51B3;&#x5B9A;&#x4E00;&#x4E2A;&#x65B0;&#x4EFB;&#x52A1;&#x662F;&#x5426;&#x9700;&#x8981;&#x88AB;&#x8C03;&#x5EA6;&#xFF0C;&#x4EE5;&#x53CA;&#x4E3A;&#x4EFB;&#x52A1;&#x8BBE;&#x7F6E; <code>need_resched</code> &#x6807;&#x5FD7;&#x6765;&#x544A;&#x8BC9;&#x5185;&#x6838;&#x5C3D;&#x5FEB;&#x8C03;&#x7528; <code>schedule()</code>.</p>
+<p>&#x5728; <code>scheduler_tick()</code> &#x7ED3;&#x5C3E;&#xFF0C;&#x4F60;&#x4E5F;&#x770B;&#x5230;&#x4E86;&#xFF0C;&#x5982;&#x679C;&#x5185;&#x6838;&#x8BBE;&#x7F6E;&#x4E86; SMP &#x90A3;&#x4E48;&#x8FD8;&#x4F1A;&#x8C03;&#x7528;&#x8D1F;&#x8F7D;&#x5747;&#x8861;&#x3002;</p>
+<h3 id="2-&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x9700;&#x8981;&#x7761;&#x7720;">2. &#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x9700;&#x8981;&#x7761;&#x7720;</h3>
+<p>&#x5728; Linux &#x5185;&#x6838;&#x7684;&#x5B9E;&#x73B0;&#x4E2D;&#xFF0C;&#x5982;&#x679C;&#x4E00;&#x4E2A;&#x8FDB;&#x7A0B;&#x8981;&#x7B49;&#x5F85;&#x67D0;&#x4E2A;&#x7279;&#x5B9A;&#x4E8B;&#x4EF6;&#x53D1;&#x751F;&#xFF0C;&#x90A3;&#x4E48;&#x5B83;&#x5C31;&#x8981;&#x8FDB;&#x5165;&#x7761;&#x7720;&#x72B6;&#x6001;&#x3002;&#x8FD9;&#x901A;&#x5E38;&#x90FD;&#x4F1A;&#x9075;&#x5FAA;&#x4E00;&#x4E2A;&#x7279;&#x5B9A;&#x7684;&#x6A21;&#x5F0F;&#xFF1A;</p>
+<pre><code>/* &#x2018;q&#x2019; is the wait queue we wish to sleep on */
+DEFINE_WAIT(wait);
+add_wait_queue(q, &amp;wait);
+while (!condition)   /* condition is the event that we are waiting for */
+{
+    prepare_to_wait(&amp;q, &amp;wait, TASK_INTERRUPTIBLE);
+    if (signal_pending(current))
+        /* handle signal */
+        schedule();
+}
+finish_wait(&amp;q, &amp;wait);
+</code></pre><p>&#x4EFB;&#x52A1;&#x4F1A;&#x521B;&#x5EFA;&#x4E00;&#x4E2A;&#x7B49;&#x5F85;&#x961F;&#x5217;&#xFF0C;&#x7136;&#x540E;&#x628A;&#x81EA;&#x5DF1;&#x653E;&#x8FDB;&#x53BB;&#x3002;&#x4E4B;&#x540E;&#x4F1A;&#x542F;&#x52A8;&#x4E00;&#x4E2A;&#x5FAA;&#x73AF;&#x6765;&#x7B49;&#x5F85;&#x4E00;&#x4E2A;&#x7279;&#x5B9A;&#x7684;&#x6761;&#x4EF6;&#x53D8;&#x6210;&#x771F;&#xFF0C;&#x5728;&#x8FD9;&#x4E2A;&#x5FAA;&#x73AF;&#x4E2D;&#xFF0C;&#x4EFB;&#x52A1;&#x4F1A;&#x628A;&#x81EA;&#x5DF1;&#x7684;&#x72B6;&#x6001;&#x8BBE;&#x7F6E;&#x6210; <code>TASK_INTERRUPTIBLE</code>&#xFF08;&#x53EF;&#x4E2D;&#x65AD;&#x7684;&#x7761;&#x7720;&#x72B6;&#x6001;&#xFF09; &#x6216; <code>TASK_UNITERRUPTIBLE</code>&#xFF08;&#x4E0D;&#x53EF;&#x4E2D;&#x65AD;&#x7684;&#x7761;&#x7720;&#x72B6;&#x6001;&#xFF09;&#x3002;&#x5982;&#x679C;&#x662F;&#x524D;&#x8005;&#xFF0C;&#x5219;&#x4EFB;&#x52A1;&#x4F1A;&#x88AB;&#x5B83;&#x80FD;&#x5904;&#x7406;&#x7684;&#x7B49;&#x5F85;&#x4FE1;&#x53F7;&#x5524;&#x9192;&#x3002;</p>
+<p>&#x5982;&#x679C;&#x9700;&#x8981;&#x7684;&#x65F6;&#x95F4;&#x8FD8;&#x6CA1;&#x6709;&#x53D1;&#x751F;&#xFF0C;&#x4EFB;&#x52A1;&#x5C31;&#x4F1A;&#x8C03;&#x7528; <code>schedule()</code> &#x7136;&#x540E;&#x8FDB;&#x5165;&#x7761;&#x7720;&#x3002; <code>schedule()</code> &#x5C06;&#x4F1A;&#x5427;&#x8FD9;&#x4E2A;&#x4EFB;&#x52A1;&#x4ECE;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x79FB;&#x51FA;&#xFF08;&#x53C2;&#x89C1;&#x8C03;&#x5EA6;&#x5668;&#x5165;&#x53E3;&#xFF09;&#x3002;&#x5982;&#x679C;&#x6761;&#x4EF6;&#x6210;&#x771F;&#x5219;&#x8DF3;&#x51FA;&#x5FAA;&#x73AF;&#xFF0C;&#x5C06;&#x4EFB;&#x52A1;&#x4ECE;&#x7B49;&#x5F85;&#x961F;&#x5217;&#x4E2D;&#x5220;&#x9664;&#x3002;</p>
+<p>&#x4ECE;&#x8FD9;&#x91CC;&#x4F60;&#x53EF;&#x4EE5;&#x770B;&#x5230; <code>schedule()</code> &#x603B;&#x662F;&#x5728;&#x4EFB;&#x52A1;&#x8FDB;&#x5165;&#x7761;&#x7720;&#x4E4B;&#x524D;&#x88AB;&#x8C03;&#x7528;&#xFF0C;&#x7528;&#x6765;&#x6311;&#x9009;&#x4E0B;&#x4E00;&#x4E2A;&#x8981;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x3002;</p>
+<h3 id="3-&#x5524;&#x9192;&#x7761;&#x7720;&#x4EFB;&#x52A1;">3. &#x5524;&#x9192;&#x7761;&#x7720;&#x4EFB;&#x52A1;</h3>
+<p>&#x4EA7;&#x751F;&#x5524;&#x9192;&#x7761;&#x7720;&#x4EFB;&#x52A1;&#x7684;&#x4E8B;&#x4EF6;&#x7684;&#x4EE3;&#x7801;&#x901A;&#x5E38;&#x90FD;&#x4F1A;&#x5728;&#x5BF9;&#x5E94;&#x7684;&#x7B49;&#x5F85;&#x961F;&#x5217;&#x4E0A;&#x8C03;&#x7528; <code>wake_up()</code> &#xFF0C;&#x6700;&#x540E;&#x7EC8;&#x6B62;&#x5728;&#x8C03;&#x5EA6;&#x5668;&#x51FD;&#x6570; <code>try_to_wake_up()</code>&#xFF08;ttwu&#xFF09;&#x3002;</p>
+<p>&#x8FD9;&#x4E2A;&#x51FD;&#x6570;&#x5E72;&#x4E09;&#x4EF6;&#x4E8B;&#xFF1A;</p>
+<ol>
+<li>&#x628A;&#x5C06;&#x8981;&#x5524;&#x9192;&#x7684;&#x4EFB;&#x52A1;&#x653E;&#x56DE;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x3002;</li>
+<li>&#x901A;&#x8FC7;&#x628A;&#x4EFB;&#x52A1;&#x7684;&#x72B6;&#x6001;&#x8BBE;&#x4E3A; <code>TASK_RUNNING</code> &#x6765;&#x5524;&#x9192;&#x4EFB;&#x52A1;&#x3002;</li>
+<li>&#x5982;&#x679C;&#x5524;&#x9192;&#x7684;&#x4EFB;&#x52A1;&#x6BD4;&#x5F53;&#x524D;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x9AD8;&#xFF0C;&#x5219;&#x8FD8;&#x8981;&#x8BBE;&#x7F6E; <code>need_resched</code> &#x6807;&#x5FD7;&#x6765;&#x8C03;&#x7528; <code>schedule()</code></li>
+</ol>
+<pre><code>/**
+* try_to_wake_up - wake up a thread
+* @p: the thread to be awakened
+* @state: the mask of task states that can be woken
+* @wake_flags: wake modifier flags (WF_*)
+*
+* Put it on the run-queue if it&apos;s not already there. The &quot;current&quot;
+* thread is always on the run-queue (except when the actual
+* re-schedule is in progress), and as such you&apos;re allowed to do
+* the simpler &quot;current-&gt;state = TASK_RUNNING&quot; to mark yourself
+* runnable without the overhead of this.
+*
+* Returns %true if @p was woken up, %false if it was already running
+* or @state didn&apos;t match @p&apos;s state.
+*/
+static int
+try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
+{
+    unsigned long flags;
+    int cpu, success = 0;
+    smp_wmb();
+    raw_spin_lock_irqsave(&amp;p-&gt;pi_lock, flags);
+    if (!(p-&gt;state &amp; state))
+        goto out;
+    success = 1; /* we&apos;re going to change -&gt;state */
+    cpu = task_cpu(p);
+    if (p-&gt;on_rq &amp;&amp; ttwu_remote(p, wake_flags))
+        goto stat;
+#ifdef CONFIG_SMP
+    /*
+    * If the owning (remote) cpu is still in the middle of schedule() with
+    * this task as prev, wait until its done referencing the task.
+    */
+    while (p-&gt;on_cpu) {
+#ifdef __ARCH_WANT_INTERRUPTS_ON_CTXSW
+        /*
+        * In case the architecture enables interrupts in
+        * context_switch(), we cannot busy wait, since that
+        * would lead to deadlocks when an interrupt hits and
+        * tries to wake up @prev. So bail and do a complete
+        * remote wakeup.
+        */
+        if (ttwu_activate_remote(p, wake_flags))
+            goto stat;
+#else
+        cpu_relax();
+#endif
+    }
+    /*
+    * Pairs with the smp_wmb() in finish_lock_switch().
+    */
+    smp_rmb();
+    p-&gt;sched_contributes_to_load = !!task_contributes_to_load(p);
+    p-&gt;state = TASK_WAKING;
+    if (p-&gt;sched_class-&gt;task_waking)
+        p-&gt;sched_class-&gt;task_waking(p);
+    cpu = select_task_rq(p, SD_BALANCE_WAKE, wake_flags);
+    if (task_cpu(p) != cpu) {
+        wake_flags |= WF_MIGRATED;
+        set_task_cpu(p, cpu);
+    }
+#endif /* CONFIG_SMP */
+    ttwu_queue(p, cpu);
+stat:
+    ttwu_stat(p, cpu, wake_flags);
+out:
+    raw_spin_unlock_irqrestore(&amp;p-&gt;pi_lock, flags);
+    return success;
+}
+</code></pre><p>&#x5728;&#x505A;&#x4E86;&#x4E00;&#x4E9B;&#x521D;&#x59CB;&#x9519;&#x8BEF;&#x68C0;&#x67E5;&#x548C; SMP &#x6280;&#x5DE7;&#x4E4B;&#x540E;&#x5C31;&#x8C03;&#x7528; <code>ttwu_queue()</code> &#x8FDB;&#x884C;&#x5524;&#x9192;&#x5DE5;&#x4F5C;&#x3002;</p>
+<pre><code>static void ttwu_queue(struct task_struct *p, int cpu)
+{
+    struct rq *rq = cpu_rq(cpu);
+#if defined(CONFIG_SMP)
+    if (sched_feat(TTWU_QUEUE) &amp;&amp; cpu != smp_processor_id()) {
+        sched_clock_cpu(cpu); /* sync clocks x-cpu */
+        ttwu_queue_remote(p, cpu);
+        return;
+    }
+#endif
+    raw_spin_lock(&amp;rq-&gt;lock);
+    ttwu_do_activate(rq, p, 0);
+    raw_spin_unlock(&amp;rq-&gt;lock);
+}
+static void
+ttwu_do_activate(struct rq *rq, struct task_struct *p, int wake_flags)
+{
+#ifdef CONFIG_SMP
+    if (p-&gt;sched_contributes_to_load)
+        rq-&gt;nr_uninterruptible--;
+#endif
+    ttwu_activate(rq, p, ENQUEUE_WAKEUP | ENQUEUE_WAKING);
+    ttwu_do_wakeup(rq, p, wake_flags);
+}
+</code></pre><p><code>ttwu_queue()</code> &#x51FD;&#x6570;&#x9501;&#x5B9A;&#x4E86;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x5E76;&#x8C03;&#x7528; <code>ttwu_do_activate()</code> &#xFF0C;&#x800C; <code>ttwu_do_activate()</code> &#x53C8;&#x4F1A;&#x8C03;&#x7528; <code>ttwu_activate()</code> &#x6267;&#x884C;&#x6B65;&#x9AA4; 1 &#xFF0C;&#x800C; <code>ttwu_do_wakeup()</code> &#x4F1A;&#x53BB;&#x6267;&#x884C;&#x6B65;&#x9AA4; 2 &#x548C; 3&#x3002;</p>
+<pre><code>static void ttwu_activate(struct rq *rq, struct task_struct *p, int en_flags)
+{
+    activate_task(rq, p, en_flags);
+    p-&gt;on_rq = 1;
+    /* if a worker is waking up, notify workqueue */
+    if (p-&gt;flags &amp; PF_WQ_WORKER)
+        wq_worker_waking_up(p, cpu_of(rq));
+}
+/*
+* activate_task - move a task to the runqueue.
+*/
+static void activate_task(struct rq *rq, struct task_struct *p, int flags)
+{
+    if (task_contributes_to_load(p))
+        rq-&gt;nr_uninterruptible--;
+    enqueue_task(rq, p, flags);
+    inc_nr_running(rq);
+}
+static void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
+{
+    update_rq_clock(rq);
+    sched_info_queued(p);
+    p-&gt;sched_class-&gt;enqueue_task(rq, p, flags);
+}
+</code></pre><p>&#x5982;&#x679C;&#x4F60;&#x8DDF;&#x968F; <code>ttwu_activate()</code> &#x7684;&#x8C03;&#x7528;&#x94FE;&#xFF0C;&#x6700;&#x7EC8;&#x5728;&#x4F1A;&#x505C;&#x5728; <code>enqueue_task()</code> &#x8C03;&#x7528;&#x76F8;&#x5E94;&#x7684;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50;&#x51FD;&#x6570;&#xFF0C;&#x800C; <code>enqueue_task()</code> &#x5C31;&#x662F;&#x6211;&#x4EEC;&#x4E4B;&#x524D;&#x5728; <code>schedule()</code> &#x770B;&#x5230;&#x7684;&#x7528;&#x6765;&#x628A;&#x4EFB;&#x52A1;&#x653E;&#x56DE;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x7684;&#x51FD;&#x6570;&#x3002;</p>
+<pre><code>/*
+* Mark the task runnable and perform wakeup-preemption.
+*/
+static void
+ttwu_do_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
+{
+    trace_sched_wakeup(p, true);
+    check_preempt_curr(rq, p, wake_flags);
+    p-&gt;state = TASK_RUNNING;
+#ifdef CONFIG_SMP
+    if (p-&gt;sched_class-&gt;task_woken)
+        p-&gt;sched_class-&gt;task_woken(rq, p);
+    if (rq-&gt;idle_stamp) {
+        u64 delta = rq-&gt;clock - rq-&gt;idle_stamp;
+        u64 max = 2*sysctl_sched_migration_cost;
+        if (delta &gt; max)
+            rq-&gt;avg_idle = max;
+        else
+            update_avg(&amp;rq-&gt;avg_idle, delta);
+        rq-&gt;idle_stamp = 0;
+    }
+#endif
+}
+static void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags)
+{
+    const struct sched_class *class;
+    if (p-&gt;sched_class == rq-&gt;curr-&gt;sched_class) {
+        rq-&gt;curr-&gt;sched_class-&gt;check_preempt_curr(rq, p, flags);
+    } else {
+        for_each_class(class) {
+            if (class == rq-&gt;curr-&gt;sched_class)
+                break;
+            if (class == p-&gt;sched_class) {
+                resched_task(rq-&gt;curr);
+                break;
+            }
+        }
+    }
+    /*
+    * A queue event has occurred, and we&apos;re going to schedule. In
+    * this case, we can save a useless back to back clock update.
+    */
+    if (rq-&gt;curr-&gt;on_rq &amp;&amp; test_tsk_need_resched(rq-&gt;curr))
+        rq-&gt;skip_clock_update = 1;
+}
+</code></pre><p><code>ttwu_do_wakeup()</code> &#x8981;&#x68C0;&#x67E5;&#x5F53;&#x524D;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x662F;&#x5426;&#x8981;&#x88AB;&#x521A;&#x5524;&#x9192;&#x7684;&#x73B0;&#x5728;&#x5904;&#x4E8E;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x7684;&#x4EFB;&#x52A1;&#x62A2;&#x5360;&#x3002; <code>check_preempt_curr()</code> &#x51FD;&#x6570;&#x5185;&#x90E8;&#x6700;&#x540E;&#x4F1A;&#x8C03;&#x7528;&#x76F8;&#x5E94;&#x8C03;&#x5EA6;&#x7C7B;&#x7684;&#x94A9;&#x5B50;&#x51FD;&#x6570;&#xFF0C;&#x53EF;&#x80FD;&#x4F1A;&#x8BBE;&#x7F6E; <code>need_resched</code> &#x6807;&#x5FD7;&#x3002;&#x5728;&#x4EFB;&#x52A1;&#x7684;&#x6807;&#x5FD7;&#x88AB;&#x8BBE;&#x7F6E;&#x6210; <code>TASK_RUNNING</code> &#x4E4B;&#x540E;&#xFF0C;&#x5524;&#x9192;&#x8FC7;&#x7A0B;&#x5C31;&#x5B8C;&#x4E86;&#x3002;</p>
+
+                                
+                                </section>
+                            
+    </div>
+    <div class="search-results">
+        <div class="has-results">
+            
+            <h1 class="search-results-title"><span class="search-results-count"></span> results matching &quot;<span class="search-query"></span>&quot;</h1>
+            <ul class="search-results-list"></ul>
+            
+        </div>
+        <div class="no-results">
+            
+            <h1 class="search-results-title">No results matching &quot;<span class="search-query"></span>&quot;</h1>
+            
+        </div>
+    </div>
+</div>
+
+                        </div>
+                    </div>
+                
+            </div>
+
+            
+                
+                <a href="chapter4.html" class="navigation navigation-prev " aria-label="Previous page: 4 Main Runqueue">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+                
+                
+                <a href="chapter6.html" class="navigation navigation-next " aria-label="Next page: 6 Short Scheduling Algorithm History">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+                
+            
+        
+    </div>
+
+    <script>
+        var gitbook = gitbook || [];
+        gitbook.push(function() {
+            gitbook.page.hasChanged({"page":{"title":"5 Scheduler Skeleton","level":"1.6","depth":1,"next":{"title":"6 Short Scheduling Algorithm History","level":"1.7","depth":1,"path":"chapter6.md","ref":"chapter6.md","articles":[]},"previous":{"title":"4 Main Runqueue","level":"1.5","depth":1,"path":"chapter4.md","ref":"chapter4.md","articles":[]},"dir":"ltr"},"config":{"plugins":["comment"],"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"pluginsConfig":{"comment":{"highlightCommented":true},"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"theme":"default","author":"Ezio Zhang","pdf":{"pageNumbers":true,"fontSize":16,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"variables":{},"title":"Linux Process Schedule","language":"zh","links":{"sidebar":{"Linux Process Schedule":"https://www.gitbook.com/book/oska874/process-scheduling-in-linux"},"gitbook":true},"gitbook":"*","description":"tittle : Process Scheduling in Linux\r\n\r\nauthor : Volker Seeker – University of Edinburgh\r\n\r\ntype : technology translation\r\n\r\ninterpret : Ezio"},"file":{"path":"chapter5.md","mtime":"2016-08-11T15:51:40.000Z","type":"markdown"},"gitbook":{"version":"3.1.1","time":"2016-08-12T02:04:09.535Z"},"basePath":".","book":{"language":""}});
+        });
+    </script>
+</div>
+
+        
+    <script src="gitbook/gitbook.js"></script>
+    <script src="gitbook/theme.js"></script>
+    
+        
+        <script src="gitbook/gitbook-plugin-comment/plugin.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search-engine.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-sharing/buttons.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+        
+    
+
+    
+
+
+</body>
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter5.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+</html>

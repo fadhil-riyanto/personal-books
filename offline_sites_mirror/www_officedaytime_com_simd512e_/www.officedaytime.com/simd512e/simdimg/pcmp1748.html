@@ -1,0 +1,72 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/pcmp.php?f=pcmpgtw by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:34 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/pcmp.php?f=pcmpgtw" />
+<link rel="alternate" hreflang="en" href="pcmp1748.html?f=pcmpgtw" />
+    <title>pcmpgtw</title>
+</head>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+
+<h2>PCMPGTW - Packed CoMPare Greater Than Word<br /></h2>
+PCMPGTW<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2<br><span class="intr">__m128i _mm_cmpgt_epi16(__m128i a, __m128i b)</span><br><div style="height: 2px;"></div><img src="binop_word_1.png" /><br />
+<span style="padding-left: 110px">For each signed WORD, if (1) &gt; (2) set 1, else set 0,  to all bits in the corresponding WORD of (3).</span><br />
+<div style="height: 30px"></div>
+VPCMPGTW<span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br>
+<span class="intr">__m128i _mm_cmpgt_epi16(__m128i a, __m128i b)</span><br><div style="height: 2px;"></div><img src="binop_word_2.png" /><br />
+<span style="padding-left: 110px">For each signed WORD, if (1) &gt; (2) set 1, else set 0,  to all bits in the corresponding WORD of (3).</span><br />
+<div style="height: 30px"></div>
+VPCMPGTW<span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2<br>
+<span class="intr">__m256i _mm256_cmpgt_epi16(__m256i a, __m256i b)</span><br><div style="height: 2px;"></div><img src="binop_word_3.png" /><br />
+<span style="padding-left: 110px">For each signed WORD, if (1) &gt; (2) set 1, else set 0,  to all bits in the corresponding WORD of (3).</span><br />
+<div style="height: 30px"></div>
+VPCMPGTW<span class="operand"> k1{k2}, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL<br>
+<span class="intr">__mmask8 _mm_cmpgt_epi16_mask(__m128i a, __m128i b)</span><br><span class="intr">__mmask8 _mm_mask_cmpgt_epi16_mask(__mmask8 k2, __m128i a, __m128i b)</span><br><div style="height: 2px;"></div><img src="cmp_word_1.png" /><br />
+<div style="padding-left: 110px">For each signed WORD, if (1) &gt; (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VPCMPGTW<span class="operand"> k1{k2}, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL<br>
+<span class="intr">__mmask16 _mm256_cmpgt_epi16_mask(__m256i a, __m256i b)</span><br><span class="intr">__mmask16 _mm256_mask_cmpgt_epi16_mask(__mmask16 k2, __m256i a, __m256i b)</span><br><div style="height: 2px;"></div><img src="cmp_word_2.png" /><br />
+<div style="padding-left: 110px">For each signed WORD, if (1) &gt; (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+VPCMPGTW<span class="operand"> k1{k2}, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW<br>
+<span class="intr">__mmask32 _mm512_cmpgt_epi16_mask(__m512i a, __m512i b)</span><br><span class="intr">__mmask32 _mm512_mask_cmpgt_epi16_mask(__mmask32 k2, __m512i a, __m512i b)</span><br><div style="height: 2px;"></div><img src="cmp_word_3.png" /><br />
+<div style="padding-left: 110px">For each signed WORD, if (1) &gt; (2) set 1, else set 0,  to the corresponding bit of (3).<br>If k2 bit is 0, the comparison is not done and the corresponding bit of (3) is set to zero.  Upper bits of (3) are zero cleared.</div><div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=pcmpgtw" target="_blank">Feedback</a>
+
+
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/pcmp.php?f=pcmpgtw by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:34 GMT -->
+</html>

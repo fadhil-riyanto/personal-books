@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/ring0.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Ring0 pod DPMI</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="ring0-pod-dpmi">
+<h1 class="title">Ring0 pod DPMI</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">3.03.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">16.04.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#bramki-wywolania" id="toc-entry-2">Bramki wywołania</a></li>
+<li><a class="reference internal" href="#ring0-to-wcale-nie-jest-tak-proste" id="toc-entry-3">Ring0, to wcale nie jest tak proste...</a></li>
+<li><a class="reference internal" href="#zapis-deskryptorow" id="toc-entry-4">Zapis deskryptorów</a></li>
+<li><a class="reference internal" href="#podsumowanie" id="toc-entry-5">Podsumowanie</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p><strong>Uwaga!</strong> &mdash; poziomy uprzywilejowania na x86 są numerowane
+&bdquo;odwrotnie&rdquo; 0 = najwyższy, 3 = najniższy. Tutaj, pisząc w
+kontekście poziomów uprzywilejowania, słowa niższy/wyższy mam na myśli
+możliwości aplikacji.</p>
+<p>Aplikacje uruchamiane przez serwer DPMI zawsze są uruchamiane na Ring3,
+czyli najniższym poziomie uprzywilejowania. Do większości zastosowań w
+zupełności to wystarcza, ale np. profilowanie kodu przy użyciu instrukcji
+<tt class="docutils literal">rdmsr</tt>/<tt class="docutils literal">wrmsr</tt> nie będzie możliwe &mdash; są to instrukcje uprzywilejowane.</p>
+<p>Bieżący poziom uprzywilejowania (CPL) kodu jest zapisany w selektorze.</p>
+<pre class="literal-block">
+15                       4 3 2   1
++------------------------+--+----+
+|         INDEX          |TI|RPL |
++------------------------+--+----+
+</pre>
+<ul class="simple">
+<li><tt class="docutils literal">INDEX</tt> &mdash; pozycja w tablicy deskryptorów</li>
+<li><tt class="docutils literal">TI</tt> (<em>Table Indicator</em>) &mdash; tablica deskryptorów, do której odnosi
+się INDEX (0 &mdash; GDT, 1 &mdash; bieżąca LDT)</li>
+<li>RPL (<em>Requsted Privilage Level</em>) &mdash; wymagany poziom uprzywilejowania</li>
+</ul>
+<p>Gdyby zabezpieczenia były bardzo prymitywne wystarczyłoby utworzyć kopię
+bieżącego deskryptora kodu, nadać mu DPL=0, stworzyć selektor do niego z
+RPL=0 i wykonać daleki skok. Jednakże procesor sprawdza czy CPL (ang.
+Current Privilage Level &mdash; bieżący poziom uprzywilejowania) jest
+dostatecznie wysoki: innymi słowy czy CPL &lt;= RPL.  Można wykonać skok z
+kodu działającego na poziomie 0 na kod ring3, ale w przeciwną stronę nie
+jest to możliwe.</p>
+<p>Zmiany poziomu uprzywilejowania są możliwe w trzech przypadkach:</p>
+<ul class="simple">
+<li>gdy serwer DPMI &bdquo;się zlituje&rdquo; (tzn. gdy jesteśmy jego autorami i
+zrobimy backdoor),</li>
+<li>gdy wywoływane jest przerwanie &mdash; podmiana procedury przerwania
+na własną załatwia sprawę,</li>
+<li>poprzez bramki wywołania (ang. <em>call gates</em>) &mdash; tym zajmę
+się w artykule.</li>
+</ul>
+</div>
+<div class="section" id="bramki-wywolania">
+<h1>Bramki wywołania</h1>
+<p>Bramka wywołania jest specjalnym deskryptorem, który określa adres procedury
+oraz jej poziom uprzywilejowania który może być wyższy niż CPL. Deskryptor
+ten ma następujący format:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="33%" />
+<col width="33%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">liczba bitów</th>
+<th class="head">zakres bitów</th>
+<th class="head">opis</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>16 bitów</td>
+<td>48..63</td>
+<td>offset 16..31</td>
+</tr>
+<tr><td>1 bit</td>
+<td>47</td>
+<td>P</td>
+</tr>
+<tr><td>2 bity</td>
+<td>45..46</td>
+<td>DPL</td>
+</tr>
+<tr><td>5 bitów</td>
+<td>40..44</td>
+<td>TYPE=01100</td>
+</tr>
+<tr><td>8 bitów</td>
+<td>32..39</td>
+<td>DWORD COUNT</td>
+</tr>
+<tr><td>16 bitów</td>
+<td>16..31</td>
+<td>code selector</td>
+</tr>
+<tr><td>16 bitów</td>
+<td>0..15</td>
+<td>offset 0..15</td>
+</tr>
+</tbody>
+</table>
+<p>Interesują nas w zasadzie trzy pola tego deskryptora:</p>
+<ul class="simple">
+<li><tt class="docutils literal">code selector</tt> &mdash; selektor kodu na ring0</li>
+<li><tt class="docutils literal">offset</tt> &mdash; adres wywoływanej procedury z tego selektora</li>
+<li><tt class="docutils literal">DPL</tt> &mdash; poziom uprzywilejowania deskryptora &mdash; należy ustawić
+na zero rzecz jasna</li>
+</ul>
+<p>Pole <tt class="docutils literal">DWORD COUNT</tt> określa ile podwójnych słów ma skopiować procesor ze
+stosu wywołującej aplikacji na nowy stos &mdash; w naszym przypadku to będzie zero.
+Odsyłam do dokumentacji procesora, gdzie zagadnienie to jest szczegółowo
+wyjaśnione.</p>
+<p>Poniższy przykład pokazuje jak używać callgates.</p>
+<pre class="literal-block">
+segment. data
+
+adress:
+        garbages            dd ? ; cokolwiek
+        callgate_selector   dw ? ; selektor bramki
+
+segment. text
+
+call far [adress]
+
+; lub
+
+push word [callgate_selector]
+pop  gs
+
+call dword [gs:0]
+</pre>
+<p>Sterowanie zostanie przekazane do procedury pod adresem zapisanym w
+deskryptorze bramki, tj. <tt class="docutils literal">code_selector:offset</tt>. CPL zostanie
+ustawiony na poziom uprzywilejowania bramki.</p>
+</div>
+<div class="section" id="ring0-to-wcale-nie-jest-tak-proste">
+<h1>Ring0, to wcale nie jest tak proste...</h1>
+<p>Właściwie pokazałem już jak wejść na ring0, jednak &bdquo;problemy&rdquo; stwarza
+serwer DPMI &mdash; standardowymi funkcjami do zapisywania deskryptorów nie
+uda się zapisać ani deskryptora kodu na ring0, ani bramki wywołania.</p>
+<p>Dlatego trzeba samodzielnie zapisać w odpowiednie miejsca tablicy LDT
+niedozwolone (niebezpieczne?) deskryptory. Dlaczego w LDT? Bo DPMI pozwala
+na alokację deskryptorów w LDT, dzięki temu będziemy znać &bdquo;pewne&rdquo; adresy,
+i nie trzeba będzie ryzykować zapisem (i zniszczeniem) przypadkowych
+deskryptorów.</p>
+<p>Problemem jest dostanie się do pamięci przechowującej tablice
+deskryptorów &mdash; obszar tej pamięci na 99% znajduje się poza dostępną
+aplikacji przestrzenią adresową. Trzeba się więc jakoś do niej dostać, a
+przepis na to jest nadzwyczaj prosty &mdash; stworzyć segment danych
+obejmujący całe 4GB pamięci, o adresie bazowym 0, z prawami
+zapisu/odczytu, z DPL=3 &mdash; serwer DPMI powinien pozwolić na zapisanie
+takiego deskryptora &mdash; jeśli nie pozwoli &mdash; game over.</p>
+<p>To nieważne, że obszary pamięci które obejmie ten nowy segment są
+chronione z poziomu innych deskryptorów &mdash; procesor sprawdza prawa dostępu
+tylko poprzez <strong>bieżący</strong> deskryptor.</p>
+</div>
+<div class="section" id="zapis-deskryptorow">
+<h1>Zapis deskryptorów</h1>
+<p>Załóżmy, że mamy już rzeczony 4-gigabajtowy segment &mdash; pora dostać się do
+LDT naszej aplikacji.</p>
+<pre class="literal-block">
+segment .data
+
+whole_memory dw 0 ; selektor danych 4GB
+
+descriptor   dw 0 ; deskryptor który chcemy zapisać
+             dw 0 ;
+             dw 0 ;
+             dw 0 ;
+
+LDT_selector dw 0 ; oraz jego selektor
+
+; opis Globalnej Tablicy Deskryptorów
+GDT dw 0 ; GDT limit - rozmiar tablicy
+    dd 0 ; GDT base adres - adres liniowy początku tablicy
+</pre>
+<p>Proszę zwrócić uwagę, że adres liniowy GDT nie wymaga żadnych
+translacji &mdash; jest to równocześnie adres logiczny w 4-gigabajtowym
+segmencie.</p>
+<pre class="literal-block">
+segment .text
+
+sgdt [GDT]   ; rozkaz SGDT nie jest uprzywilejowany - na szczęście :)
+sldt ax      ; ax = selektor LDT
+</pre>
+<p>Adres bazowy bieżącej tablicy LDT (w 4GB segmencie) jest równy:</p>
+<pre class="literal-block">
+movzx eax, ax      ; eax = selektor LDT (jednocześnie offset w GDT)
+mov   esi, [GDT+2] ; esi = GDT base adress
+add   esi, eax     ; esi = adres bazowy bieżącego LDT
+</pre>
+<p>Z kolei mając selektor w LDT wystarczy dodać go teraz do <tt class="docutils literal">esi</tt>, by
+móc zapisać żądany deskryptor.</p>
+<pre class="literal-block">
+push ds
+
+push ds              ;
+pop  es              ; es = ds
+
+push [whole_memory]  ;
+pop  ds              ; ds = whole_memory
+
+mov  edi, descriptor ; esi = offset descriptor
+
+push esi
+add  esi, [LDT_selector]
+
+cld
+movsd                ; przesłanie danych spod es:edi do ds:esi
+movsd                ;
+
+pop  esi
+pop  ds
+</pre>
+<p>Najczęściej będzie tak, że procedura mająca działać na ring0 będzie zapisana
+w bieżącym segmencie kodu. Aby uzyskać selektor kodu ring0 wystarczy
+odczytać deskryptor bieżącego kodu, zmodyfikować tylko pole DPL, i rzecz
+jasna zapisać.</p>
+</div>
+<div class="section" id="podsumowanie">
+<h1>Podsumowanie</h1>
+<p>W artykule przedstawiłem wszystko co jest potrzebne by wskoczyć na ring0.
+Przykładu nie zamieszczam bo w zasadzie wszystko już jest, jedyny co trzeba
+zrobić to alokować deskryptory, odpowiednio je inicjować (lub modyfikować) i
+zapisywać.</p>
+<p>Oto kolejne kroki:</p>
+<ol class="arabic simple">
+<li>alokacja 3 deskryptorów w LDT: na kod ring0, bramkę wywołania i segment 4GB</li>
+<li>utworzenie segmentu 4GB</li>
+<li>zapisanie deskryptora kodu ring0</li>
+<li>zapisanie deskryptora bramki</li>
+</ol>
+<p>Funkcje DPMI które będą potrzebne (ich opis można znaleźć w liście
+przerwań Ralfa Browna):</p>
+<ul class="simple">
+<li>0001h &mdash; allocate LDT descriptor</li>
+<li>0002h &mdash; deallocate LDT descriptor</li>
+<li>000bh &mdash; get descriptor</li>
+<li>000ch &mdash; set descriptor</li>
+</ul>
+<p><strong>Powodzenia!</strong></p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/ring0.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

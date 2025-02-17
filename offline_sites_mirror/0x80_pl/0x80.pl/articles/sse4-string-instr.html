@@ -1,0 +1,988 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse4-string-instr.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE4: instrukcje działające na łańcuchach</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse4-instrukcje-dzialajace-na-lancuchach">
+<h1 class="title">SSE4: instrukcje działające na łańcuchach</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodane field"><th class="docinfo-name">Dodane:</th><td class="field-body">2.09.2007</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">27.04.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wstep" id="toc-entry-1">Wstęp</a></li>
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-2">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#typy-danych" id="toc-entry-3">Typy danych</a></li>
+<li><a class="reference internal" href="#dlugosc-lancuchow" id="toc-entry-4">Długość łańcuchów</a></li>
+<li><a class="reference internal" href="#zasada-dzialania" id="toc-entry-5">Zasada działania</a><ul>
+<li><a class="reference internal" href="#tworzenie-posredniego-wyniku-na-podstawie-macierzy-porownan" id="toc-entry-6">1. Tworzenie pośredniego wyniku na podstawie macierzy porównań</a><ul>
+<li><a class="reference internal" href="#equal-any-each-ordered" id="toc-entry-7">equal any, each, ordered</a><ul>
+<li><a class="reference internal" href="#equal-any" id="toc-entry-8">equal any</a></li>
+<li><a class="reference internal" href="#equal-each" id="toc-entry-9">equal each</a></li>
+<li><a class="reference internal" href="#equal-ordered" id="toc-entry-10">equal ordered</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ranges" id="toc-entry-11">ranges</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#wstepne-przetwarzanie-wynikow" id="toc-entry-12">2. Wstępne przetwarzanie wyników</a></li>
+<li><a class="reference internal" href="#utworzenie-wyniku" id="toc-entry-13">3. Utworzenie wyniku</a></li>
+<li><a class="reference internal" href="#modyfikacja-flag" id="toc-entry-14">4. Modyfikacja flag</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#przyklady" id="toc-entry-15">Przykłady</a><ul>
+<li><a class="reference internal" href="#strcmp" id="toc-entry-16"><tt class="docutils literal">strcmp</tt></a></li>
+<li><a class="reference internal" href="#memcmp" id="toc-entry-17"><tt class="docutils literal">memcmp</tt></a></li>
+<li><a class="reference internal" href="#strchr" id="toc-entry-18"><tt class="docutils literal">strchr</tt></a></li>
+<li><a class="reference internal" href="#strchr-inna-realizacja" id="toc-entry-19"><tt class="docutils literal">strchr</tt> (inna realizacja)</a></li>
+<li><a class="reference internal" href="#strrchr" id="toc-entry-20"><tt class="docutils literal">strrchr</tt></a></li>
+<li><a class="reference internal" href="#is-sxdigit" id="toc-entry-21"><tt class="docutils literal">is_sxdigit</tt></a></li>
+<li><a class="reference internal" href="#strtolower" id="toc-entry-22"><tt class="docutils literal">strtolower</tt></a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wstep">
+<h1>Wstęp</h1>
+<p><strong>UWAGA</strong>: niniejszy artykuł powstał na postawie <a class="reference external" href="http://softwarecommunity.intel.com/isn/Downloads/Intel SSE4 Programming Reference.pdf">Intel SSE4 Programming
+Reference</a>, bez dostępu do działającego sprzętu.  Zatem zastrzegam
+sobie prawo do grubych błędów; zastrzegam także, że tekst nie jest
+kompletny.  Więcej na temat SSE4 można znaleźć na <a class="reference external" href="http://en.wikipedia.org/wiki/SSE4">Wikipedii</a>.</p>
+<p>Motywacją do powstania tekstu jest koszmarnie zagmatwany opis rozkazów
+<tt class="docutils literal">PCMPESTRI</tt>, <tt class="docutils literal">PCMPESTRM</tt>, <tt class="docutils literal">PCMPISTRI</tt> oraz <tt class="docutils literal">PCMPISTRM</tt> ---
+musiałem to sobie jakoś poukładać i oto efekt.  Omawiane rozkazy
+pozwalają na porównywanie łańcuchów, testowanie przynależności do
+zbiorów, wyszukiwanie wystąpień określonych ciągów i pewnie sporo innych
+rzeczy, które teraz nie przychodzą mi do głowy.</p>
+<p><strong>Dopisek 27.04.2008</strong>:</p>
+<p>Na stronie <a class="reference external" href="http://softwareprojects.intel.com/avx/">http://softwareprojects.intel.com/avx/</a> dotyczącej zasadniczo
+<a class="reference external" href="http://pl.wikipedia.org/wiki/AVX">AVX</a> zostały udostępnione dwie noty aplikacyjne opisujące
+zastosowanie opisanych tutaj rozkazów do:</p>
+<ul class="simple">
+<li>walidacji XML Schema, dokładniej do efektywnej implementacji
+<a class="reference external" href="http://pl.wikipedia.org/wiki/drzewo_trie">drzew trie</a>) &mdash; <em>Schema Validation with Intel(R)
+Streaming SIMD Extensions 4</em> (kwiecień 2008)</li>
+<li>walidacji plików XML: sprawdzenie zakresów kodów znaków &mdash; <em>XML
+Parsing Accelerator with Intel(R) Streaming SIMD Extensions 4</em>
+(kwiecień 2008)</li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Składnia intelowska:</p>
+<pre class="literal-block">
+PCMPxSTRx xmm1, xmm2/mem, imm8
+</pre>
+<p>Składnia AT&amp;T (<a class="reference external" href="http://www.cygwin.com/ml/binutils-cvs/2007-04/msg00085.html">GNU as</a> już rozpoznaje rozkazy SSE4):</p>
+<pre class="literal-block">
+PCMPxSTRx $imm8, xmm2/mem, xmm1
+</pre>
+<p>Stała natychmiastowa określa sposób działania, typ danych etc.  Jej
+znaczenie zostało dokładnie opisane w dokumentacji, tutaj raczej
+mniej szczegółowo.</p>
+<ul class="simple">
+<li>Rozkazy <tt class="docutils literal">PCMPESTRM</tt> oraz <tt class="docutils literal">PCMPISTRM</tt> w wyniku generują maski
+bitowe albo (na podstawie maski bitowej) maski bajtowe/maski słów.
+Maski <strong>zawsze</strong> zapisywane są w rejestrze <tt class="docutils literal">XMM0</tt>, niezależnie
+od argumentów.</li>
+<li>Rozkazy <tt class="docutils literal">PCMPESTRI</tt> oraz <tt class="docutils literal">PCMPISTRI</tt> zwracają w rejestrze
+<tt class="docutils literal">ECX</tt> (<tt class="docutils literal">RCX</tt>) numer pierwszego lub ostatniego ustawionego
+bitu maski bitowej.</li>
+</ul>
+<p>Wszystkie instrukcje w zależności od wyników modyfikują rejestr flag
+(<tt class="docutils literal">CF</tt>, <tt class="docutils literal">ZF</tt>, <tt class="docutils literal">SF</tt>, <tt class="docutils literal">OF</tt>; zerują <tt class="docutils literal">AF</tt> i <tt class="docutils literal">PF</tt>).  Ponadto
+rozkazy łańcuchowe uwzględniają koniec łańcucha (ograniczony albo zerem,
+albo zadany długością), ignorując znaki nie należące do łańcuchów.</p>
+</div>
+<div class="section" id="typy-danych">
+<h1>Typy danych</h1>
+<p>Rozkazy <tt class="docutils literal">PCMPxSTRx</tt> działają na łańcuchach bajtów bądź słów; na
+liczbach ze znakiem, jak i bez znaku &mdash; bity <tt class="docutils literal">1:0</tt> stałej <tt class="docutils literal">imm8</tt>
+określają typ (patrz sekcja 5.3.1.1):</p>
+<ul class="simple">
+<li><tt class="docutils literal">00b</tt> &mdash; <em>packed unsigned bytes</em></li>
+<li><tt class="docutils literal">01b</tt> &mdash; <em>packed unsigned words</em></li>
+<li><tt class="docutils literal">10b</tt> &mdash; <em>packed signed bytes</em></li>
+<li><tt class="docutils literal">11b</tt> &mdash; <em>packed signed words</em></li>
+</ul>
+<p>W tym tekście ograniczę się do bajtów bez znaków, żeby za bardzo nie
+gmatwać.</p>
+</div>
+<div class="section" id="dlugosc-lancuchow">
+<h1>Długość łańcuchów</h1>
+<p>Jednocześnie przetwarzane są całe rejestry XMM, czyli 16 lub 8 elementów;
+jednak koniec łańcucha może wypaść gdzieś w środku rejestru &mdash; rozkazy
+<tt class="docutils literal">PCMPxSTRx</tt> pozwalają dwojako określić długości łańcuchów:</p>
+<ol class="arabic">
+<li><p class="first">Bezpośrednio (<em>explicit</em>, rozkazy <tt class="docutils literal">PCMPESTRx</tt>) &mdash; długości
+zapisane są w rejestrach <tt class="docutils literal">EAX</tt> (<tt class="docutils literal">RAX</tt>) oraz <tt class="docutils literal">EDX</tt>
+(<tt class="docutils literal">RDX</tt>); rozkazy wewnętrznie <strong>nasycają</strong> je do maksymalnej
+długości (tj. 16 lub 8), zatem w głównej pętli wystarczy
+pamiętać liczbę znaków pozostałych do końca:</p>
+<pre class="literal-block">
+mov     n,      %eax    # długość xmm1
+mov     k,      %edx    # długość xmm2/mem
+loop:
+        # przetwarzanie 16 bajtów
+        # przez PCMPESTRx
+
+        sub     $16, %eax       # zmniejsz
+        js      end             # liczbę
+        sub     $16, %edx       # znaków
+        jns     loop            # w obu łańcuchach
+end:
+</pre>
+</li>
+<li><p class="first">Obliczane (<em>implict</em>, rozkazy <tt class="docutils literal">PCMPISTRx</tt>) &mdash; długość łańcucha
+wyznaczana jest automatycznie, pierwszy bajt/słowo o wartości
+zero markuje koniec.</p>
+</li>
+</ol>
+<p>Wszystkie znaki poza końcem są oznaczane jako nieprawidłowe (<em>invalid</em>);
+Przy obliczaniu wyników brane są tylko znaki należące do łańcuchów
+(<em>valid</em>); końcowe zero w rozkazach <tt class="docutils literal">PCMPISTRx</tt> <strong>nie jest</strong> uznawane
+za część łańcuchów.</p>
+</div>
+<div class="section" id="zasada-dzialania">
+<h1>Zasada działania</h1>
+<p>Po wyznaczeniu długości łańcuchów mają miejsce następujące kroki:</p>
+<div class="contents local topic" id="topic-1">
+<ul class="simple">
+<li><a class="reference internal" href="#tworzenie-posredniego-wyniku-na-podstawie-macierzy-porownan" id="toc-entry-23">1. Tworzenie pośredniego wyniku na podstawie macierzy porównań</a></li>
+<li><a class="reference internal" href="#wstepne-przetwarzanie-wynikow" id="toc-entry-24">2. Wstępne przetwarzanie wyników</a></li>
+<li><a class="reference internal" href="#utworzenie-wyniku" id="toc-entry-25">3. Utworzenie wyniku</a></li>
+<li><a class="reference internal" href="#modyfikacja-flag" id="toc-entry-26">4. Modyfikacja flag</a></li>
+</ul>
+</div>
+<div class="section" id="tworzenie-posredniego-wyniku-na-podstawie-macierzy-porownan">
+<h2>1. Tworzenie pośredniego wyniku na podstawie macierzy porównań</h2>
+<p>Rozkazy <tt class="docutils literal">PCMPxSTRx</tt> mogą wyznaczać wyniki na cztery różne sposoby:</p>
+<ol class="arabic simple">
+<li><em>equal any</em> &mdash; przynależność do zbioru znaków</li>
+<li><em>equal each</em> &mdash; równość łańcuchów</li>
+<li><em>equal ordered</em> &mdash; wyszukiwanie podciągów</li>
+<li><em>ranges</em> &mdash; przynależność do pewnego przedziału/przedziałów</li>
+</ol>
+<p>Działanie jest zakodowane w stałej <tt class="docutils literal">imm8</tt> na bitach <tt class="docutils literal">3:2</tt>:</p>
+<ul class="simple">
+<li><tt class="docutils literal">00b</tt> &mdash; <em>equal any</em></li>
+<li><tt class="docutils literal">01b</tt> &mdash; <em>ranges</em></li>
+<li><tt class="docutils literal">10b</tt> &mdash; <em>equal each</em></li>
+<li><tt class="docutils literal">11b</tt> &mdash; <em>equal ordered</em></li>
+</ul>
+<div class="section" id="equal-any-each-ordered">
+<h3>equal any, each, ordered</h3>
+<p>Najpierw wykonywane jest porównanie typu każdy-z-każdym znaków z obu
+łańcuchów, czego wynikiem jest macierz 16 x 16 bitów.  Sprawdzana jest
+równość elementów &mdash; wynik prawdziwy jest oznaczany przez zapalenie
+odpowiedniego bitu.</p>
+<p>W zależności od wybranego sposobu wyznaczania wyniku, elementy macierzy
+odpowiadające znakom spoza końców łańcuchów (tj. oznaczone jako
+<em>invalid</em>) są ustawiane lub zerowane, tak aby finalne wyniki były
+sensowne (patrz sekcja 5.3.1.5).</p>
+<p>Ostatecznie na podstawie macierzy wyznaczany jest pośredni wynik
+<tt class="docutils literal">IntRes1</tt>.</p>
+<p>Jeszcze tylko przypomnę składnię:</p>
+<pre class="literal-block">
+PCMPxSTRx xmm1, xmm2/mem, imm8          # Intel
+PCMPxSTRx $imm8, %xmm2/mem, %xmm1       # AT&amp;T
+</pre>
+<div class="section" id="equal-any">
+<h4>equal any</h4>
+<p>Wynik <em>equal any</em> mówi, które ze znaków z <tt class="docutils literal">xmm2/mem</tt> znajdują się
+także w <tt class="docutils literal">xmm1</tt>.</p>
+<p>Zastosowania to np. funkcje z języka C działające na zbiorach znaków,
+czyli <tt class="docutils literal">strspn()</tt>, <tt class="docutils literal">strnspn()</tt>, <tt class="docutils literal">strpbrk</tt>, ale także funkcje
+weryfikujące napisy, np. czy reprezentują liczbę dziesiętną,
+szesnastkową, identyfikator itp.</p>
+<p>Przykład działania:</p>
+<pre class="literal-block">
+xmm1     -&gt; &quot;-+*/0123456789__&quot;  # _ zamiast spacji
+xmm2/mem -&gt; &quot;15_+_x*(9/var)%5&quot;  # jakiś łańcuch
+</pre>
+<p>Po porównaniu wszystkie bity z danego wiersza z macierzy są łączone za
+pomocą operacji <tt class="docutils literal">OR</tt> a wynik zapisywany jako bit w słowie
+<tt class="docutils literal">IntRes1</tt>:</p>
+<pre class="literal-block">
+IntRes1[i] = (xmm2[i] == xmm1[0]) OR (xmm2[i] == xmm1[1]) OR ...
+</pre>
+<p>Wynikowa macierz:</p>
+<pre class="literal-block">
++------------------------------------------+---------+
+| xmm1 -&gt;  - + * / 0 1 2 3 4 5 6 7 8 9 _ _ | IntRes1 |
++------------------------------------------+---------+-----+
+     | 1 | . . . . . 1 . . . . . . . . . . |    1   &lt;- LSB |
+     | 5 | . . . . . . . . . 1 . . . . . . |    1    |     |
+     | _ | . . . . . . . . . . . . . . 1 1 |    1    |     |
+     | + | . 1 . . . . . . . . . . . . . . |    1    |     |
+     | _ | . . . . . . . . . . . . . . 1 1 |    1    |     |
+     | x | . . . . . . . . . . . . . . . . |    0    |     |
+     | * | . . 1 . . . . . . . . . . . . . |    1    |     |
+     | ( | . . . . . . . . . . . . . . . . |    0    |     |
+     | 9 | . . . . . . . . . . . . . 1 . . |    1    |     |
+     | / | . . . 1 . . . . . . . . . . . . |    1    |     |
+     | v | . . . . . . . . . . . . . . . . |    0    |     |
+     | a | . . . . . . . . . . . . . . . . |    0    |     |
+     | r | . . . . . . . . . . . . . . . . |    0    |     |
+     | ) | . . . . . . . . . . . . . . . . |    0    |     |
+     | % | . . . . . . . . . . . . . . . . |    0    |     |
+     | 5 | . . . . . . . . . 1 . . . . . . |    1   &lt;- MSB |
+     |   +---------------------------------+---------+-----+
+     | xmm2/mem |
+     +----------+
+</pre>
+<p>Z przykładowego wyniku widać, że nie wszystkie znaki należą do
+zbioru podanego w <tt class="docutils literal">xmm1</tt>.</p>
+</div>
+<div class="section" id="equal-each">
+<h4>equal each</h4>
+<p>Wynik <em>equal each</em> mówi, które znaki z <tt class="docutils literal">xmm2/mem</tt> odpowiadają znakom z
+<tt class="docutils literal">xmm1</tt> &mdash; innymi słowy testowana jest równość łańcuchów.
+Teoretycznie to samo można uzyskać za pomocą rozkazu <tt class="docutils literal">pcmpeqb xmm1,
+xmm2/mem</tt>, lecz należy pamiętać, że rozkazy <tt class="docutils literal">PCMPxSTRx</tt> uwzględniają
+długości napisów i umożliwiają za jednym zamachem wykonać jeszcze kilka
+dodatkowych działań.</p>
+<p>Zastosowania to np. funkcje z języka C porównujące znaki, czyli
+<tt class="docutils literal">strcmp()</tt>, <tt class="docutils literal">strncmp()</tt>;  ale może również służyć do wyznaczania
+najdłuższego prefiksu, co może przyspieszyć kompresję metodami
+<a class="reference external" href="http://pl.wikipedia.org/wiki/LZ77">LZ77</a> czy <a class="reference external" href="http://pl.wikipedia.org/wiki/LZSS">LZSS</a>.</p>
+<p>Przykładowe dane:</p>
+<pre class="literal-block">
+xmm1     -&gt; &quot;SSE3 =&gt; today   &quot;  # jakiś łańcuch
+xmm2/mem -&gt; &quot;SSE4 &gt;&gt; tomorrow&quot;  # inny łańcuch
+</pre>
+<p>Słowo wynikowe <tt class="docutils literal">IntRes1</tt> zawiera bity z przekątnej macierzy.</p>
+<p>Wynikowa macierz:</p>
+<pre class="literal-block">
++------------------------------------------+---------+
+| xmm1 -&gt;  S S E 3   = &gt;   t o d a y       | IntRes1 |
++------------------------------------------+---------+-----+
+     | S | 1 1 . . . . . . . . . . . . . . |    1   &lt;- LSB |
+     | S | 1 1 . . . . . . . . . . . . . . |    1    |     |
+     | E | . . 1 . . . . . . . . . . . . . |    1    |     |
+     | 4 | . . . . . . . . . . . . . . . . |    0    |     |
+     |   | . . . . 1 . . . . . . . . . . . |    1    |     |
+     | &gt; | . . . . . . . . . . . . . . . . |    0    |     |
+     | &gt; | . . . . . . 1 . . . . . . . . . |    1    |     |
+     |   | . . . . . . . 1 . . . . . . . . |    1    |     |
+     | t | . . . . . . . . 1 . . . . . . . |    1    |     |
+     | o | . . . . . . . . . 1 . . . . . . |    1    |     |
+     | m | . . . . . . . . . . . . . . . . |    0    |     |
+     | o | . . . . . . . . . . . . . . . . |    0    |     |
+     | r | . . . . . . . . . . . . . . . . |    0    |     |
+     | r | . . . . . . . . . . . . . . . . |    0    |     |
+     | o | . . . . . . . . . . . . . . . . |    0    |     |
+     | w | . . . . . . . . . . . . . . . . |    0   &lt;- MSB |
+     |   +---------------------------------+---------+-----+
+     | xmm2/mem |
+     +----------+
+</pre>
+<p>Np. z wyniku widać, że trzy pierwsze bity są ustawione, zatem łańcuchy
+mają wspólny prefiks.  Ale ponieważ słowo <tt class="docutils literal">IntRes1</tt> nie jest
+wypełnione jedynkami, stąd wiadomo, że łańcuchy nie są identyczne.</p>
+</div>
+<div class="section" id="equal-ordered">
+<h4>equal ordered</h4>
+<p><strong>UWAGA</strong>: dla tego przypadku nie jestem pewien czy dobrze zrozumiałem
+pseudokod umieszczony w dokumentacji.</p>
+<p>Metoda <em>equal ordered</em> pozwala wyszukać w <tt class="docutils literal">xmm2/mem</tt> wystąpienia
+łańcucha <tt class="docutils literal">xmm1</tt> (bądź prefiksy, jeśli przekraczana jest długość
+<tt class="docutils literal">xmm2/mem</tt>).</p>
+<p>Przykładowe dane:</p>
+<pre class="literal-block">
+xmm1     -&gt; &quot;abc&quot;               # szukany łańcuch (długość 3 znaki)
+xmm2/mem -&gt; &quot;__abcab___abc_ab&quot;  # jakiś łańcuch
+</pre>
+<p>Algorytm przetwarzania macierzy wykrywa ukośne ciągi jedynek ulokowane
+przy lewej krawędzi &mdash; w <tt class="docutils literal">IntRes1</tt> ustawiane są te bity, które
+odpowiadają początkom ciągów.  Ciągi jedynek mają długość
+<tt class="docutils literal">max(długość xmm1, 16 - indeks w xmm2/mem)</tt>, tj. albo dokładnie
+długość łańcucha <tt class="docutils literal">xmm1</tt>, albo mniej, jeśli zaczynają się przy
+końcu bloku.</p>
+<p>Wynikowa macierz:</p>
+<pre class="literal-block">
++------------------------------------------+---------+
+| xmm1 -&gt;  a b c                           | IntRes1 |
++------------------------------------------+---------+-----+
+     | _ | . . . . . . . . . . . . . . . . |    0   &lt;- LSB |
+     | _ | . . . . . . . . . . . . . . . . |    0    |     |
+     | a | 1 . . . . . . . . . . . . . . . |    1    |     |
+     | b | . 1 . . . . . . . . . . . . . . |    0    |     |
+     | c | . . 1 . . . . . . . . . . . . . |    0    |     |
+     | a | 1 . . . . . . . . . . . . . . . |    0    |     |
+     | b | . 1 . . . . . . . . . . . . . . |    0    |     |
+     | _ | . . . . . . . . . . . . . . . . |    0    |     |
+     | _ | . . . . . . . . . . . . . . . . |    0    |     |
+     | _ | . . . . . . . . . . . . . . . . |    0    |     |
+     | a | 1 . . . . . . . . . . . . . . . |    1    |     |
+     | b | . 1 . . . . . . . . . . . . . . |    0    |     |
+     | c | . . 1 . . . . . . . . . . . . . |    0    |     |
+     | _ | . . . . . . . . . . . . . . . . |    0    |     |
+     | a | 1 . . . . . . . . . . . . . . . |    1    |     |
+     | b | . 1 . . . . . . . . . . . . . . |    0   &lt;- MSB |
+     |   +---------------------------------+---------+-----+
+     | xmm2/mem |
+     +----------+
+</pre>
+<p>Z przykładowego wyniku widać, że w <tt class="docutils literal">xmm2/mem</tt> trzykrotnie występują
+prefiksy ciągu &quot;<tt class="docutils literal">abc</tt>&quot; &mdash; potrzebne są jednak dodatkowe testy, aby
+stwierdzić, które prefiksy są równe <tt class="docutils literal">xmm1</tt>.</p>
+</div>
+</div>
+<div class="section" id="ranges">
+<h3>ranges</h3>
+<p>Ta metoda jest dość podobna do <em>equal any</em>, z tą różnicą, że <tt class="docutils literal">xmm1</tt>
+nie zawiera zbioru znaków, ale zbiór <strong>przedziałów</strong> obustronnie
+domkniętych.  Przedziały definiują dwa kolejne elementy: element
+o parzystym indeksie zawiera dolną granicę, a o nieparzystym &mdash; górną.
+Wynik mówi, czy poszczególne znaki z <tt class="docutils literal">xmm2/mem</tt> należą do
+<strong>przynajmniej jednego</strong> przedziału.</p>
+<p>Przykładowe zastosowania to funkcje w rodzaju <tt class="docutils literal">isdigit()</tt> dla
+łańcuchów, czy inne weryfikujące poprawność napisów.</p>
+<p>Przykładowe dane:</p>
+<pre class="literal-block">
+xmm1     -&gt; &quot;AZaz09__..&quot;        # [A-Za-z0-9_.] -- np. nazwy plików
+                                # długość xmm1 = 10
+xmm2/mem -&gt; &quot; Some_file5.pdf!&quot;  # przykładowa nazwa pliku
+</pre>
+<p>Łańcuch <tt class="docutils literal">xmm2/mem</tt> jest porównywany relacją &bdquo;większy lub równy&rdquo; z
+elementami <tt class="docutils literal">xmm1</tt> o indeksach parzystych (tj. z dolną granicą każdego
+przedziału), a relacją &bdquo;mniejszy lub równy&rdquo; z elementami o indeksach
+nieparzystych.</p>
+<p>Następnie każde dwie sąsiednie kolumny są łączone operatorem <tt class="docutils literal">AND</tt>, a
+na końcu wszystkie bity z każdego wiersza operatorem <tt class="docutils literal">OR</tt> (tak jak w
+działaniu <em>equal any</em>), tworząc słowo wynikowe:</p>
+<pre class="literal-block">
+IntRes1[i] = (xmm2[i] &gt;= xmm1[0] AND xmm2[i] &lt;= xmm1[1]) OR
+             (xmm2[i] &gt;= xmm1[2] AND xmm2[i] &lt;= xmm1[3]) OR ...
+</pre>
+<p>Wynikowa macierz, przed wykonaniem <tt class="docutils literal">AND</tt>:</p>
+<pre class="literal-block">
++------------------------------------------+
+| xmm1 -&gt;  A Z a z 0 9 _ _ . .             |
++------------------------------------------+
+     |   | . 1 . 1 . 1 . 1 . 1 . . . . . . |
+     | S | 1 1 . 1 1 . . 1 1 . . . . . . . |
+     | o | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | m | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | e | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | _ | 1 . . 1 1 . 1 1 1 . . . . . . . |
+     | f | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | i | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | l | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | e | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | 5 | . 1 . 1 1 1 . 1 1 . . . . . . . |
+     | . | . 1 . 1 . 1 . 1 1 1 . . . . . . |
+     | P | 1 1 . 1 1 . . 1 1 . . . . . . . |
+     | d | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | f | 1 . 1 1 1 . 1 . 1 . . . . . . . |
+     | ! | . 1 . 1 . 1 . 1 . 1 . . . . . . |
+     |   +---------------------------------+
+     | xmm2/mem |
+     +----------+
+</pre>
+<p>Macierz po wykonaniu operacji <tt class="docutils literal">AND</tt>:</p>
+<pre class="literal-block">
++--------------+-----+-----+-----+-----+---------+
+| xmm1 -&gt;  A Z | a z | 0 9 | _ _ | . . | IntRes1 |
++--------------+-----+-----+-----+-----+---------+-----+
+     |   |  .  |  .  |  .  |  .  |  .  |    0   &lt;- LSB |
+     | S |  1  |  .  |  .  |  .  |  .  |    1    |     |
+     | o |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | m |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | e |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | _ |  .  |  .  |  .  |  1  |  .  |    1    |     |
+     | f |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | i |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | l |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | e |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | 5 |  .  |  .  |  1  |  .  |  .  |    1    |     |
+     | . |  .  |  .  |  .  |  .  |  1  |    1    |     |
+     | P |  1  |  .  |  .  |  .  |  .  |    1    |     |
+     | d |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | f |  .  |  1  |  .  |  .  |  .  |    1    |     |
+     | ! |  .  |  .  |  .  |  .  |  .  |    0   &lt;- MSB |
+     |   +-----+-----+-----+-----+-----+---------+-----+
+     | xmm2/mem |
+     +----------+
+</pre>
+</div>
+</div>
+<div class="section" id="wstepne-przetwarzanie-wynikow">
+<h2>2. Wstępne przetwarzanie wyników</h2>
+<p>Słowo <tt class="docutils literal">IntRes1</tt> może zostać przed ostatecznym utworzeniem wyniku
+zanegowane lub zanegowane mogą być tylko bity odpowiadające znakom
+należącym do łańcucha <tt class="docutils literal">xmm2/mem</tt> (tj. znakom oznaczonym jako <em>valid</em>).
+Wynikiem tego etapu jest nowe słowo &mdash; <tt class="docutils literal">IntRes2</tt>:</p>
+<p>Działanie określają bity <tt class="docutils literal">5:4</tt> argumentu <tt class="docutils literal">imm8</tt>:</p>
+<ul class="simple">
+<li><tt class="docutils literal">00b</tt>, <tt class="docutils literal">10b</tt> &mdash; bez zmian</li>
+<li><tt class="docutils literal">01b</tt> &mdash; negacja</li>
+<li><tt class="docutils literal">11b</tt> &mdash; negacja tylko tych bitów, które odpowiadają elementom
+łańcucha <tt class="docutils literal">xmm2/mem</tt></li>
+</ul>
+<p>a bardziej formalnie:</p>
+<pre class="literal-block">
+00b, 10b: IntRes2 := IntRes1
+01b:      IntRes2 := IntRes1 XOR 0xffff
+11b:      mask := 0xffff AND valid_mask (np. 0x01ff dla łańcucha o długości 9)
+          IntRes2 := IntRes1 XOR mask
+</pre>
+</div>
+<div class="section" id="utworzenie-wyniku">
+<h2>3. Utworzenie wyniku</h2>
+<p>Słowo <tt class="docutils literal">IntRes2</tt> jest ostatecznie używane do utworzenia wyniku.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="23%" />
+<col width="37%" />
+<col width="40%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">&nbsp;</th>
+<th class="head" colspan="2">wynik</th>
+</tr>
+<tr><th class="head">bit 6. w <tt class="docutils literal">imm8</tt> = 0</th>
+<th class="head">bit 6. w <tt class="docutils literal">imm8</tt> = 1</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">PCMPESTRI</tt>
+<tt class="docutils literal">PCMPISTRI</tt></td>
+<td>numer pierwszego
+ustawionego bitu
+w <tt class="docutils literal">IntRes2</tt>
+zapisywany do <tt class="docutils literal">ECX</tt></td>
+<td>numer ostatniego
+ustawionego bitu
+w <tt class="docutils literal">IntRes2</tt>
+zapisywany do <tt class="docutils literal">ECX</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">PCMPESTRM</tt>
+<tt class="docutils literal">PCMPISTRM</tt></td>
+<td><tt class="docutils literal">IntRes2</tt> zapisywane
+w <tt class="docutils literal">XMM0</tt> (najstarsze
+bity są zerowane)</td>
+<td>maska bajtowa/słów
+na podstawie <tt class="docutils literal">IntRes2</tt>
+zapisywana w <tt class="docutils literal">XMM0</tt></td>
+</tr>
+</tbody>
+</table>
+<p><strong>UWAGA 1</strong>: Jeśli <tt class="docutils literal">IntRes2 = 0</tt>, wówczas <tt class="docutils literal">ECX = 16</tt> (lub <tt class="docutils literal">8</tt>).</p>
+<p><strong>UWAGA 2</strong>: <tt class="docutils literal">XMM0</tt> odnosi się do <strong>rzeczywistego rejestru</strong> &mdash; zatem
+pierwszy argument rozkazu, tj. <tt class="docutils literal">xmm1</tt>, nie musi zostać nadpisany.</p>
+</div>
+<div class="section" id="modyfikacja-flag">
+<h2>4. Modyfikacja flag</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="6%" />
+<col width="47%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head"><tt class="docutils literal">PCMPESTRI</tt>, <tt class="docutils literal">PCMPESTRM</tt>
+(<em>explicit string length</em>)</th>
+<th class="head"><tt class="docutils literal">PCMPISTRI</tt>, <tt class="docutils literal">PCMPISTRM</tt>
+(<em>implict string length</em>)</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>CF</td>
+<td>ustawiony gdy
+<tt class="docutils literal">InRes2 &lt;&gt; 0</tt></td>
+<td>ustawiony gdy
+<tt class="docutils literal">InRes2 &lt;&gt; 0</tt></td>
+</tr>
+<tr><td>ZF</td>
+<td>ustawiony gdy
+<tt class="docutils literal">ABS(EDX) &lt; 16</tt> (lub 8)</td>
+<td>ustawiony jeśli w
+<tt class="docutils literal">xmm2/mem</tt> był jakiś
+zerowy bajt (lub słowo)</td>
+</tr>
+<tr><td>SF</td>
+<td>ustawiony gdy
+<tt class="docutils literal">ABS(EAX) &lt; 16</tt> (lub 8)</td>
+<td>ustawiony jeśli w
+<tt class="docutils literal">xmm1</tt> był jakiś
+zerowy bajt (lub słowo)</td>
+</tr>
+<tr><td>OF</td>
+<td>bit 0. <tt class="docutils literal">IntRes2</tt></td>
+<td>bit 0. <tt class="docutils literal">IntRes2</tt></td>
+</tr>
+<tr><td>AF</td>
+<td>0</td>
+<td>0</td>
+</tr>
+<tr><td>PF</td>
+<td>0</td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+<p>Podsumowując:</p>
+<ul class="simple">
+<li>flaga <strong>CF</strong> jest ustawiana, gdy <tt class="docutils literal">IntRes2</tt> jest niezerowe</li>
+<li>flaga <strong>ZF</strong> jest ustawiana, jeśli w <tt class="docutils literal">xmm2/mem</tt> jest
+zlokalizowany koniec łańcucha</li>
+<li>flaga <strong>SF</strong> jest ustawiana, jeśli w <tt class="docutils literal">xmm1</tt> jest
+zlokalizowany koniec łańcucha</li>
+<li><strong>OF</strong> = najmłodszy bit <tt class="docutils literal">IntRes2</tt></li>
+</ul>
+</div>
+</div>
+<div class="section" id="przyklady">
+<h1>Przykłady</h1>
+<p>W pliku <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse4-string-instr.S">sse4-string-instr.S</a> znajduje się kilka funkcji łańcuchowych:</p>
+<div class="contents local topic" id="topic-2">
+<ul class="simple">
+<li><a class="reference internal" href="#strcmp" id="toc-entry-27"><tt class="docutils literal">strcmp</tt></a></li>
+<li><a class="reference internal" href="#memcmp" id="toc-entry-28"><tt class="docutils literal">memcmp</tt></a></li>
+<li><a class="reference internal" href="#strchr" id="toc-entry-29"><tt class="docutils literal">strchr</tt></a></li>
+<li><a class="reference internal" href="#strchr-inna-realizacja" id="toc-entry-30"><tt class="docutils literal">strchr</tt> (inna realizacja)</a></li>
+<li><a class="reference internal" href="#strrchr" id="toc-entry-31"><tt class="docutils literal">strrchr</tt></a></li>
+<li><a class="reference internal" href="#is-sxdigit" id="toc-entry-32"><tt class="docutils literal">is_sxdigit</tt></a></li>
+<li><a class="reference internal" href="#strtolower" id="toc-entry-33"><tt class="docutils literal">strtolower</tt></a></li>
+</ul>
+</div>
+<div class="section" id="strcmp">
+<h2><tt class="docutils literal">strcmp</tt></h2>
+<pre class="literal-block">
+/* int strcmp(const char* s1, const char* s2);
+
+   inputs:
+   - %esi -- s1
+   - %edi -- s2
+
+   result:
+   - %eax
+ */
+strcmp:
+        imm8 = SSESTR_PACKED_UBYTE  | \
+               SSESTR_EQUAL_EACH    | \
+               SSESTR_NEGATED_VALID | \
+               SSESTR_FIRSTBIT
+
+    L(mainloop):
+        movups  (%esi), %xmm1           # load 16 bytes
+        movups  (%edi), %xmm2           # from s1 &amp; s2
+        add     $16,    %esi
+        add     $16,    %edi
+
+        # implict length string compare for equal
+
+        pcmpistri $imm8, %xmm2, %xmm1
+        # sample 1 (strings different):
+        #       xmm1 -&gt; &quot;string are diff&quot;
+        #       xmm2 -&gt; &quot;strXng are equa&quot;
+        #
+        #       IntRes1 -&gt; 111011111110111b
+        #       IntRes2 -&gt; 000100000001000b (negated valid)
+        #       ECX     := bfs(IntRes2) = 3
+        #       CF      := 1 (IntRes2 &lt;&gt; 0)
+        #       ZF      := 0
+        #
+        # sample 2 (strings equal, but null byte found):
+        #       xmm1 -&gt; &quot;string\0...&quot;
+        #       xmm2 -&gt; &quot;string\0...&quot;
+        #
+        #       IntRes1 -&gt; 000000001111111b
+        #       IntRes2 -&gt; 000000000000000b (negated valid)
+        #       ECX     := 16 (there isn't any bit set in IntRes2)
+        #       CF      := 0 (IntRes2 == 0, no diffs)
+        #       ZF      := 1 (EOS, i.e. null byte in xmm2)
+
+        ja  L(main_loop)  # CF=0 and ZF=0 (no diff, no null byte)
+
+        jc  L(diff_found) # CF=1 -&gt; offset is given
+    L(null_found):
+        # ZF=1 -&gt; # calculate EOS position
+        pxor     %xmm0, %xmm0
+        pcmpeqb  %xmm2, %xmm0
+        pmovmskb %xmm0, %ecx
+        bsf      %ecx,  %ecx
+    L(diff_found):
+        movzbl  -16(%edi, %ecx), %edx
+        movzbl  -16(%esi, %ecx), %eax
+        sub     %edx, %eax
+        ret
+</pre>
+</div>
+<div class="section" id="memcmp">
+<h2><tt class="docutils literal">memcmp</tt></h2>
+<pre class="literal-block">
+/* int memcmp(const char* s1, const char* s2, size_t n);
+
+   inputs:
+   - %esi -- s1
+   - %edi -- s2
+   - %eax -- n
+
+   result:
+   - %eax
+ */
+memcmp:
+        imm8 = SSESTR_PACKED_UBYTE  | \
+               SSESTR_EQUAL_EACH    | \
+               SSESTR_NEGATED_VALID | \
+               SSESTR_FIRSTBIT
+
+
+        xor  %ecx, %ecx
+        test %eax, %eax  # n == 0 ?
+        jz   L(diff_found)
+
+        # n &gt; 0
+        add  $16,  %eax
+        mov  %eax, %edx  # make length of both strings equal
+
+    L(mainloop):
+        movups  (%esi), %xmm1           # load 16 bytes
+        movups  (%edi), %xmm2           # from s1 &amp; s2
+        add     $16,    %esi
+        add     $16,    %edi
+
+        sub     $16,    %eax            # decrement
+        sub     $16,    %edx            # both lengths
+
+        # explicit length string compare for equal
+
+        pcmpestri $imm8, %xmm2, %xmm1
+        # for some samples see comments in strcmp
+
+        ja  L(mainloop)
+        jc  L(diff_found)
+
+    L(null_found):
+        # get EOS position
+        pxor     %xmm0, %xmm0
+        pcmpeqb  %xmm2, %xmm0
+        pmovmskb %xmm0, %ecx
+        bsf      %ecx,  %ecx
+    L(diff_found):
+        movzbl  -16(%edi, %ecx), %edx
+        movzbl  -16(%esi, %ecx), %eax
+        sub     %edx, %eax
+        ret
+</pre>
+</div>
+<div class="section" id="strchr">
+<h2><tt class="docutils literal">strchr</tt></h2>
+<pre class="literal-block">
+/* char* strchr(const char* s, int c);
+
+   comment:
+     If c &gt; 256 then one can search for up to four chars; for
+     example strchr(s, (int)'a' | ((int)'A' &lt;&lt; 8) will
+     find 'a' case insensitive.  It is not C-function feature!
+
+   inputs:
+   - %esi -- s
+   - %eax -- c
+
+   result:
+   - %eax
+ */
+strchr:
+        imm8 = SSESTR_PACKED_UBYTE | \
+               SSESTR_EQUAL_ANY    | \
+               SSESTR_UNCHANGED    | \
+               SSESTR_FIRSTBIT
+
+        movd    %eax, %xmm0     # xmm1 := string of length 1 contains char c
+        xor     %edx, %edx      # edx  := NULL
+
+    L(mainloop):
+        add $16, %esi
+
+        # implict string length - find first occurence of c or EOS
+        pcmpistri $imm8, -16(%esi), %xmm0
+        # sample 1 (char found)
+        #       c       -&gt; 's'
+        #       mem     -&gt; &quot;Sunrise\0&quot;
+        #
+        #                  .........esirnuS &lt;- '.' = invalid
+        #       IntRes2 -&gt; 0000000000100000b
+        #       ECX     -&gt; bsf(IntRes2) = 5
+        #       CF      -&gt; 1 (IntRes2 &lt;&gt; 0)
+        #       ZF      -&gt; 1 (there is a null byte)
+        #
+        # sample 2 (null found)
+        #       c       -&gt; 'x'
+        #       mem     -&gt; &quot;assembler\0&quot;
+        #
+        #                  .......relbmessa &lt;- '.' = invalid
+        #       IntRes2 -&gt; 0000000000000000b
+        #       ECX     -&gt; 16 (IntRes2 = 0)
+        #       CF      -&gt; 0
+        #       ZF      -&gt; 1 (there is a null byte)
+
+        ja L(mainloop)  # CF=0 and ZF=0 (no char, no null found)
+
+        lea -16(%esi, %ecx), %eax # eax := char address (valid if CF=1, i.e. char found)
+        cmovnc %edx, %eax         # eax := NULL (if CF=0)
+        ret
+</pre>
+</div>
+<div class="section" id="strchr-inna-realizacja">
+<h2><tt class="docutils literal">strchr</tt> (inna realizacja)</h2>
+<pre class="literal-block">
+/* char* strchr2(const char* s, int c);
+
+   inputs:
+   - %esi -- s
+   - %eax -- c
+
+   result:
+   - %eax
+ */
+strchr2:
+        imm8 = SSESTR_PACKED_UBYTE | \
+               SSESTR_EQUAL_ANY    | \
+               SSESTR_UNCHANGED    | \
+               SSESTR_FIRSTBIT
+
+        movd    %eax, %xmm0     # xmm1 := string contains 'c' and '\0'
+        mov     $2,   %eax      # eax  := length(xmm1) = 2
+        mov     $16,  %edx      # edx  := length(xmm2/mem) = 16 (we'll
+                                #         process all chars)
+
+    L(mainloop):
+        add $16, %esi
+
+        # explicit string length - find first occurence of c or EOS
+        pcmpestri $imm8, -16(%esi), %xmm0
+        # sample (char or null found)
+        #       c       -&gt; 's'
+        #       mem     -&gt; &quot;Sunrise0s00ssA0s&quot;
+        #
+        #                  s\0Ass\0\0s\0esirnuS
+        #       IntRes2 -&gt; 1 1011 1 11 10100000b
+        #       ECX     -&gt; bsf(IntRes2) = 5
+        #       CF      -&gt; 1 (IntRes2 &lt;&gt; 0)
+
+        jnc L(mainloop)  # CF=0 (no char, no null found)
+
+        mov    $0, %edx           # edx := NULL
+        lea -16(%esi, %ecx), %eax # eax := char address
+                                  # (valid if CF=1, i.e. char or null found)
+        cmovnc %edx, %eax         # eax := NULL (if CF=0)
+        ret
+</pre>
+</div>
+<div class="section" id="strrchr">
+<h2><tt class="docutils literal">strrchr</tt></h2>
+<pre class="literal-block">
+/* char* strrchr(const char* s, int c);
+
+   comment:
+     If c &gt; 256 then one can search for up to four chars; for
+     example strrchr(s, (int)'a' | ((int)'A' &lt;&lt; 8) will
+     find 'a' case insensitive.  It is not C-function feature!
+
+   inputs:
+   - %esi -- s
+   - %eax -- c
+
+   result:
+   - %eax
+ */
+strrchr:
+        imm8 = SSESTR_PACKED_UBYTE | \
+               SSESTR_EQUAL_ANY    | \
+               SSESTR_UNCHANGED    | \
+               SSESTR_LASTBIT
+
+        movd    %eax, %xmm0     # xmm1 := string of length 1 contains char c
+        xor     %eax, %eax      # eax  := NULL
+
+    L(mainloop):
+        add $16, %esi
+
+        # implict string length - find last occurence of c or EOS
+        pcmpistri $imm8, -16(%esi), %xmm0
+        # sample 1 (char found)
+        #       c       -&gt; 'c'
+        #       mem     -&gt; &quot;cat catch scarab&quot;
+        #
+        #                  baracs hctac tac
+        #       IntRes2 -&gt; 0000100010010001b
+        #       ECX     -&gt; bsr(IntRes2) = 11
+        #       CF      -&gt; 1 (IntRes2 &lt;&gt; 0)
+        #       ZF      -&gt; 0
+        #
+        # sample 2 (null found)
+        #       c       -&gt; 's'
+        #       mem     -&gt; &quot;assembler\0&quot;
+        #
+        #                  .......relbmessa &lt;- '.' = invalid
+        #       IntRes2 -&gt; 0000000000000110b
+        #       ECX     -&gt; bsr(IntRes2) = 2
+        #       CF      -&gt; 1 (IntRes2 &lt;&gt; 0)
+        #       ZF      -&gt; 1 (there is a null byte)
+
+        ja   L(mainloop)   # CF=0 and ZF=0 (no char, no null found)
+        jz   L(null_found) # ZF=1 -&gt; null byte
+    L(update): # CF=1 -&gt; position update needed
+        lea -16(%esi, %ecx), %eax  # update: last char pos.
+        jmp  L(mainloop)
+
+
+        # XXX: use conditional moves?
+    L(null_found):
+        jnc  L(end)     # CF = 0, no update needed
+        lea -16(%esi, %ecx), %eax  # update last char pos.
+    L(end):
+        ret
+</pre>
+</div>
+<div class="section" id="is-sxdigit">
+<h2><tt class="docutils literal">is_sxdigit</tt></h2>
+<pre class="literal-block">
+/* int is_sxdigit(const char* s);
+
+   comment:
+     Function test if all chars from s matches [0-9A-Fa-f]
+     (sxdigit describe pattern).
+
+   inputs:
+   - %esi -- s
+
+   result:
+   - %eax (0 or 1)
+
+   destroy:
+   - %xmm0, %xmm1
+ */
+is_sxdigit:
+        imm8 = SSESTR_PACKED_UBYTE  | \
+               SSESTR_RANGES        | \
+               SSESTR_NEGATED_VALID | \
+               SSESTR_BITMASK
+
+        movaps  sxdigit, %xmm1
+    L(mainloop):
+        add     $16, %eax
+
+        # implict string length - test if all chars in range or EOS occured
+        pcmpistrm $imm8, -16(%eax), %xmm1
+        # sample 1 (not all chars match):
+        #       mem   -&gt; &quot;10 x 1af7\0&quot;
+        #       xmm1  -&gt; &quot;09AZaz&quot;
+        #
+        #                 .......7fa1 x 01 &lt;- '.' = invalid
+        #       IntRes1 = 0000000111100011b
+        #       IntRes2 = 0000000000011100b (negated valid)
+        #       CF      = 1 (IntRes2 &lt;&gt; 0)
+        #       ZF      = 1 (null in mem)
+        #
+        # sample 2 (all chars match, no null byte):
+        #       mem   -&gt; &quot;5afffefff00011fb&quot;
+        #       xmm1  -&gt; &quot;09AZaz&quot;
+        #
+        #                 bf11000fffefffa51
+        #       IntRes1 = 1111111111111111b
+        #       IntRes2 = 0000000000000000b (negated valid)
+        #       CF      = 0 (IntRes2 == 0)
+        #       ZF      = 0
+        #
+        # sample 3 (all chars match):
+        #       mem   -&gt; &quot;5afffefff\0&quot;
+        #       xmm1  -&gt; &quot;09AZaz&quot;
+        #
+        #                 .......fffefffa51 &lt;- '.' = invalid
+        #       IntRes2 = 0000000111111111b
+        #       IntRes2 = 0000000000000000b
+        #       CF      = 0 (IntRes2 == 0)
+        #       ZF      = 1 (null byte in mem)
+
+        ja      L(main_loop)    # CF=0 and ZF=0 (all match, no EOS)
+
+    L(end_of_string):
+        mov     $1,   %eax
+        mov     $0,   %edx
+        cmovc   %edx, %eax      # eax := CF ? 0 : 1
+        ret
+</pre>
+</div>
+<div class="section" id="strtolower">
+<h2><tt class="docutils literal">strtolower</tt></h2>
+<pre class="literal-block">
+/* void strtolower(const char* s);
+
+   comment:
+     Function modify s; encoding of string is ASCII.
+     Initial value of eax (see line marked with X)
+     determine action preformed by function:
+     * 0x00005a41 (&quot;AZ&quot;)    - to lower
+     * 0x00007a61 (&quot;az&quot;)    - to upper
+     * 0x7a615a41 (&quot;azAZ&quot;)  - swap case
+
+   inputs:
+   - %eax -- s
+ */
+strtolower:
+        imm8 = SSESTR_PACKED_UBYTE  | \
+               SSESTR_RANGES        | \
+               SSESTR_UNCHANGED     | \
+               SSESTR_BYTEMASK
+
+        mov     $0x00005a41, %edx       # 0x5a41 := 'AZ' (X)
+        movd    %edx, %xmm1             # xmm1 -&gt; range [A-Z]
+        movd    pb_0x20, %xmm3          # xmm3 := packed_byte(0x20)
+
+    L(mainloop):
+        movaps  (%eax), %xmm2
+        add     $16, %eax
+
+        # implict string length - make mask for chars [A-Z] or locate EOS
+        pcmpistrm $imm8, %xmm2, %xmm1
+        # sample:
+        #       xmm2 -&gt; &quot;REAd SoME TEXt\0&quot; (length 15)
+        #
+        #
+        #                   ..tEXT EMoS dAER   &lt;- '.' = invalid
+        #       IntRest2 := 0001110110100111b
+        #       xmm0     := |000000ff|ffff00ff|ff00ff00|00ffffff|
+        #       CF       := 1 (IntRes2 &lt;&gt; 0)
+        #       ZF       := 1 (null byte in mem)
+
+        ja L(mainloop)    # CF=0 and ZF=0 (no update needed, no EOS)
+
+    L(update):
+        pand %xmm3, %xmm0 # xmm0 := |00000020|20200020|20002000|00202020|
+        pxor %xmm0, %xmm2 # reset 5th bit in big letters
+                          # xmm2 -&gt; &quot;read some text\0&quot;
+        movups %xmm2, -16(%eax) # write back modified fragment
+        jnz L(mainloop)
+
+        ret
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse4-string-instr.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:39 GMT -->
+</html>

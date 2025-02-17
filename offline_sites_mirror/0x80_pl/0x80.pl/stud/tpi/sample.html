@@ -1,0 +1,202 @@
+<!doctype html public "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+
+<!-- Mirrored from 0x80.pl/stud/tpi/sample.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:41 GMT -->
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=iso-8859-2">
+	<meta http-equiv="charset" content="iso-8859-2">
+	<meta http-equiv="content-language" content="pl">
+	<title>Sprawdzenie czy baaba należy do języka</title>
+</head>
+<body>
+<center>G = &lt;{<i>S, A, B, C, a, b</i>}, {<i>a, b</i>}, <i>P</i>, <i>S</i>&gt;</center>
+<p>P:</p>
+S &rarr; AB|BC<br>
+A &rarr; BA|a<br>
+B &rarr; CC|b<br>
+C &rarr; AB|a<br>
+<center>x = baaba</center>
+<h2>Pierwsza część algorytmu</h2>
+<ul>
+	<li>V<sub>11</sub> = {A|A &rarr; x<sub>1</sub>=<i>b</i>} = {B}</li>
+	<li>V<sub>21</sub> = {A|A &rarr; x<sub>2</sub>=<i>a</i>} = {A,C}</li>
+	<li>V<sub>31</sub> = {A|A &rarr; x<sub>3</sub>=<i>a</i>} = {A,C}</li>
+	<li>V<sub>41</sub> = {A|A &rarr; x<sub>4</sub>=<i>b</i>} = {B}</li>
+	<li>V<sub>51</sub> = {A|A &rarr; x<sub>5</sub>=<i>a</i>} = {A,C}</li>
+</ul>
+<h2>Druga część algorytmu</h2>
+<ul>
+<li>j=2, i=1,2,3,4, k=1
+	<ol>
+	<li>j=2, i=1, k=1
+		<table align="center">
+			<tr> <td align="right">V<sub>12</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>11</sub>, C &isin; V<sub>21</sub>}</td>
+
+		</table>
+		<p>BC = {B}x{A,C}
+		<ul>
+			<li>A &rarr; BA</li>
+			<li>S &rarr; BC</li>
+		</ul>
+		<center>V<sub>12</sub> = {A,S}</center>
+	<li>j=2, i=2, k=1
+		<table align="center">
+			<tr> <td align="right">V<sub>22</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>21</sub>, C &isin; V<sub>31</sub>}</td>
+
+		</table>
+		<p>BC = {A,C}x{A,C}
+		<ul>
+			<li>(-) &rarr; AA</li>
+			<li>(-) &rarr; AC</li>
+			<li>(-) &rarr; CA</li>
+			<li>B &rarr; CC</li>
+		</ul>
+		<center>V<sub>22</sub> = {B}</center>
+	<li>j=2, i=3, k=1
+		<table align="center">
+			<tr> <td align="right">V<sub>32</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>31</sub>, C &isin; V<sub>41</sub>}</td>
+
+		</table>
+		<p>BC = {A,C}x{B}
+		<ul>
+			<li>S,C &rarr; AB</li>
+			<li>(-) &rarr; CB</li>
+		</ul>
+		<center>V<sub>32</sub> = {S,C}</center>
+	<li>j=2, i=4, k=1
+		<table align="center">
+			<tr> <td align="right">V<sub>42</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>41</sub>, C &isin; V<sub>51</sub>}</td>
+
+		</table>
+		<p>BC = {B}x{A,C}
+		<ul>
+			<li>A &rarr; BA</li>
+			<li>S &rarr; BC</li>
+		</ul>
+		<center>V<sub>42</sub> = {A,S}</center>
+	</ol>
+<li>j=3, i=1,2,3, k=1,2
+	<ol>
+	<li>j=3, i=1, k=1,2
+		<table align="center">
+			<tr> <td align="right">V<sub>13</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>11</sub>, C &isin; V<sub>22</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>12</sub>, C &isin; V<sub>31</sub>}</td>
+
+		</table>
+		<p>BC = {B}x{B} + {A,S}x{A,C}
+		<ul>
+			<li>(-) &rarr; BB</li>
+			<li>(-) &rarr; AA</li>
+			<li>(-) &rarr; AC</li>
+			<li>(-) &rarr; SA</li>
+			<li>(-) &rarr; SC</li>
+		</ul>
+		<center>V<sub>13</sub> = &empty;</center>
+	<li>j=3, i=2, k=1,2
+		<table align="center">
+			<tr> <td align="right">V<sub>23</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>21</sub>, C &isin; V<sub>32</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>22</sub>, C &isin; V<sub>41</sub>}</td>
+
+		</table>
+		<p>BC = {A,C}x{S,C} + {B}x{B}
+		<ul>
+			<li>(-) &rarr; AS</li>
+			<li>(-) &rarr; AC</li>
+			<li>(-) &rarr; CS</li>
+			<li>B &rarr; CC</li>
+			<li>(-) &rarr; BB</li>
+		</ul>
+		<center>V<sub>23</sub> = {B}</center>
+	<li>j=3, i=3, k=1,2
+		<table align="center">
+			<tr> <td align="right">V<sub>33</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>31</sub>, C &isin; V<sub>42</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>32</sub>, C &isin; V<sub>51</sub>}</td>
+
+		</table>
+		<p>BC = {A,C}x{A,S} + {S,C}x{A,C}
+		<ul>
+			<li>(-) &rarr; AA</li>
+			<li>(-) &rarr; AS</li>
+			<li>(-) &rarr; CA</li>
+			<li>(-) &rarr; CS</li>
+			<li>(-) &rarr; SA</li>
+			<li>(-) &rarr; SC</li>
+			<li>(-) &rarr; CA</li>
+			<li>B &rarr; CC</li>
+		</ul>
+		<center>V<sub>33</sub> = {B}</center>
+	</ol>
+<li>j=4, i=1,2, k=1,2,3
+	<ol>
+	<li>j=4, i=1, k=1,2,3
+		<table align="center">
+			<tr> <td align="right">V<sub>14</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>11</sub>, C &isin; V<sub>23</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>12</sub>, C &isin; V<sub>32</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>13</sub>, C &isin; V<sub>41</sub>}</td>
+
+		</table>
+		<p>BC = {B}x{B} + {A,S}x{S,C} + &empty;x{B}
+		<ul>
+			<li>(-) &rarr; BB</li>
+			<li>(-) &rarr; AS</li>
+			<li>(-) &rarr; AC</li>
+			<li>(-) &rarr; SS</li>
+			<li>(-) &rarr; SC</li>
+		</ul>
+		<center>V<sub>14</sub> = &empty;</center>
+	<li>j=4, i=2, k=1,2,3
+		<table align="center">
+			<tr> <td align="right">V<sub>24</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>21</sub>, C &isin; V<sub>33</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>22</sub>, C &isin; V<sub>42</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>23</sub>, C &isin; V<sub>51</sub>}</td>
+
+		</table>
+		<p>BC = {A,C}x{B} + {B}x{A,S} + {B}x{A,C}
+		<ul>
+			<li>S,C &rarr; AB</li>
+			<li>(-) &rarr; CB</li>
+			<li>A &rarr; BA</li>
+			<li>(-) &rarr; BS</li>
+			<li>A &rarr; BA</li>
+			<li>S &rarr; BC</li>
+		</ul>
+		<center>V<sub>24</sub> = {A,S,C}</center>
+	</ol>
+<li>j=5, i=1, k=1,2,3,4
+	<ol>
+	<li>j=5, i=1, k=1,2,3,4
+		<table align="center">
+			<tr> <td align="right">V<sub>15</sub> = {A|A &rarr; BC, </td> <td>B &isin; V<sub>11</sub>, C &isin; V<sub>24</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>12</sub>, C &isin; V<sub>33</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>13</sub>, C &isin; V<sub>42</sub>;</td>
+			<tr> <td></td> <td>B &isin; V<sub>14</sub>, C &isin; V<sub>51</sub>}</td>
+
+		</table>
+		<p>BC = {B}x{A,S,C} + {A,S}x{B} + &empty;x{A,S} + &empty;x{A,C}
+		<ul>
+			<li>A &rarr; BA</li>
+			<li>(-) &rarr; BS</li>
+			<li>S &rarr; BC</li>
+			<li>S,C &rarr; AB</li>
+			<li>(-) &rarr; SB</li>
+		</ul>
+		<center>V<sub>15</sub> = {A,S,C}</center>
+	</ol>
+</ul>
+<table align="center" cellspacing="0" cellpadding="4">
+<tr>
+<td align="left" style="border-width:1 0 0 1; border-style: solid">B</td> <td align="left" style="border-width:1 0 0 1; border-style: solid">A,C</td> <td align="left" style="border-width:1 0 0 1; border-style: solid">A,C</td> <td align="left" style="border-width:1 0 0 1; border-style: solid">B</td> <td align="left" style="border-width:1 1 0 1; border-style: solid">A,C</td> <tr>
+<td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>11</sub></font></td> <td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>21</sub></font></td> <td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>31</sub></font></td> <td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>41</sub></font></td> <td align="right" style="border-width:0 1 1 1; border-style: solid"><font size="-1">V<sub>51</sub></font></td> <tr>
+<td align="left" style="border-width:0 0 0 1; border-style: solid">A,S</td> <td align="left" style="border-width:0 0 0 1; border-style: solid">B</td> <td align="left" style="border-width:0 0 0 1; border-style: solid">S,C</td> <td align="left" style="border-width:0 1 0 1; border-style: solid">A,S</td> <td></td> <tr>
+<td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>12</sub></font></td> <td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>22</sub></font></td> <td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>32</sub></font></td> <td align="right" style="border-width:0 1 1 1; border-style: solid"><font size="-1">V<sub>42</sub></font></td> <td></td> <tr>
+<td align="left" style="border-width:0 0 0 1; border-style: solid">-</td> <td align="left" style="border-width:0 0 0 1; border-style: solid">B</td> <td align="left" style="border-width:0 1 0 1; border-style: solid">B</td> <td></td> <td></td> <tr>
+<td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>13</sub></font></td> <td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>23</sub></font></td> <td align="right" style="border-width:0 1 1 1; border-style: solid"><font size="-1">V<sub>33</sub></font></td> <td></td> <td></td> <tr>
+<td align="left" style="border-width:0 0 0 1; border-style: solid">-</td> <td align="left" style="border-width:0 1 0 1; border-style: solid">A,S,C</td> <td></td> <td></td> <td></td> <tr>
+<td align="right" style="border-width:0 0 1 1; border-style: solid"><font size="-1">V<sub>14</sub></font></td> <td align="right" style="border-width:0 1 1 1; border-style: solid"><font size="-1">V<sub>24</sub></font></td> <td></td> <td></td> <td></td> <tr>
+<td align="left" style="border-width:0 1 0 1; border-style: solid">A,S,C</td> <td></td> <td></td> <td></td> <td></td> <tr>
+<td align="right" style="border-width:0 1 1 1; border-style: solid"><font size="-1">V<sub>15</sub></font></td> <td></td> <td></td> <td></td> <td></td> </table>
+<p>Ponieważ S &isin; V<sub>15</sub>, zatem słowo <i>baaba</i> należy do języka <i>L(G)</i>.
+</body>
+
+<!-- Mirrored from 0x80.pl/stud/tpi/sample.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:41 GMT -->
+</html>

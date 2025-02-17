@@ -1,0 +1,142 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/ternlog.php?f=vpternlogq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:44 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/ternlog.php?f=vpternlogq" />
+<link rel="alternate" hreflang="en" href="ternlogc517.html?f=vpternlogq" />
+    <title>vpternlogq</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+<body>
+<h2>VPTERNLOGQ - Packed TERNary LOGic Qword</h2>
+VPTERNLOGQ <span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128i  _mm_ternarylogic_epi64(__m128i  a, __m128i  b, __m128i  c, int imm8);</span><br />
+<span class="intr">__m128i  _mm_mask_ternarylogic_epi64(__m128i  a, __mmask8  k, __m128i  b, __m128i  c, int imm8);</span><br />
+<span class="intr">__m128i  _mm_maskz_ternarylogic_epi64(__mmask8  k, __m128i  a, __m128i  b, __m128i  c, int imm8);</span><br />
+<br />
+<div style="height: 2px;"></div><img src="ternlog_qword_1283860.png?v=1" /><br />
+<span style="padding-left: 110px">For each bit, performs a ternary bitwise logical operation specified by imm8 and sets the result to the first operand. <span class="intr">(returns the result.)</span></span><br />
+<div style="height: 30px"></div>
+VPTERNLOGQ <span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256i  _mm256_ternarylogic_epi64(__m256i  a, __m256i  b, __m256i  c, int imm8);</span><br />
+<span class="intr">__m256i  _mm256_mask_ternarylogic_epi64(__m256i  a, __mmask8  k, __m256i  b, __m256i  c, int imm8);</span><br />
+<span class="intr">__m256i  _mm256_maskz_ternarylogic_epi64(__mmask8  k, __m256i  a, __m256i  b, __m256i  c, int imm8);</span><br />
+<br />
+<div style="height: 2px;"></div><img src="ternlog_qword_2563860.png?v=1" /><br />
+<span style="padding-left: 110px">For each bit, performs a ternary bitwise logical operation specified by imm8 and sets the result to the first operand. <span class="intr">(returns the result.)</span></span><br />
+<div style="height: 30px"></div>
+VPTERNLOGQ <span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m64bcst, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512i  _mm512_ternarylogic_epi64(__m512i  a, __m512i  b, __m512i  c, int imm8);</span><br />
+<span class="intr">__m512i  _mm512_mask_ternarylogic_epi64(__m512i  a, __mmask8  k, __m512i  b, __m512i  c, int imm8);</span><br />
+<span class="intr">__m512i  _mm512_maskz_ternarylogic_epi64(__mmask8  k, __m512i  a, __m512i  b, __m512i  c, int imm8);</span><br />
+<br />
+<div style="height: 2px;"></div><img src="ternlog_qword_5123860.png?v=1" /><br />
+<span style="padding-left: 110px">For each bit, performs a ternary bitwise logical operation specified by imm8 and sets the result to the first operand. <span class="intr">(returns the result.)</span></span><br />
+<div style="height: 30px"></div>
+
+<p><span style="font-weight: bold">imm8</span></p>
+<p>Any logical operation can by specified by the following steps:</p>
+<div style="padding-left: 30px">
+    <p>1. Make a logical expression using (1) (2) (3).<br>
+    2. Assign (1) = F0, (2) = CC, (3) = AA, and calculate the expression to get a 8-bit result.<br>
+    3. Specify the result of 2 for imm8.</p>
+</div>
+<p>Or make a table like below to find 8-bit to specify for imm8.</p>
+    <table>
+    <tr>
+        <th></th>
+        <th colspan="8">binary</th>
+    </tr>
+    <tr>
+        <th>(1) = F0</th>
+        <td>1</td>
+        <td>1</td>
+        <td>1</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>0</td>
+        <td>0</td>
+    </tr>
+    <tr>
+        <th>(2) = CC</th>
+        <td>1</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>1</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+    </tr>
+    <tr>
+        <th>(3) = AA</th>
+        <td>1</td>
+        <td>0</td>
+        <td>1</td>
+        <td>0</td>
+        <td>1</td>
+        <td>0</td>
+        <td>1</td>
+        <td>0</td>
+    </tr>
+    <tr>
+        <th>resulting 8-bit imm8</th>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+        <td>&nbsp;</td>
+    </tr>
+    </table>
+<p>Or use <a href="ternlogcalc.html" target="_blank">VPTERNLOGx imm8 Calculator</a></p>
+</div>
+
+
+
+
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vpternlogq" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/ternlog.php?f=vpternlogq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:48 GMT -->
+</html>
+

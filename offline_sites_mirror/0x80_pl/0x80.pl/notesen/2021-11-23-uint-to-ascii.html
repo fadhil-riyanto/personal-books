@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2021-11-23-uint-to-ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Conversion uint32 into decimal without division nor multiplication</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="conversion-uint32-into-decimal-without-division-nor-multiplication">
+<h1 class="title">Conversion uint32 into decimal without division nor multiplication</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2021-11-23</td>
+</tr>
+<tr class="last-update field"><th class="docinfo-name">Last update:</th><td class="field-body">2023-03-12 (moved from the repo)</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>This is follow up to Daniel Lemire's <a class="reference external" href="https://lemire.me/blog/2021/11/18/converting-integers-to-fix-digit-representations-quickly/">Converting integers to fix-digit representations quickly</a>.</p>
+<p>The method described here <strong>does not</strong> use multiplication nor division
+instructions.  It relies only on addition and byte-level comparison.
+It's weird and slow, though.</p>
+<p>The main idea is to work directly on the BCD representation. First,
+we pre-calculate BCD images (16-byte arrays) for individual bytes of
+a 32-bit number. The following values are considered:</p>
+<ul class="simple">
+<li><tt class="docutils literal">0x00</tt>, <tt class="docutils literal">0x01</tt>, ..., <tt class="docutils literal">0xff</tt>;</li>
+<li><tt class="docutils literal">0x0000</tt>, <tt class="docutils literal">0x0100</tt>, ..., <tt class="docutils literal">0xff00</tt>;</li>
+<li><tt class="docutils literal">0x000000</tt>, <tt class="docutils literal">0x010000</tt>, ..., <tt class="docutils literal">0xff0000</tt>;</li>
+<li><tt class="docutils literal">0x00000000</tt>, <tt class="docutils literal">0x01000000</tt>, ..., <tt class="docutils literal">0xff000000</tt>;</li>
+</ul>
+<p>Then, when converting a number, we fetch the BCD images and add
+them together.</p>
+<p>The next step of algorithm is fixing up the sum, as some bytes
+might be greater then 9. After this step all bytes are in range
+0 .. 9.</p>
+<p>The last step is simple conversion into ASCII by adding <tt class="docutils literal"><span class="pre">ord('0')</span> = 0x30</tt>.</p>
+<p>Sample scalar implementation is shown below.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">itoa_divless</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">buffer</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">union</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">qword</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">bytes</span><span class="p">[</span><span class="mi">16</span><span class="p">];</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="n">qword</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">qword</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">// 1. obtain BCD representation of all bytes
+</span><span class="w">    </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+        </span><span class="n">qword</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">lookup0</span><span class="p">[</span><span class="n">byte0</span><span class="p">][</span><span class="mi">0</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+        </span><span class="n">qword</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">lookup1</span><span class="p">[</span><span class="n">byte1</span><span class="p">][</span><span class="mi">0</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+        </span><span class="n">qword</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">lookup2</span><span class="p">[</span><span class="n">byte2</span><span class="p">][</span><span class="mi">0</span><span class="p">];</span><span class="w">
+        </span><span class="n">qword</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">lookup2</span><span class="p">[</span><span class="n">byte2</span><span class="p">][</span><span class="mi">8</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">24</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+        </span><span class="n">qword</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">lookup3</span><span class="p">[</span><span class="n">byte3</span><span class="p">][</span><span class="mi">0</span><span class="p">];</span><span class="w">
+        </span><span class="n">qword</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">lookup3</span><span class="p">[</span><span class="n">byte3</span><span class="p">][</span><span class="mi">8</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// 2. fixup BCD &amp; store result
+</span><span class="w">    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">carry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">15</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">--</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bytes</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">carry</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">30</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">buffer</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">30</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="sc">'0'</span><span class="p">;</span><span class="w">
+            </span><span class="n">carry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">20</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">buffer</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">20</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="sc">'0'</span><span class="p">;</span><span class="w">
+            </span><span class="n">carry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">buffer</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="sc">'0'</span><span class="p">;</span><span class="w">
+            </span><span class="n">carry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">buffer</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="sc">'0'</span><span class="p">;</span><span class="w">
+            </span><span class="n">carry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="example">
+<h2>Example</h2>
+<p>Let <tt class="docutils literal">x = 20211121 = 0x13465b1</tt>. We split the value into separate
+bytes <tt class="docutils literal">0xb1</tt>, <tt class="docutils literal">0x65</tt>, <tt class="docutils literal">0x34</tt> and <tt class="docutils literal">0x01</tt>.</p>
+<p>Then, for each byte, we fetch the appropriate BCD image:</p>
+<ul class="simple">
+<li><tt class="docutils literal">0xb1</tt> =&gt; <tt class="docutils literal">[ 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 1| 7| 7]</tt> (177)</li>
+<li><tt class="docutils literal">0x65</tt> =&gt; <tt class="docutils literal">[ 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 2| 5| 8| 5| 6]</tt> (101 * 256 = 25'856)</li>
+<li><tt class="docutils literal">0x34</tt> =&gt; <tt class="docutils literal">[ 0| 0| 0| 0| 0| 0| 0| 0| 0| 3| 4| 0| 7| 8| 7| 2]</tt> (52 * 65536 = 3'407'872)</li>
+<li><tt class="docutils literal">0x01</tt> =&gt; <tt class="docutils literal">[ 0| 0| 0| 0| 0| 0| 0| 0| 1| 6| 7| 7| 7| 2| 1| 6]</tt> (1 * 16777216 = 16'777'216)</li>
+</ul>
+<p>This step requires six 64-bit loads. For byte #0 and byte #1 the higher 8 bytes
+of BCD image are always zero. For bytes #2 and #3 all 16 bytes of images are
+required.</p>
+<p>Once we have all the BCD images, we simply add them together. We have four
+inputs, where none of bytes exceed 9, thus it's safe to perform 64-bit additions.</p>
+<p>For our sample data we have:</p>
+<pre class="literal-block">
+[ 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 1| 7| 7]
+[ 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 0| 2| 5| 8| 5| 6] +
+[ 0| 0| 0| 0| 0| 0| 0| 0| 0| 3| 4| 0| 7| 8| 7| 2] +
+[ 0| 0| 0| 0| 0| 0| 0| 0| 1| 6| 7| 7| 7| 2| 1| 6] +
+--------------------------------------------------
+[ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|11| 9|19|19|20|21]
+</pre>
+<p>There are some bytes greater than 9, we need to fix them up:</p>
+<pre class="literal-block">
+t0 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|11| 9|19|19|20|21]
+t1 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|11| 9|19|19|22| 1] -- carry 2 from #0 to #1
+t3 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|11| 9|19|21| 2| 1] -- carry 2 from #1 to #2
+t4 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|11| 9|21| 1| 2| 1] -- carry 2 from #2 to #3
+t5 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|11|11| 1| 1| 2| 1] -- carry 2 from #3 to #4
+t6 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1| 9|12| 1| 1| 1| 2| 1] -- carry 1 from #4 to #5
+t7 = [ 0| 0| 0| 0| 0| 0| 0| 0| 1|10| 2| 1| 1| 1| 2| 1] -- carry 1 from #5 to #6
+t8 = [ 0| 0| 0| 0| 0| 0| 0| 0| 2| 0| 2| 1| 1| 1| 2| 1] -- carry 1 from #6 to #7
+</pre>
+<p>The carry value between bytes never exceeds 3. Since we have four inputs, then
+maximum value of byte at 0th position is 4*9 = 36. Any subsequent carry value
+cannot be greater than 3, as 4*9 + 3 is 39.</p>
+<p>This means that the carry value can be obtained with a series of comparisons.</p>
+</div>
+</div>
+<div class="section" id="bcd-addition">
+<h1>BCD addition</h1>
+<p>Adding two BCD numbers, where each decimal digit occupies either a byte or
+nibble, can be done with single addition. However, fixing up the digits grater
+than 9 is non-trivial.</p>
+<p>The fix up step is needed, as a regular addition does not propagate the carry
+values between adjacent decimal digits. It would be perfect if we somehow
+forced such propagation across the whole input word.</p>
+<p>Good news is that's possible, although at cost of modifying input values and
+result.  These modifications are easily SIMD-izable.</p>
+<p>Lets assume just two decimal digits <strong>a</strong> and <strong>b</strong> stored on a byte. We need
+to have <tt class="docutils literal">a + b + carry</tt> = <tt class="docutils literal"><span class="pre">0x1??</span></tt> if the left-hand size sum is greater than
+9 (<tt class="docutils literal"><span class="pre">0x0??</span></tt> otherwise). We can achieve this by <strong>shifting</strong> one of the
+operands to the upper bound of byte range, so that exceeding 9 will result in
+carrying to the next byte.</p>
+<p>The following expression holds this property (see <tt class="docutils literal">proof_single_digit.py</tt>
+in sources):</p>
+<pre class="literal-block">
+(255 - 9 + a) + b + carry
+</pre>
+<p>At this point we have the result in form <tt class="docutils literal"><span class="pre">0x1??</span></tt> if the sum is greater than
+9.  We now want to obtain from the byte marked with <tt class="docutils literal"><span class="pre">??</span></tt> the desired digit, i.e.:
+<tt class="docutils literal">digit = (a + b + carry) mod 10</tt>.</p>
+<p>We need to consider two cases:</p>
+<ol class="arabic">
+<li><p class="first">If there was overflow, then the byte equals the digit:</p>
+<pre class="literal-block">
+digit = ((255 - 9 + a) + b + carry) &amp; 0xff
+</pre>
+</li>
+<li><p class="first">If there was no overflow, than the sum stored in the byte remain intact and
+we need to subtract the shift value:</p>
+<pre class="literal-block">
+digit = ((255 - 9 + a) + b + carry) &amp; 0xff - (255 - 9)
+</pre>
+</li>
+</ol>
+<p>These two facts are hold for all possible values of <strong>a</strong>, <strong>b</strong> and <strong>carry</strong>
+(see <tt class="docutils literal">proof_digit</tt> in sources).</p>
+<p>The whole calculations for a single pair of digits looks like this:</p>
+<pre class="literal-block">
+input: a = 0..9, b = 0..9, carry = 0..1
+
+const shift = 255 - 9
+
+1. a'  := shift + a
+2. sum := a' + b + carry
+
+3. carry' := sum &gt;&gt; 8
+4. digit  := sum &amp; 0xff
+5. if digit &gt; shift:
+6.    digit -= shift
+</pre>
+<p>The initial shifting (line 1) can be even done in SWAR. Getting back to BCD
+representation (lines 5 and 6) is easy to do with SIMD (in SWAR is feasible,
+too).</p>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample implementation is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/itoa-divless">GitHub</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2021-11-23-uint-to-ascii.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

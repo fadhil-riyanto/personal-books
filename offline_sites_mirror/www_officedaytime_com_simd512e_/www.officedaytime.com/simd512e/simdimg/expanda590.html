@@ -1,0 +1,72 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/expand.php?f=vpexpandw by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:42:41 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/expand.php?f=vpexpandw" />
+<link rel="alternate" hreflang="en" href="expanda590.html?f=vpexpandw" />
+    <title>vpexpandw</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>VPEXPANDW - Packed EXPAND Word</h2>
+VPEXPANDW <span class="operand"> xmm1{k1}{z}, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VBMI2+VL<br>
+<span class="intr">__m128i _mm_mask_expand_epi16(__m128i s, __mmask8 k, __m128i a)</span><br>
+<span class="intr">__m128i _mm_maskz_expand_epi16(__mmask8 k, __m128i a)</span><br>
+<span class="intr">__m128i _mm_mask_expandloadu_epi16(__m128i s, __mmask8 k, void* p)</span><br>
+<span class="intr">__m128i _mm_maskz_expandloadu_epi16(__mmask8 k, void* p)</span><br>
+<div style="height: 2px;"></div><img src="expand_word_15e1f.png?v=2" /><br />
+<div style="padding-left: 110px">If each bit of (2) is set, the corresponding element of (3) is copied from (1), taken one by one from the lowest element.<br>
+If corresponding bit of (2) is not set, (3) element is:<br>&nbsp;&nbsp;zero cleared if {z} is specified <span class='intr'>(_maskz_ intrinsic is used)</span><br>&nbsp;&nbsp;left unchanged if {z} is not specified. <span class='intr'>(copied from s if _mask_ intrinsic is used.)</span><br>
+</div><div style="height: 30px"></div>
+VPEXPANDW <span class="operand"> ymm1{k1}{z}, ymm2/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VBMI2+VL<br>
+<span class="intr">__m256i _mm256_mask_expand_epi16(__m256i s, __mmask16 k, __m256i a)</span><br>
+<span class="intr">__m256i _mm256_maskz_expand_epi16(__mmask16 k, __m256i a)</span><br>
+<span class="intr">__m256i _mm256_mask_expandloadu_epi16(__m256i s, __mmask16 k, void* p)</span><br>
+<span class="intr">__m256i _mm256_maskz_expandloadu_epi16(__mmask16 k, void* p)</span><br>
+<div style="height: 2px;"></div><img src="expand_word_25e1f.png?v=2" /><br />
+<div style="padding-left: 110px">If each bit of (2) is set, the corresponding element of (3) is copied from (1), taken one by one from the lowest element.<br>
+If corresponding bit of (2) is not set, (3) element is:<br>&nbsp;&nbsp;zero cleared if {z} is specified <span class='intr'>(_maskz_ intrinsic is used)</span><br>&nbsp;&nbsp;left unchanged if {z} is not specified. <span class='intr'>(copied from s if _mask_ intrinsic is used.)</span><br>
+</div><div style="height: 30px"></div>
+VPEXPANDW <span class="operand"> zmm1{k1}{z}, zmm2/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VBMI2<br>
+<span class="intr">__m512i _mm512_mask_expand_epi16(__m512i s, __mmask32 k, __m512i a)</span><br>
+<span class="intr">__m512i _mm512_maskz_expand_epi16(__mmask32 k, __m512i a)</span><br>
+<span class="intr">__m512i _mm512_mask_expandloadu_epi16(__m512i s, __mmask32 k, void* p)</span><br>
+<span class="intr">__m512i _mm512_maskz_expandloadu_epi16(__mmask32 k, void* p)</span><br>
+<div style="height: 2px;"></div><img src="expand_word_35e1f.png?v=2" /><br />
+<div style="padding-left: 110px">If each bit of (2) is set, the corresponding element of (3) is copied from (1), taken one by one from the lowest element.<br>
+If corresponding bit of (2) is not set, (3) element is:<br>&nbsp;&nbsp;zero cleared if {z} is specified <span class='intr'>(_maskz_ intrinsic is used)</span><br>&nbsp;&nbsp;left unchanged if {z} is not specified. <span class='intr'>(copied from s if _mask_ intrinsic is used.)</span><br>
+</div><div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vpexpandw" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/expand.php?f=vpexpandw by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:42:45 GMT -->
+</html>
+

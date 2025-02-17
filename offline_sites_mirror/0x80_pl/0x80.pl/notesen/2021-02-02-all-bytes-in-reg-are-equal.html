@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2021-02-02-all-bytes-in-reg-are-equal.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>How to detect if all bytes in SIMD register are the same?</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="how-to-detect-if-all-bytes-in-simd-register-are-the-same">
+<h1 class="title">How to detect if all bytes in SIMD register are the same?</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2021-02-02</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2021-02-03 (added <a class="reference internal" href="#sse-variant2">SSE variant #2</a>)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#sse" id="toc-entry-2">SSE</a></li>
+<li><a class="reference internal" href="#sse-variant-2" id="toc-entry-3">SSE &mdash; variant #2</a></li>
+<li><a class="reference internal" href="#avx2" id="toc-entry-4">AVX2</a></li>
+<li><a class="reference internal" href="#avx512f" id="toc-entry-5">AVX512F</a></li>
+<li><a class="reference internal" href="#avx512bw" id="toc-entry-6">AVX512BW</a></li>
+<li><a class="reference internal" href="#better-avx512" id="toc-entry-7">Better AVX512</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-8">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>We want to detect if all bytes stored in a SIMD register (SSE, AVX2, AVX512,
+Neon etc.) are the same.  For example for byte layout in an SSE register like
+this:</p>
+<pre class="literal-block">
+[42|42|42|42|42|42|42|42|42|42|42|42|42|42|42|42]
+</pre>
+<p>We see that all bytes are equal to 42. For this one not all bytes have the same
+value:</p>
+<pre class="literal-block">
+[42|42|42|42|42|42|42|42|42|42|42|42|03|42|42|42]
+</pre>
+<p>The algorithm which uses basic vector operations:</p>
+<ol class="arabic">
+<li><p class="first">broadcast the 0th byte of register into a new vector:</p>
+<pre class="literal-block">
+input     = [42|42|42|42|42|42|42|42|42|42|42|42|03|42|42|42]
+broadcast = [42|42|42|42|42|42|42|42|42|42|42|42|42|42|42|42]
+</pre>
+</li>
+<li><p class="first">perform a vector-wide compare for equality:</p>
+<pre class="literal-block">
+cmp       = (input == broadcast)
+          = [ff|ff|ff|ff|ff|ff|ff|ff|ff|ff|ff|ff|00|ff|ff|ff]
+</pre>
+</li>
+<li><p class="first">check whether all elements of <tt class="docutils literal">cmp</tt> vector are &quot;true&quot;.</p>
+</li>
+</ol>
+<p>Depending on a SIMD flavour, these simple steps may not be that simple.</p>
+</div>
+<div class="section" id="sse">
+<h1>SSE</h1>
+<p>Broadcasting byte is done with <tt class="docutils literal">_mm_shuffle_epi8</tt>.  Then, a vector comparison
+yielding a byte mask is used (<tt class="docutils literal">_mm_cmpeq_epi8</tt>). Finally, the byte-mask is
+converted into a bit-mask and tested with regular instructions.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">all_equal</span><span class="p">(</span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">());</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">eq</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0xffff</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code generated by GCC 10.2:</p>
+<pre class="code asm literal-block">
+<span class="nf">pxor</span><span class="w">          </span><span class="nv">%xmm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm2</span><span class="w">      </span><span class="c1">; _mm_setzero_si128
+</span><span class="nf">movdqa</span><span class="w">        </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm1</span><span class="w">
+</span><span class="nf">pshufb</span><span class="w">        </span><span class="nv">%xmm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="w">      </span><span class="c1">; _mm_shuffle_epi8
+</span><span class="nf">pcmpeqb</span><span class="w">       </span><span class="nv">%xmm1</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="w">      </span><span class="c1">; _mm_cmpeq_epi8
+</span><span class="nf">pmovmskb</span><span class="w">      </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%eax</span><span class="w">       </span><span class="c1">; _mm_movemask_epi8
+</span><span class="nf">cmpl</span><span class="w">          </span><span class="no">$65535</span><span class="p">,</span><span class="w"> </span><span class="nv">%eax</span><span class="w">      </span><span class="c1">; ... == 0xffff
+</span><span class="nf">sete</span><span class="w">          </span><span class="nv">%al</span>
+</pre>
+</div>
+<div class="section" id="sse-variant-2">
+<span id="sse-variant2"></span><h1>SSE &mdash; variant #2</h1>
+<p><a class="reference external" href="https://twitter.com/trav_downs/status/1356687396356685825">Travis Downs</a> &amp; <a class="reference external" href="https://twitter.com/FUZxxl/status/1356700046817976321">Robert Clausecker</a> noted that instead of broadcasting
+a byte we may also perform <strong>byte rotate by one</strong> (or any odd number) using
+<tt class="docutils literal">_mm_alignr_epi8</tt>. Unfortunately, this is only applicable for SSE, because
+the AVX2 counterpart works on 128-bit lanes, rather the whole register.</p>
+<p>Algorithm:</p>
+<pre class="literal-block">
+input       = [42|42|42|42|42|42|42|42|42|42|42|42|03|42|42|42]
+rotated     = [42|42|42|42|42|42|42|42|42|42|42|03|42|42|42]42]
+cmp         = (input == rotated)
+            = [ff|ff|ff|ff|ff|ff|ff|ff|ff|ff|ff|00|00|ff|ff|ff]
+</pre>
+<p>A sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">all_equal</span><span class="p">(</span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">rotated</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_alignr_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">rotated</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="kt">uint16_t</span><span class="p">)</span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">eq</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0xffff</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code generated by GCC 10.2:</p>
+<pre class="code asm literal-block">
+<span class="nf">movdqa</span><span class="w">        </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm1</span><span class="w">
+</span><span class="nf">palignr</span><span class="w">       </span><span class="no">$1</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm1</span><span class="w">              </span><span class="c1">; _mm_alignr_epi8
+</span><span class="nf">pcmpeqb</span><span class="w">       </span><span class="nv">%xmm1</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="w">                  </span><span class="c1">; _mm_cmpeq_epi8
+</span><span class="nf">pmovmskb</span><span class="w">      </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%eax</span><span class="w">                   </span><span class="c1">; _mm_movemask_epi8
+</span><span class="nf">cmpw</span><span class="w">          </span><span class="no">$-1</span><span class="p">,</span><span class="w"> </span><span class="nv">%ax</span><span class="w">
+</span><span class="nf">sete</span><span class="w">          </span><span class="nv">%al</span>
+</pre>
+</div>
+<div class="section" id="avx2">
+<h1>AVX2</h1>
+<p>In case of AVX2, a byte shuffle instruction works on individual 128-bit lanes.
+We use fact that SSE registers (<tt class="docutils literal">xmm</tt>) are aliased to lower lanes of AVX/AVX2
+registers (<tt class="docutils literal">ymm</tt>). The intrinsic function <tt class="docutils literal">_mm256_castsi256_si128</tt> does not
+generate any instruction, it just satisfies C/C++ type systems.</p>
+<p>The 0th byte is populated exactly like in the SSE variant, and then a new
+256-bit vector is built from 128-bit lanes.</p>
+<p>Finally, the comparison procedure is very similar to SSE's variant.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">all_equal</span><span class="p">(</span><span class="n">__m256i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lane0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_castsi256_si128</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">tmp</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lane0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">());</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set_m128i</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">eq</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">((</span><span class="kt">uint32_t</span><span class="p">)</span><span class="n">_mm256_movemask_epi8</span><span class="p">(</span><span class="n">eq</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0xffffffff</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code generated by GCC 10.2:</p>
+<pre class="code asm literal-block">
+<span class="nf">vmovdqa</span><span class="w">       </span><span class="nv">%ymm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%ymm2</span><span class="w">
+</span><span class="nf">vpxor</span><span class="w">         </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="w">           </span><span class="c1">; _mm_setzero_si128
+</span><span class="nf">vpshufb</span><span class="w">       </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="w">           </span><span class="c1">; _mm_shuffle_epi8
+</span><span class="nf">vinserti128</span><span class="w">   </span><span class="no">$1</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%ymm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%ymm0</span><span class="w">       </span><span class="c1">; _mm256_set_m128i (0th lane is already there)
+</span><span class="nf">vpcmpeqb</span><span class="w">      </span><span class="nv">%ymm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%ymm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%ymm0</span><span class="w">           </span><span class="c1">; _mm256_cmpeq_epi8
+</span><span class="nf">vpmovmskb</span><span class="w">     </span><span class="nv">%ymm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%eax</span><span class="w">                   </span><span class="c1">; _mm256_movemask_epi8
+</span><span class="nf">cmpl</span><span class="w">          </span><span class="no">$-1</span><span class="p">,</span><span class="w"> </span><span class="nv">%eax</span><span class="w">
+</span><span class="nf">sete</span><span class="w">          </span><span class="nv">%al</span>
+</pre>
+</div>
+<div class="section" id="avx512f">
+<h1>AVX512F</h1>
+<p>First of all, AVX512F does not support byte-level operations. Luckily, SSE
+registers (<tt class="docutils literal">xmm</tt>) are mapped on the 0th lane of AVX512 registers (<tt class="docutils literal">zmm</tt>).
+This, broadcasting of the 0th byte is done similarly in the AVX2 variant.</p>
+<p>Lack of byte-level comparison is not a problem in our case, as we seek
+for equality of whole registers, it doesn't matter what units are used
+in comparison.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">all_equal</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lane0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_castsi512_si128</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lane0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">());</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcast_i32x4</span><span class="p">(</span><span class="n">t0</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask16</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epi32_mask</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">mask</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0xffff</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code generated by GCC 10.2:</p>
+<pre class="code asm literal-block">
+<span class="nf">vpxor</span><span class="w">         </span><span class="nv">%xmm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm2</span><span class="w">           </span><span class="c1">; _mm_setzero_si128
+</span><span class="nf">vmovdqa64</span><span class="w">     </span><span class="nv">%zmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm1</span><span class="w">
+</span><span class="nf">vpshufb</span><span class="w">       </span><span class="nv">%xmm2</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%xmm0</span><span class="w">           </span><span class="c1">; _mm_shuffle_epi8
+</span><span class="nf">vshufi32x4</span><span class="w">    </span><span class="no">$0x0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm0</span><span class="w">     </span><span class="c1">; _mm512_broadcast_i32x4 (broadcast 0th lane)
+</span><span class="nf">vpcmpeqd</span><span class="w">      </span><span class="nv">%zmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm1</span><span class="p">,</span><span class="w"> </span><span class="nv">%k0</span><span class="w">             </span><span class="c1">; _mm512_cmpeq_epi32_mask
+</span><span class="nf">kmovw</span><span class="w">         </span><span class="nv">%k0</span><span class="p">,</span><span class="w"> </span><span class="nv">%eax</span><span class="w">
+</span><span class="nf">cmpw</span><span class="w">          </span><span class="no">$-1</span><span class="p">,</span><span class="w"> </span><span class="nv">%ax</span><span class="w">
+</span><span class="nf">sete</span><span class="w">          </span><span class="nv">%al</span>
+</pre>
+</div>
+<div class="section" id="avx512bw">
+<h1>AVX512BW</h1>
+<p>AVX512BW let to express the problem directly as it was stated. There is a
+specialised instruction that broadcasts the 0th byte
+(<tt class="docutils literal">_mm512_broadcastb_epi8</tt>/<tt class="docutils literal">vpbroadcastb</tt>). Also the extension supports
+byte-level comparison, however it's not crucial in our problem.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">all_equal</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lane0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_castsi512_si128</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcastb_epi8</span><span class="p">(</span><span class="n">lane0</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask64</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epu8_mask</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">mask</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0xffffffffffffffffLU</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code generated by GCC 10.2:</p>
+<pre class="code asm literal-block">
+<span class="nf">vpbroadcastb</span><span class="w">  </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm1</span><span class="w">                  </span><span class="c1">; _mm512_broadcastb_epi8
+</span><span class="nf">vpcmpub</span><span class="w">       </span><span class="no">$0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm1</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%k0</span><span class="w">         </span><span class="c1">; _mm512_cmpeq_epu8_mask
+</span><span class="nf">kmovq</span><span class="w">         </span><span class="nv">%k0</span><span class="p">,</span><span class="w"> </span><span class="nv">%rax</span><span class="w">
+</span><span class="nf">cmpq</span><span class="w">          </span><span class="no">$-1</span><span class="p">,</span><span class="w"> </span><span class="nv">%rax</span><span class="w">
+</span><span class="nf">sete</span><span class="w">          </span><span class="nv">%al</span>
+</pre>
+</div>
+<div class="section" id="better-avx512">
+<h1>Better AVX512</h1>
+<p>Both AVX512BW and AVX512F variants can be a bit shorter in terms of assembly
+output. We want to tests whether bit-vector is full of ones. There's a
+dedicated CPU instruction <tt class="docutils literal">_mm512_kortestc</tt> that works on the mask registers
+(<tt class="docutils literal">k0</tt>, <tt class="docutils literal">k1</tt>, ...) which does exactly the test we need. Below is psuedocode
+showing this instruction.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">_mm512_kortestc</span><span class="p">(</span><span class="n">__mmask16</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">__mmask16</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">popcount</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Below is a AVX512BW code which uses that instruction.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">all_equal</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lane0</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_castsi512_si128</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_broadcastb_epi8</span><span class="p">(</span><span class="n">lane0</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__mmask16</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpeq_epi32_mask</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">populated_0th_byte</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_kortestc</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Assembly code generated by GCC 10.2:</p>
+<pre class="code asm literal-block">
+<span class="nf">vpbroadcastb</span><span class="w">        </span><span class="nv">%xmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm1</span><span class="w">        </span><span class="c1">; _mm512_broadcastb_epi8
+</span><span class="nf">vpcmpeqd</span><span class="w">            </span><span class="nv">%zmm1</span><span class="p">,</span><span class="w"> </span><span class="nv">%zmm0</span><span class="p">,</span><span class="w"> </span><span class="nv">%k0</span><span class="w">   </span><span class="c1">; _mm512_cmpeq_epi32_mask
+</span><span class="nf">kortestw</span><span class="w">            </span><span class="nv">%k0</span><span class="p">,</span><span class="w"> </span><span class="nv">%k0</span><span class="w">            </span><span class="c1">; _mm512_kortestc
+</span><span class="nf">setc</span><span class="w">  </span><span class="nv">%al</span>
+</pre>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>All implementations are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-all-bytes-equal">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2021-02-02-all-bytes-in-reg-are-equal.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

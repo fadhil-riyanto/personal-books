@@ -1,0 +1,69 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unpack.php?f=punpckhdq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:37:17 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unpack.php?f=punpckhdq" />
+<link rel="alternate" hreflang="en" href="unpack7c1b.html?f=punpckhdq" />
+    <title>punpckhdq</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>PUNPCKHDQ - Packed UNPaCK High Dword Qword<br /></h2>
+PUNPCKHDQ <span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2<br />
+<span class="intr">__m128i _mm_unpackhi_epi32(__m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="unpackhi_dword_sse.png" /><br />
+<div style="height: 30px"></div>
+VPUNPCKHDQ <span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128i _mm_unpackhi_epi32(__m128i a, __m128i b)</span><br />
+VPUNPCKHDQ <span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128i _mm_mask_unpackhi_epi32(__m128i s, __mmask8 k, __m128i a, __m128i b)</span><br />
+<span class="intr">__m128i _mm_maskz_unpackhi_epi32(__mmask8 k, __m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="unpackhi_dword_128.png" /><br />
+<div style="height: 30px"></div>
+VPUNPCKHDQ <span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2<br />
+<span class="intr">__m256i _mm256_unpackhi_epi32(__m256i a, __m256i b)</span><br />
+VPUNPCKHDQ <span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256i _mm256_mask_unpackhi_epi32(__m256i s, __mmask8 k, __m256i a, __m256i b)</span><br />
+<span class="intr">__m256i _mm256_maskz_unpackhi_epi32(__mmask8 k, __m256i a, __m256i b)</span><br />
+<div style="height: 2px;"></div><img src="unpackhi_dword_256.png" /><br />
+<div style="height: 30px"></div>
+VPUNPCKHDQ <span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512i _mm512_unpackhi_epi32(__m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_mask_unpackhi_epi32(__m512i s, __mmask16 k, __m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_maskz_unpackhi_epi32(__mmask16 k, __m512i a, __m512i b)</span><br />
+<div style="height: 2px;"></div><img src="unpackhi_dword_512.png" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=punpckhdq" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unpack.php?f=punpckhdq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:37:22 GMT -->
+</html>
+

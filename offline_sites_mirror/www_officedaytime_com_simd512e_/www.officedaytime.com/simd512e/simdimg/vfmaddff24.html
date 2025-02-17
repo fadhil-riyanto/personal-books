@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/vfmadd.php?f=pd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:12 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/vfmadd.php?f=pd" />
+<link rel="alternate" hreflang="en" href="vfmaddff24.html?f=pd" />
+<title>v?????xxxpd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+
+</style>
+</head>
+
+<body>
+<h2>VFMADDxxxPD - Fused Multiply ADD xxx Packed Double<br />VFMSUBxxxPD - Fused Multiply SUBtract xxx Packed Double<br />VFMADDSUBxxxPD - Fused Multiply ADD SUBtract xxx Packed Double<br />VFMSUBADDxxxPD - Fused Multiply SUBtract ADD xxx Packed Double<br />VFNMADDxxxPD - Fused Negative Multiply ADD xxx Packed Double<br />VFNMSUBxxxPD - Fused Negative Multiply SUBtract xxx Packed Double<br /></h2>
+<img src="vfmadd_pd_13860.png?v=1" /><br />
+<div style="height: 30px"></div>
+<img src="vfmadd_pd_23860.png?v=1" /><br />
+<div style="height: 30px"></div>
+<img src="vfmadd_pd_33860.png?v=1" /><br />
+<div style="height: 30px"></div>
+	<p>For each element, performs MUL and ADD/SUB calculation with 3 operands and store the result in the first operand. <span class="intr">(returns the result.)</span></p>
+	<p>Which operands to MUL, and which operand to ADD/SUB,  depend on the order of the numbers (1, 2, 3) in the instruction name. <span class="intr">depend on the order of arguments for intrinsic.</span></p>
+	<p></p>
+
+	<table>
+	<tr>
+		<th>?????</th>
+		<th>instruction name</th>
+		<th style="background:#F2DCDB">odd</th>
+		<th style="background:#DCE6F2">even</th>
+	</tr>
+
+<!------------------------>
+	<tr>
+		<th rowspan="4">FMADD</th>
+		<td>VFMADD132PD</td>
+		<td colspan="2">(1) * (3) + (2)</td>
+	</tr>
+	<tr>
+		<td>VFMADD213PD</td>
+		<td colspan="2">(2) * (1) + (3)</td>
+	</tr>
+	<tr>
+		<td>VFMADD231PD</td>
+		<td colspan="2">(2) * (3) + (1)</td>
+	</tr>
+	<tr>
+		<td><span class="intr">_mm_fmadd_pd<br />
+		_mm256_fmadd_pd<br />
+		_mm512_fmadd_pd</span></td>
+		<td colspan="2"><span class="intr">a * b + c</span></td>
+	</tr>
+
+<!------------------------>
+	<tr>
+		<th rowspan="4">FMSUB</th>
+		<td>VFMSUB132PD</td>
+		<td colspan="2">(1) * (3) - (2)</td>
+	</tr>
+	<tr>
+		<td>VFMSUB213PD</td>
+		<td colspan="2">(2) * (1) - (3)</td>
+	</tr>
+	<tr>
+		<td>VFMSUB231PD</td>
+		<td colspan="2">(2) * (3) - (1)</td>
+	</tr>
+	<tr>
+		<td><span class="intr">_mm_fmsub_pd<br />
+		_mm256_fmsub_pd<br />
+		_mm512_fmsub_pd</span></td>
+		<td colspan="2"><span class="intr">a * b - c</span></td>
+	</tr>
+
+<!------------------------>
+	<tr>
+		<th rowspan="4">FMADDSUB</th>
+		<td>VFMADDSUB132PD</td>
+		<td>(1) * (3) + (2)</td>
+		<td>(1) * (3) - (2)</td>
+	</tr>
+	<tr>
+		<td>VFMADDSUB213PD</td>
+		<td>(2) * (1) + (3)</td>
+		<td>(2) * (1) - (3)</td>
+	</tr>
+	<tr>
+		<td>VFMADDSUB231PD</td>
+		<td>(2) * (3) + (1)</td>
+		<td>(2) * (3) - (1)</td>
+	</tr>
+	<tr>
+		<td><span class="intr">_mm_fmaddsub_pd<br />
+		_mm256_fmaddsub_pd<br />
+		_mm512_fmaddsub_pd</span></td>
+		<td><span class="intr">a * b + c</span></td>
+		<td><span class="intr">a * b - c</span></td>
+	</tr>
+
+<!------------------------>
+	<tr>
+		<th rowspan="4">FMSUBADD</th>
+		<td>VFMSUBADD132PD</td>
+		<td>(1) * (3) - (2)</td>
+		<td>(1) * (3) + (2)</td>
+	</tr>
+	<tr>
+		<td>VFMSUBADD213PD</td>
+		<td>(2) * (1) - (3)</td>
+		<td>(2) * (1) + (3)</td>
+	</tr>
+	<tr>
+		<td>VFMSUBADD231PD</td>
+		<td>(2) * (3) - (1)</td>
+		<td>(2) * (3) + (1)</td>
+	</tr>
+	<tr>
+		<td><span class="intr">_mm_fmsubadd_pd<br />
+		_mm256_fmsubadd_pd<br />
+		_mm512_fmsubadd_pd</span></td>
+		<td><span class="intr">a * b - c</span></td>
+		<td><span class="intr">a * b + c</span></td>
+	</tr>
+
+<!------------------------>
+	<tr>
+		<th rowspan="4">FNMADD</th>
+		<td>VFNMADD132PD</td>
+		<td colspan="2"> - (1) * (3) + (2)</td>
+	</tr>
+	<tr>
+		<td>VFNMADD213PD</td>
+		<td colspan="2"> - (2) * (1) + (3)</td>
+	</tr>
+	<tr>
+		<td>VFNMADD231PD</td>
+		<td colspan="2"> - (2) * (3) + (1)</td>
+	</tr>
+	<tr>
+		<td><span class="intr">_mm_fnmadd_pd<br />
+		_mm256_fnmadd_pd<br />
+		_mm512_fnmadd_pd</span></td>
+		<td colspan="2"><span class="intr"> - a * b + c</span></td>
+	</tr>
+
+<!------------------------>
+	<tr>
+		<th rowspan="4">FNMSUB</th>
+		<td>VFNMSUB132PD</td>
+		<td colspan="2"> - (1) * (3) - (2)</td>
+	</tr>
+	<tr>
+		<td>VFNMSUB213PD</td>
+		<td colspan="2"> - (2) * (1) - (3)</td>
+	</tr>
+	<tr>
+		<td>VFNMSUB231PD</td>
+		<td colspan="2"> - (2) * (3) - (1)</td>
+	</tr>
+	<tr>
+		<td><span class="intr">_mm_fnmsub_pd<br />
+		_mm256_fnmsub_pd<br />
+		_mm512_fnmsub_pd</span></td>
+		<td colspan="2"><span class="intr"> - a * b - c</span></td>
+	</tr>
+
+	
+	</table>
+	
+	
+	<p></p>
+	<p><span class="intr">
+	_mask_&nbsp; if k bit is 0, a is copied.<br>
+	_mask3_&nbsp; if k bit is 0, c is copied.<br>
+	_maskz_&nbsp; if k bit is 0, zero cleared.<br>
+	</intr></p>
+	
+	
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=pd" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/vfmadd.php?f=pd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:46:15 GMT -->
+</html>

@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2019-01-08-pyahocorasick-debugging.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>pyahocorasick stabilisation story</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="pyahocorasick-stabilisation-story">
+<h1 class="title">pyahocorasick stabilisation story</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2019-01-08</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a><ul>
+<li><a class="reference internal" href="#the-bug" id="toc-entry-2">The bug</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#problems" id="toc-entry-3">Problems</a><ul>
+<li><a class="reference internal" href="#cure-1-unit-tests" id="toc-entry-4">Cure #1 &mdash; unit tests</a></li>
+<li><a class="reference internal" href="#cure-2-code-coverage" id="toc-entry-5">Cure #2 &mdash; code coverage</a></li>
+<li><a class="reference internal" href="#cure-3-memory-leaks-detection" id="toc-entry-6">Cure #3 &mdash; memory leaks detection</a></li>
+<li><a class="reference internal" href="#cure-4-injecting-memory-allocation-faults" id="toc-entry-7">Cure #4 &mdash; injecting memory allocation faults</a></li>
+<li><a class="reference internal" href="#cure-5-injecting-python-api-faults" id="toc-entry-8">Cure #5 &mdash; injecting Python API faults</a></li>
+<li><a class="reference internal" href="#unresolvable-1-string-representation" id="toc-entry-9">Unresolvable #1 &mdash; string representation</a></li>
+<li><a class="reference internal" href="#unresolvable-2-windows-build" id="toc-entry-10">Unresolvable #2 &mdash; Windows build</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#random-bits" id="toc-entry-11">Random bits</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-12">See also</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/pyahocorasick">pyahocorasick</a> is a python module I started in 2011. That time I was
+interested in <a class="reference external" href="http://en.wikipedia.org/wiki/String_(computer_science)#String_processing_algorithms">stringology</a>
+and <a class="reference external" href="http://en.wikipedia.org/wiki/Aho-Corasick algorithm">the Aho-Corasick algorithm</a> appeared to be
+quite challenging. It was a sufficient reason to program it. However, I also
+decided that the result shouldn't be another proof-of-concept, that nobody ---
+except me &mdash; would use. Since I like Python, I chose form of a C extension,
+which nicely combines a friendly Python API with an efficient C implementation.</p>
+<p>Moving fast forward, the module gained a few users worldwide. Maybe this
+is not the most popular package on <a class="reference external" href="https://pypi.org/project/pyahocorasick/">pypi</a>, but people keep installing it.
+Many users contributed to the code, documentation and infrastructure, or
+reported bugs and helped with debugging. <a class="reference external" href="https://github.com/pombredanne">Philippe Ombredanne</a> helped
+a lot with different aspects of development &mdash; without him the project
+wouldn't be so great.</p>
+<p>This text is a result of recent work on stabilisation the module, that
+was propelled by fixing <a class="reference external" href="https://github.com/WojciechMula/pyahocorasick/issues/50">a long-standing bug</a>. The bug was driving me
+crazy for more than a year. I want to show what means were used to
+eliminate this and many other bugs. And also how the code quality was
+improved as a side effect. I hope some of you find an inspiration
+or solution.</p>
+<div class="section" id="the-bug">
+<h2>The bug</h2>
+<p>Before we start I have to describe the bug, nobody should repeat my stupid
+mistake.</p>
+<p>The bug was caused by misuse of python function <a class="reference external" href="https://docs.python.org/3/c-api/arg.html">PyBuild_Value</a>, which is
+used by a pickling mechanism. Basically, pickling used to be done as a simple
+memory dump &mdash; the module created <strong>single memory area</strong> filled with some
+binary data.</p>
+<p>The invocation <tt class="docutils literal"><span class="pre">Py_BuildValue(&quot;y#&quot;,</span> ptr, size)</tt> constructs a <a class="reference external" href="https://docs.python.org/3/c-api/bytes.html">bytes</a> object
+with a copy of memory pointed by <tt class="docutils literal">ptr</tt>, having given size. The problem is
+that such a format string gets size of type <tt class="docutils literal">int</tt>. I wrongly assumed that on
+64-bit machines <tt class="docutils literal">int</tt> is a 64-bit number. It's not true, <tt class="docutils literal">int</tt> has only 32
+bits.  Because of that, when size of the memory area was larger than 2GB,
+strange things happen, as shown in the table below.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">64-bit size</th>
+<th class="head">outcome</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>range 0 to <tt class="docutils literal">0x7fffffff</tt> (up to 2GB)</td>
+<td>no errors</td>
+</tr>
+<tr><td>from <tt class="docutils literal">0x80000000</tt> to <tt class="docutils literal">0xffffffff</tt></td>
+<td><tt class="docutils literal">int</tt> is negative, empty buffer created but no <strong>error is reported</strong></td>
+</tr>
+<tr><td>anything larger than 4GB, but bit 32th equals zero</td>
+<td>created buffer of <tt class="docutils literal">size &amp; 0x7fffffff</tt></td>
+</tr>
+<tr><td>anything larger than 4GB, but bit 32th one</td>
+<td><tt class="docutils literal">int</tt> is negative, empty buffer created but no <strong>error is reported</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The solution was pretty simple: a huge memory area is split into several
+smaller regions and the list of such regions is pickled. The size of single
+region is limited to a few megabytes, it will never be close to the 2GB
+boundary (although all data still can be larger than 2GB).</p>
+</div>
+</div>
+<div class="section" id="problems">
+<h1>Problems</h1>
+<p>The module is written in ANSI C, thus obviously it suffers from common
+problems known in this language; also some python-specific issues are
+there. Here is a brief list:</p>
+<ul class="simple">
+<li><em>logic errors</em>: regular bugs, behaviours not matching
+documentation (or common sense).</li>
+<li><em>memory leaks</em>: there are two sources of leaks:<ul>
+<li>lack of <tt class="docutils literal">free()</tt> calls;</li>
+<li>leaks of Python object references. Each python object has a reference
+counter, there's a leak when we forget about decreasing the RC,
+causing the object to live forever.</li>
+</ul>
+</li>
+<li><em>memory errors</em>: like double free, or decrease the reference of a not
+owned Python object.</li>
+<li><em>failures returned by API calls</em>: communication between a C extension
+and python interpreter is done via the set of function; most of
+these functions may fail and we have to handle erroneous conditions
+properly.</li>
+<li><em>string types and their representation</em>: Python 2 and Python 3 have
+different string types: there are strings, bytes and Unicode strings;
+a Unicode string can be represented in UCS-16 or UCS-32.</li>
+<li><em>Windows builds</em>: Python extensions for Windows has to be compiled
+with MSVC 2010. It can't be helped.</li>
+</ul>
+<div class="section" id="cure-1-unit-tests">
+<span id="cure1"></span><h2>Cure #1 &mdash; unit tests</h2>
+<p>It might sound obvious, but unit tests are crucial when one develops a
+programming library. In <strong>pyahocorasick</strong> unit tests have been existing from
+the very start. They are written in Python using its standard library
+<a class="reference external" href="https://docs.python.org/3/library/unittest.html">unittest</a>; there are no C-level tests.</p>
+<p>Firstly, unit tests have to cover basic functions &mdash; i.e. prevent from
+logic errors.  For instance, <strong>pyahocorasick</strong> has functionality of a word
+dictionary, thus unit tests check if adding a word really adds it or if
+looking up a non-existing word fails, etc. Most tests are really simple, but
+surprisingly detected a lot of mistakes.</p>
+<p>Secondly, unit tests can check some very specific scenarios, also serve as a
+regression tests repository. For example, I wrote a very detailed tests for
+the unpickling code, where some binary data is manually constructed and then
+handled by the module. This set of tests is useful during development, regular
+users don't need to run them.</p>
+<p>Unit tests are the <strong>base</strong> for any serious work and further refactoring.</p>
+</div>
+<div class="section" id="cure-2-code-coverage">
+<span id="cure2"></span><h2>Cure #2 &mdash; code coverage</h2>
+<p>Getting code coverage for a Python extension is really simple. Just compile
+the module with <tt class="docutils literal"><span class="pre">-coverage</span></tt> option:</p>
+<pre class="literal-block">
+$ export CFLAGS=&quot;-coverage&quot;
+$ python setup.py build_ext --inplace
+</pre>
+<p>Then run unit tests, or other programs which use the module, and get a
+coverage report using &mdash; for instance &mdash; <tt class="docutils literal">gcovr</tt>:</p>
+<pre class="literal-block">
+$ gcovr --html-details -o DIRECTORY
+</pre>
+<p>The coverage report reveals which parts of C code are untested.  We
+instantly see whether we're able to trigger that untested part via a
+regular Python test or maybe a branch relies on the result of external
+function call. Then, we might consider intercepting this function and
+force returning certain value &mdash; this approach is described in
+following sections.</p>
+</div>
+<div class="section" id="cure-3-memory-leaks-detection">
+<span id="cure3"></span><h2>Cure #3 &mdash; memory leaks detection</h2>
+<p>A problem with a C extension for Python is that your C code is run within
+the same process as the interpreter. The standard compilation of C Python
+interpreter enables a custom allocator. That allocator makes the
+<tt class="docutils literal">valgrind</tt> output unreadable, as valgrind reports tons of leaks or wrong
+writes/reads, while in fact none of them are bugs.</p>
+<p>It's possible to compile python interpreter with special
+<a class="reference external" href="https://svn.python.org/projects/python/trunk/Misc/README.valgrind">valgrind-friendly</a> flags. While compilation of a Python interpreter is not
+a big deal, I decided to wrap <tt class="docutils literal">malloc</tt>, <tt class="docutils literal">free</tt> and (recently)
+<tt class="docutils literal">realloc</tt> procedures. A special compile-time definition enables memory
+debug mode, thus in normal compilation there's no overhead.</p>
+<p>There are two modes of debugging I implemented:</p>
+<ul class="simple">
+<li>dump all memory-related events to a file;</li>
+<li>inject memory allocation faults &mdash; described in <a class="reference internal" href="#cure4">the next section</a>.</li>
+</ul>
+<p>The output of dump is a list of actions given in plain text, like this:</p>
+<pre class="literal-block">
+A 1 0x7fafd9741148 40
+A 2 0x7fafd9741120 40
+R 1 (nil) 0x7fafd9d89728 8
+A 3 0x7fafd97410f8 40
+R 2 (nil) 0x7fafd9d89738 8
+F 0x7fafd9da51a0
+</pre>
+<p>&quot;A 1 0x7fafd9741148 40&quot; is read as: allocation #1 of 40 bytes retuned
+address 0x7fafd9741148; &quot;R 2 (nil) 0x7fafd9d89738 8&quot; is read as:
+&quot;reallocation #1 of 8 bytes, old address was NULL, returned address
+0x7fafd9d89738&quot;; finally &quot;F 0x7fafd9da51a0&quot; means &quot;free address
+0x7fafd9da51a0&quot;.</p>
+<p>A simple python script parses such file and points which allocations have no
+corresponding free. Since each allocation/reallocation has unique id, we
+might simply figure out where exactly in the code the leaked object was
+created. I considered dumping also backtraces (there's nice <a class="reference external" href="https://www.gnu.org/software/libc/manual/html_node/Backtraces.html">backtrace</a>
+function in GNU libc), but in practise it was way easier to run program in
+gdb and obtain backtrace from debugger &mdash; I introduced an additional
+environment variable that triggers <tt class="docutils literal">__builtin_trap()</tt> on allocation
+failure.</p>
+<p>Dumping allocation events helped several times in last two years, and
+this solution proved to be really helpful.</p>
+</div>
+<div class="section" id="cure-4-injecting-memory-allocation-faults">
+<span id="cure4"></span><h2>Cure #4 &mdash; injecting memory allocation faults</h2>
+<p>For given allocation id we can force returning NULL in runtime; it's
+done by setting an environment variable, thanks to that no recompilation
+is needed when we want to check different scenarios.</p>
+<p>It appeared that some users of pyahocorasick can allocate all memory
+they have on their computers, thus failures of <tt class="docutils literal">malloc</tt> are likely. In
+such case, the expected behaviour of C module is to properly report the
+error to a python interpreter (usually by setting <tt class="docutils literal">MemoryError</tt>), not
+to segfault.</p>
+<p>Injecting memory faults appeared to be an amazing solution. I know the
+word &quot;amazing&quot; is overused, but in this context is highly appropriate.
+While the cost of introducing this was minimal, it revealed many latent
+problems in the existing code and prevented other problems after
+introducing the technique.</p>
+<p>Before each release I get the number of allocations for all unit tests and
+then check failure of each allocation. There are roughly 3000 allocation, so
+it's not a big problem, just time consuming.</p>
+</div>
+<div class="section" id="cure-5-injecting-python-api-faults">
+<span id="cure5"></span><h2>Cure #5 &mdash; injecting Python API faults</h2>
+<p>Since injecting of memory allocation faults was so successful, I decided
+to do similar thing with Python API calls. Although the number of public
+functions one can find in <tt class="docutils literal">/usr/include/python</tt> is huge, the module
+itself uses a small portion of them. Right now there are only ~25 functions
+used across the code.</p>
+<p>All wrapped calls share the same call id and we can set, also via
+environment variable, which call is expected to fail.</p>
+<p>The wrappers are also enabled with a preprocessor definition. In a C code
+a wrapped invocation looks like this:</p>
+<pre class="code cpp literal-block">
+<span class="n">py_value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">F</span><span class="p">(</span><span class="n">PyTuple_GetItem</span><span class="p">)(</span><span class="n">args</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span>
+</pre>
+<p>Here the &quot;F&quot; is a preprocessor definition which either expands to the
+original name of argument (<tt class="docutils literal">PyTuple_GetItem</tt>) or into its wrapped
+counterpart (<tt class="docutils literal">PyTuple_GetItem_custom</tt>). The definitions of wrapped
+functions are similar, and looks like this:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define PyTuple_GetItem_custom(...) (check_and_set_error() ? NULL : PyTuple_GetItem(__VA_ARGS__))</span>
+</pre>
+<p>The only C code is function <tt class="docutils literal">check_and_set_error</tt>, which is the same for all
+wrapped functions. Depending on the type of API function, the failure result
+can be the NULL pointer (like in case of <tt class="docutils literal">PyTuple_GetItem</tt>), or a negative
+number or the zero &mdash; this distinction is done within <tt class="docutils literal">#define</tt>.</p>
+<p>A side note: in most cases returning NULL is a sign of exception.  Python
+expects that a C extension sets also an error using one of designated API
+functions.  If NULL is returned but no error is set, the interpreter
+unconditionally aborts execution! As you might guess, I found a few cases when
+this problem appeared.</p>
+<p>This solution also helped to solve many issues, fortunately not reported
+yet by the users.  Not to mention that the code coverage went up.</p>
+</div>
+<div class="section" id="unresolvable-1-string-representation">
+<h2>Unresolvable #1 &mdash; string representation</h2>
+<p>The existence of Python 2 and Python 3 adds a lot of problems.  As I
+mentioned earlier, internal string representations differs between major
+python versions.</p>
+<p>There are also problems with Python 3 string representation. Depending on
+a minor version, platform, compilation setting and other factors I have no
+idea about, strings can be saved in UCS-2 or UCS-4, and perhaps in UTF-8 ---
+I got lost now.</p>
+<p>All these issues mean that the module code has to deal with <strong>three
+different data types</strong> and solve nuisances &mdash; whether a string is temporary
+(and we need to keep its copy) or is a reference. Of course it's doable, but
+costs dozens of defines, which lowers testability of code.</p>
+</div>
+<div class="section" id="unresolvable-2-windows-build">
+<h2>Unresolvable #2 &mdash; Windows build</h2>
+<p>The python official builds for Windows are done with MSVC 2010. This
+compiler is maybe not an ancient one, but does not support the C11 standard.
+In other words, declaring variables at any place in code is not possible ---
+all variable declarations have to be placed before the first statement.</p>
+<p>Well, it's not a real problem, it's rather... a constraint.
+I just got used to it, but wish I didn't have to.</p>
+</div>
+</div>
+<div class="section" id="random-bits">
+<h1>Random bits</h1>
+<p>I described the most important methods, here's a list of things
+that also help:</p>
+<ul class="simple">
+<li>Automate what you can. I wrote several dead-simple shell and python
+scripts that run certain procedures (like naive benchmarks, memory
+consumption analysis etc.). State of most of them is &quot;works for me&quot; ---
+they can be improved later, if needed. They save time of re-typing
+the same commands over and over. And they really help if one has
+short memory, as I do have.</li>
+<li>If you can, include in error messages as much details as you have at
+certain point of program. The bug I mentioned at the very beginning
+was manifested with short message &quot;data truncated&quot;. It was silly, now
+I see how silly. Later, I added to the message more date, like the
+number of currently processed node (&quot;error during unpickling node
+#1241094&quot;). When I saw a really huge node number in user's report,
+something finally clicked.</li>
+<li>When you deal with complex data structures write dumpers. Start with
+dumpers! A dumper is a procedure that shows, in a human readable way,
+details of data. Procedure can print something on console or save data
+on disc which can be later visualized. Aho-Corasick automaton
+is a graph structure, thus I coded dumper that produces <a class="reference external" href="https://www.graphviz.org/">graphviz</a>
+input. Being able to see how graph nodes are connected (or disconnected...)
+saved hours of debugging at early stages of developing.</li>
+<li>Use CI servers. For open source projects there are free and easy to setup
+solutions: <a class="reference external" href="https://travis-ci.org/">Travis</a> and <a class="reference external" href="https://ci.appveyor.com/">AppVeyor</a>. <strong>pyahocorasick</strong> uses both, and is tested on
+both Windows and Linux, it is build with Python 2 and Python 3, and unit
+tests are run on all these builds.</li>
+</ul>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2011-03-26-trie-representation.html">Efficient trie representation</a> &mdash; the review of different trie
+representations, a side-effect of work on pyahocorasick.</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/pyDAWG">pyDAWG</a> &mdash; a python module for DAWG (directed graphs of words), which
+implements a clever algorithm to build graphs with minimal memory
+footprint.</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2019-01-08-pyahocorasick-debugging.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+</html>

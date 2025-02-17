@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binopv5.php?f=vscalefph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:32 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/binopv5.php?f=vscalefph" />
+<link rel="alternate" hreflang="en" href="binopv5739d.html?f=vscalefph" />
+<title>vscalefph</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VSCALEFPH - SCALE Floating-point Packed Half<br /></h2>
+VSCALEFPH<span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m16bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__m128h _mm_scalef_ph(__m128h a, __m128h b)</span><br />
+<span class="intr">__m128h _mm_mask_scalef_ph(__m128h s, __mmask8 k, __m128h a, __m128h b)</span><br />
+<span class="intr">__m128h _mm_maskz_scalef_ph(__mmask8 k, __m128h a, __m128h b)</span><br />
+<div style="height: 2px;"></div><img src="binop_word_2.png" /><br />
+<div style="padding-left: 110px">For each FP16, calculate (1) * 2<sup>n</sup>, where n is an integer value of (2) truncated toward negative infinity, and store the result in (3).</div>
+<div style="height: 30px"></div>
+VSCALEFPH<span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m16bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__m256h _mm256_scalef_ph(__m256h a, __m256h b)</span><br />
+<span class="intr">__m256h _mm256_mask_scalef_ph(__m256h s, __mmask16 k, __m256h a, __m256h b)</span><br />
+<span class="intr">__m256h _mm256_maskz_scalef_ph(__mmask16 k, __m256h a, __m256h b)</span><br />
+<div style="height: 2px;"></div><img src="binop_word_3.png" /><br />
+<div style="padding-left: 110px">For each FP16, calculate (1) * 2<sup>n</sup>, where n is an integer value of (2) truncated toward negative infinity, and store the result in (3).</div>
+<div style="height: 30px"></div>
+VSCALEFPH<span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m16bcst{er}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16<br />
+<span class="intr">__m512h _mm512_scalef_ph(__m512h a, __m512h b)</span><br />
+<span class="intr">__m512h _mm512_mask_scalef_ph(__m512h s, __mmask32 k, __m512h a, __m512h b)</span><br />
+<span class="intr">__m512h _mm512_maskz_scalef_ph(__mmask32 k, __m512h a, __m512h b)</span><br />
+<span class="intr">__m512h _mm512_scalef_round_ph(__m512h a, __m512h b, int r)</span><br />
+<span class="intr">__m512h _mm512_mask_scalef_round_ph(__m512h s, __mmask32 k, __m512h a, __m512h b, int r)</span><br />
+<span class="intr">__m512h _mm512_maskz_scalef_round_ph(__mmask32 k, __m512h a, __m512h b, int r)</span><br />
+<div style="height: 2px;"></div><img src="binop_word_4.png" /><br />
+<div style="padding-left: 110px">For each FP16, calculate (1) * 2<sup>n</sup>, where n is an integer value of (2) truncated toward negative infinity, and store the result in (3).</div>
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vscalefph" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binopv5.php?f=vscalefph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:32 GMT -->
+</html>

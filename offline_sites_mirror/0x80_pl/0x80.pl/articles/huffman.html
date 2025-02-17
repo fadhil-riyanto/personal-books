@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/huffman.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Statyczne kodowanie Huffmana</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="statyczne-kodowanie-huffmana">
+<h1 class="title">Statyczne kodowanie Huffmana</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">26.11.2002</td>
+</tr>
+</tbody>
+</table>
+<p>Niewielka redakcja mojej odpowiedzi z grupy <a class="reference external" href="http://groups.google.pl/group/pl.comp.lang.c/msg/153accda12f14cd3">pl.comp.lang.c</a>.</p>
+<p>Statyczne kodowanie Huffmana jest bardzo proste. Powiedzmy, że masz
+zbiór n symboli którym jest przyporządkowane prawdopodobieństwo
+wystąpienia w ciągu danych; w praktyce używa się częstości wystąpienia
+danego symbolu - tak czy siak musisz przeglądnąć dane, by poznać
+częstość występowania np. bajtów.  (W specyficznych zastosowaniach może
+być tak, że tablica prawdopodobieństw jest ustalona &quot;odgórnie&quot;).</p>
+<p>Dla przykładu przyjmijmy, że mamy pięć symboli <em>A</em>, <em>B</em>, <em>C</em>,
+<em>D</em>, <em>E</em>, którym przypisano prawdopodobieństwa 0.5, 0.05, 0.05, 0.25,
+0.15.</p>
+<p>Na początku należy zbudować listę drzew składającą się wyłącznie z
+korzeni:</p>
+<pre class="literal-block">
+0.5 0.05 0.05 0.25 0.15
+(A)  (B)  (C) (D) (E)
+</pre>
+<p>Kolejnym krokiem jest wybranie z tej listy dwóch drzew o najmniejszych
+wagach (w korzeniu) i zastąpienie ich drzewem dla którego stają się
+odpowiednio lewym i prawym synem. Korzeń nowego drzewa przyjmuje wagę
+równą sumie wag korzeni &quot;usuwanych&quot; drzew. Więc sytuacja przedstawia
+się następująco:</p>
+<pre class="literal-block">
+0.5    0.1     0.25  0.15
+(A)   /   \     (D)   (E)
+    0.05 0.05
+     (B)  (C)
+</pre>
+<p>Celowo dobrałem tak dane, by zwrócić uwagę na jedną rzecz: gdy wagi są
+równe, algorytm nie definiuje które drzewo ma być z lewej, a które
+prawej.  Nawet gdy wagi te są różne nie ma jakiś specjalnych wymogów
+np. by drzewo o mniejszej wadze stawało się prawym synem. Jednak
+średnia długość ścieżki będzie zawsze taka sama bez względu na wybór
+konwencji.</p>
+<p>Zastępowanie par elementów o najmniejszych prawd. trwa do chwili, gdy
+na liście pozostanie dokładnie jeden element -- korzeń drzewa kodów.
+Waga zapisana w tymże korzeniu jest oczywiście równa sumie wag
+wszystkich symboli, czyli 1. Oto (przykładowe) wynikowe drzewo:</p>
+<pre class="literal-block">
+0          /\
+          /  A
+1        /\
+        /  \
+2      D   /\
+          /  \
+3        /\   E
+        /  \
+4      B   C
+</pre>
+<p>Przedostatnim krokiem jest znalezienie kodów -- robi się to bardzo
+prosto: podczas przechodzenia drzewa w głąb, gdy skręcamy w lewo do
+kodu dołączany jest bit o wartości zero, gdy w prawo bit o wartości 1
+(kwestia wyboru rzecz jasna).  Np. aby dojść do elementu E skręcamy w
+lewo, potem dwa razy w prawo, czyli kodem dla symbolu E będzie ciąg
+011; długość kodu jest równa głębokości danego elementu w drzewie.</p>
+<p>Tabelka kodów przedstawią się więc następująco:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="21%" />
+<col width="14%" />
+<col width="66%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">symbol</th>
+<th class="head">kod</th>
+<th class="head">długość kodu [bity]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>A</td>
+<td>1</td>
+<td>1</td>
+</tr>
+<tr><td>B</td>
+<td>0100</td>
+<td>4</td>
+</tr>
+<tr><td>C</td>
+<td>0101</td>
+<td>4</td>
+</tr>
+<tr><td>D</td>
+<td>00</td>
+<td>2</td>
+</tr>
+<tr><td>E</td>
+<td>011</td>
+<td>3</td>
+</tr>
+</tbody>
+</table>
+<p>Jak widać element A który ma najwyższe prawdopodobieństwo równe 0.5 ma
+jednocześnie najkrótszy kod -- o to chodziło panu Davidowi Huffmanowi
+gdy ponad 45 lat temu wynalazł ów algorytm (ok. 1952 r.).</p>
+<p>Kompresja polega na zastąpieniu symboli ich kodami, np. dane
+<tt class="docutils literal">ABADCADE</tt> zostaną skompresowane do ciągu <tt class="docutils literal">101001000101101011</tt>,
+którego długość wynosi 18 bitów. Jeśli przyjmiemy, że pojedynczy symbol
+był wcześniej przechowywany w jednym bajcie (co daje 64 bity danych) to
+stopień kompresji wynosi 70%.</p>
+<p>Dekompresja wymaga posiadania drzewa kodów, a odtworzenie danych
+polega na czytaniu kolejnych bitów ze strumienia danych i jednoczesnym
+przechodzeniu drzewa zgodnie z przejętą konwencją (lewo/prawo). Po
+dojściu do liścia i wypisaniu związanego z nim symbolu powracamy do
+korzenia. Np. ciąg bitów <tt class="docutils literal">0100100</tt> koduje dane <tt class="docutils literal">BAD</tt>.</p>
+<p>Wspomnianymi na wstępie symbolami wcale nie muszą być znaki (bajty).
+Mogą to być dowolne podciągi, słowa, struktury -- słowem coś co dla
+kompresowanych danych jest charakterystyczne. Wpadło mi teraz do
+głowy, iż do efektywnej kompresji programów należałoby brać jako owe
+cegiełki opkody rozkazów procesora.</p>
+<p>Literatura:</p>
+<ol class="arabic simple">
+<li><a class="reference external" href="http://www.datacompression.info/">http://www.datacompression.info</a></li>
+<li>Drozdek &quot;Wprowadzenie do kompresji danych&quot;</li>
+<li>Drozdek, Simon &quot;Struktury danych w języku C&quot;, rozdział 13
+(jest nawet przykładowy kod i to bardzo ciekawy)</li>
+</ol>
+<p>Bardzo polecam drugą pozycję, wbrew temu co sugeruje tytuł to biblia
+kompresji. Napisana bardzo ładnym i czytelnym językiem, okraszona
+wieloma przykładami, a jednocześnie nie obarczona ciężarem
+jakiegokolwiek języka programowania.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/huffman.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+</html>

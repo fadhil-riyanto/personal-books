@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?f=vrsqrt14ps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:31 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unopv5.php?f=vrsqrt14ps" />
+<link rel="alternate" hreflang="en" href="unopv5a6cc.html?f=vrsqrt14ps" />
+<title>vrsqrt14ps</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VRSQRT14PS - Reciprocal SQuare RooT 14 Packed Single<br /></h2>
+VRSQRT14PS<span class="operand"> xmm1{k1}{z}, xmm2/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128 _mm_rsqrt14_ps(__m128 a)</span><br />
+<span class="intr">__m128 _mm_mask_rsqrt14_ps(__m128 s, __mmask8 k, __m128 a)</span><br />
+<span class="intr">__m128 _mm_maskz_rsqrt14_ps(__mmask8 k, __m128 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_1.png" /><br />
+<div style="padding-left: 110px">For each float, calculate approximate reciprocal of square root of (1) and set the result to (2).  (relative error &lt; 2<sup>-14</sup>)</div>
+<div style="height: 30px"></div>
+VRSQRT14PS<span class="operand"> ymm1{k1}{z}, ymm2/m256/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256 _mm256_rsqrt14_ps(__m256 a)</span><br />
+<span class="intr">__m256 _mm256_mask_rsqrt14_ps(__m256 s, __mmask8 k, __m256 a)</span><br />
+<span class="intr">__m256 _mm256_maskz_rsqrt14_ps(__mmask8 k, __m256 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_2.png" /><br />
+<div style="padding-left: 110px">For each float, calculate approximate reciprocal of square root of (1) and set the result to (2).  (relative error &lt; 2<sup>-14</sup>)</div>
+<div style="height: 30px"></div>
+VRSQRT14PS<span class="operand"> zmm1{k1}{z}, zmm2/m512/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512 _mm512_rsqrt14_ps(__m512 a)</span><br />
+<span class="intr">__m512 _mm512_mask_rsqrt14_ps(__m512 s, __mmask16 k, __m512 a)</span><br />
+<span class="intr">__m512 _mm512_maskz_rsqrt14_ps(__mmask16 k, __m512 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_3.png" /><br />
+<div style="padding-left: 110px">For each float, calculate approximate reciprocal of square root of (1) and set the result to (2).  (relative error &lt; 2<sup>-14</sup>)</div>
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vrsqrt14ps" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?f=vrsqrt14ps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:31 GMT -->
+</html>

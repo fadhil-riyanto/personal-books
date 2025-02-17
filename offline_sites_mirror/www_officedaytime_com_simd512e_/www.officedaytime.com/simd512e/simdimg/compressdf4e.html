@@ -1,0 +1,78 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/compress.php?f=vcompresspd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:42:31 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/compress.php?f=vcompresspd" />
+<link rel="alternate" hreflang="en" href="compressdf4e.html?f=vcompresspd" />
+    <title>vcompresspd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>VCOMPRESSPD - COMPRESS Packed Double</h2>
+VCOMPRESSPD <span class="operand"> xmm1/m128{k1}{z}, xmm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m128d _mm_mask_compress_pd(__m128d s, __mmask8 k, __m128d a)</span><br>
+<span class="intr">__m128d _mm_maskz_compress_pd(__mmask8 k, __m128d a)</span><br>
+<span class="intr">void _mm_mask_compressstoreu_pd(void* d, __mmask8 k, __m128d a)</span><br>
+<div style="height: 2px;"></div><img src="compress_qword_1.png" /><br />
+<div style="padding-left: 110px">If each bit of (2) is set, the corresponding element of (1) is copied to (3), packed tightly from the lowest position.<br>
+<br />
+If (3) is XMM register and {z} is specified <span class='intr'>(_maskz_ intrinsic used)</span>, upper elements of (3) are zero cleared.<br>
+If (3) is XMM register and {z} is not specified <span class='intr'>(_mask_ intrinsic used)</span>, upper elements of (3) are left unchanged<span class='intr'> (copied from s)</span>.<br>
+If (3) is memory <span class='intr'> (_compressstoreu_ intrinsic used) </span>, upper elements of (3) are untouched.</span><br>
+</div><div style="height: 30px"></div>
+VCOMPRESSPD <span class="operand"> ymm1/m256{k1}{z}, ymm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m256d _mm256_mask_compress_pd(__m256d s, __mmask8 k, __m256d a)</span><br>
+<span class="intr">__m256d _mm256_maskz_compress_pd(__mmask8 k, __m256d a)</span><br>
+<span class="intr">void _mm256_mask_compressstoreu_pd(void* d, __mmask8 k, __m256d a)</span><br>
+<div style="height: 2px;"></div><img src="compress_qword_2.png" /><br />
+<div style="padding-left: 110px">If each bit of (2) is set, the corresponding element of (1) is copied to (3), packed tightly from the lowest position.<br>
+<br />
+If (3) is YMM register and {z} is specified <span class='intr'>(_maskz_ intrinsic used)</span>, upper elements of (3) are zero cleared.<br>
+If (3) is YMM register and {z} is not specified <span class='intr'>(_mask_ intrinsic used)</span>, upper elements of (3) are left unchanged<span class='intr'> (copied from s)</span>.<br>
+If (3) is memory <span class='intr'> (_compressstoreu_ intrinsic used) </span>, upper elements of (3) are untouched.</span><br>
+</div><div style="height: 30px"></div>
+VCOMPRESSPD <span class="operand"> zmm1/m512{k1}{z}, zmm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br>
+<span class="intr">__m512d _mm512_mask_compress_pd(__m512d s, __mmask8 k, __m512d a)</span><br>
+<span class="intr">__m512d _mm512_maskz_compress_pd(__mmask8 k, __m512d a)</span><br>
+<span class="intr">void _mm512_mask_compressstoreu_pd(void* d, __mmask8 k, __m512d a)</span><br>
+<div style="height: 2px;"></div><img src="compress_qword_3.png" /><br />
+<div style="padding-left: 110px">If each bit of (2) is set, the corresponding element of (1) is copied to (3), packed tightly from the lowest position.<br>
+<br />
+If (3) is ZMM register and {z} is specified <span class='intr'>(_maskz_ intrinsic used)</span>, upper elements of (3) are zero cleared.<br>
+If (3) is ZMM register and {z} is not specified <span class='intr'>(_mask_ intrinsic used)</span>, upper elements of (3) are left unchanged<span class='intr'> (copied from s)</span>.<br>
+If (3) is memory <span class='intr'> (_compressstoreu_ intrinsic used) </span>, upper elements of (3) are untouched.</span><br>
+</div><div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vcompresspd" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/compress.php?f=vcompresspd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:42:32 GMT -->
+</html>
+

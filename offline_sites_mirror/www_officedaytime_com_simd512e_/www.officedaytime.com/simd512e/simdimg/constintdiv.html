@@ -1,0 +1,116 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/constintdiv.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:56 GMT -->
+<head>
+    <meta charset="utf-8" />
+    <title>SSE/AVX Integer Division by Constant</title>
+    <link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/" />
+    <link rel="alternate" hreflang="en" href="../index.html" />
+    <style type="text/css">
+        .red {
+            color: #FF0000;
+        }
+
+        h1 {
+            font-size: 15pt;
+            font-weight: bold;
+            background-color: #8288FD;
+            color: #FFFFFF;
+            padding: 2pt;
+        }
+
+        body {
+            font-family: sans-serif;
+            font-size: 10pt;
+        }
+
+        h2 {
+            font-weight: bold;
+            padding: 2pt 2pt 0pt 0pt;
+            font-size: 10pt;
+            border-bottom-style: solid;
+            border-bottom-width: 2px;
+            border-bottom-color: #0000FF;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0000FF;
+        }
+
+        dt {
+            font-weight: bold;
+        }
+
+        td {
+            background-color: #FFFFFF;
+            font-size: 9pt;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+
+        .srcprogdiv {
+            border: 1px solid #0000FF;
+            border-radius: 5px;
+            padding: 5px 10px 5px 10px;
+        }
+
+    </style>
+
+    <script src="https://www.officedaytime.com/constintdivc.js?v=12"></script>
+</head>
+<body>
+    <h1>SSE/AVX Integer Division by Constant</h1>
+    <form onsubmit="A(); return false;">
+        <select id="instructionset">
+            <option>SSE2</option>
+            <option>SSE4.1</option>
+            <option>AVX2</option>
+            <option>AVX512</option>
+        </select>
+        &nbsp;
+        <select id="datatypesign">
+            <option>Signed</option>
+            <option>Unsigned</option>
+        </select>
+        <select id="datatypesize">
+            <option>DWORD</option>
+            <option>WORD</option>
+        </select>
+        &nbsp;
+        <label for="divisor">Divisor</label>
+        <input type="text" id="divisor" />
+        <input type="checkbox" id="check_remainders" />
+        <label for="check_remainders">Remainders</label>
+        &nbsp;
+        <input type="submit" value="Generate" />
+    </form>
+
+    <div id="msgdiv"></div>
+    <div id="resultsdiv"></div>
+
+    <br />
+    <hr />
+
+
+
+    <a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp;
+    <a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=constintdiv" target="_blank">Feedback</a>
+    <br>
+    <script src="https://www.officedaytime.com/tips/simdfeedback/alog.js"></script>
+    <script>alog("alles");</script>
+    <br />
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/constintdiv.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:56 GMT -->
+</html>

@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/streambuf.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Zaawansowane użycie streambuf</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="zaawansowane-uzycie-streambuf">
+<h1 class="title">Zaawansowane użycie streambuf</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">12.07.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#klasa-streambuf" id="toc-entry-2">Klasa <tt class="docutils literal">streambuf</tt></a></li>
+<li><a class="reference internal" href="#nasz-wlasny-bufor" id="toc-entry-3">Nasz własny bufor</a></li>
+<li><a class="reference internal" href="#podmiana-standardowych-buforow" id="toc-entry-4">Podmiana standardowych buforów</a></li>
+<li><a class="reference internal" href="#manipulatory" id="toc-entry-5">Manipulatory</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Standardowe strumienie wyjściowe z C++ oferują minimum funkcjonalności.
+Takie  cechy jak np. kolorowanie tekstu nie są dostępne. Pokażę w jaki
+sposób na prymitywnych terminalach DOS pokolorować tekst &mdash; kolorowanie
+wiąże się albo z wywołaniem funkcji z <tt class="docutils literal">conio.h</tt> (wspierane przez wiele
+kompilatorów, także tych dla Windows), albo z bezpośrednim zapisem do VRAM
+karty graficznej. W przypadku, gdy terminal obsługuje sekwencje ESC (Linux,
+DOS po instalacji sterownika ANSI.SYS) kolorowanie tekstu można osiągnąć
+wpisując sekwencje ESC. Można to zrobić poprzez włączenie do wyświetlanego
+tekstu stosownych sekwencji (co jest uciążliwe), albo napisać odpowiednie
+manipulatory.</p>
+<p>Oczywiście wykorzystanie <tt class="docutils literal">streambuf</tt> nie musi ograniczać się tylko
+do kolorowania tekstu, można np. automatycznie konwertować polskie znaki,
+zmieniać wielkość liter, filtrować itp. Kilka przykładów zostanie
+pokazanych poniżej.</p>
+<p>Artykuł powstał na bazie mojej odpowiedzi na zapytanie na grupie
+usenetowej <tt class="docutils literal">pl.comp.lang.c</tt>.</p>
+</div>
+<div class="section" id="klasa-streambuf">
+<h1>Klasa <tt class="docutils literal">streambuf</tt></h1>
+<p>Komunikację klasy <tt class="docutils literal">ios</tt> z urządzeniami zewnętrznymi zapewnia klasa
+dziedzicząca po klasie abstrakcyjnej <tt class="docutils literal">streambuf</tt> &mdash; poniżej fragment
+deklaracji tej klasy:</p>
+<pre class="literal-block">
+class streambuf {
+// ...
+public: // może być 'protected' -- zależy od implementacji
+
+        virtual int overflow (int = EOF) = 0;
+        virtual int underflow() = 0;
+// ...
+}
+</pre>
+<p>Jak widać klasa zawiera dwie metody abstrakcyjne. Sama klasa zajmuje się
+obsługą bufora, gdy następuję przepełnienie bądź niedomiar danych woła
+metodę (odpowiednio) <tt class="docutils literal">overflow</tt> lub <tt class="docutils literal">underflow</tt>. Tak więc
+<strong>dopiero</strong> w  klasie potomnej definiuje się gdzie i w jaki sposób będą
+wyprowadzane (bądź  wprowadzane) dane.</p>
+</div>
+<div class="section" id="nasz-wlasny-bufor">
+<h1>Nasz własny bufor</h1>
+<p>W klasie pochodnej nie trzeba właściwie definiować nic poza konstruktorem i
+metodami <tt class="docutils literal">overflow</tt> i <tt class="docutils literal">underflow</tt>.</p>
+<pre class="literal-block">
+class colorbuf : public streambuf {
+private:
+        unsigned char foreground, background;
+public:
+        colorbuf() : streambuf(rozmiar_bufora)
+                {
+                 setfore(default_foreground);
+                 setback(default_background);
+                }
+
+        virtual int overflow (int = EOF);
+        virtual int underflow();
+
+        void setfore(unsigned char fore)
+                { terminal_setforeground(foreground=fore); }
+        void setback(unsigned char back)
+                { terminal_setbackground(background=back); }
+};
+</pre>
+<p>Konstruktor najpierw buduje obiekt typu <tt class="docutils literal">streambuf</tt> &mdash; jako argument
+podawany jest rozmiar bufora (choć można go pominąć).</p>
+<p>Najpierw zdefiniujemy metodę <tt class="docutils literal">underflow</tt>, a ponieważ zadaniem klasy
+colorbuf ma być kolorowanie wyjścia zatem będzie ona maksymalnie
+uproszczona.</p>
+<pre class="literal-block">
+int colorbuf::undeflow() {
+ return EOF; // zwrócenie EOF oznacza brak danych na wejściu
+}
+</pre>
+<p>Przyjmując że, hipotetyczne funkcje terminala<a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a> wołane z metod
+<tt class="docutils literal">setback</tt> i <tt class="docutils literal">setfore</tt> ustawiają kolory do czasu kolejnego ich
+wywołania, to metoda <tt class="docutils literal">overflow</tt> będzie bardzo prosta:</p>
+<pre class="literal-block">
+int colorbuf::overflow(int c)
+{
+ terminal_putchar(c); // funkcja wyświetla znak używając ustawień terminala,
+                      // np. w przypadku 'conio.h' tą funkcją może być 'cputc'
+ return ~EOF;
+}
+</pre>
+<p>Wymuszenie by wyświetlany tekst był postaci <tt class="docutils literal">To jEsT pRzYkLaD</tt> jest
+niezwykle proste.</p>
+<pre class="literal-block">
+int colorbuf::overflow(int c)
+{
+ static n=0;
+
+ terminal_putchar( n ? toupper(c):tolower(c));
+ n=!n;
+ return ~EOF;
+}
+</pre>
+<p>Z kolei kapitalizacja (ang. <em>capitalize</em>) tekstu można
+uzyskać w sposób następujący:</p>
+<pre class="literal-block">
+// cout &lt;&lt; &quot;przykladowy tekst z kilkoma slowami&quot;;
+// wyjście: Przykladowy Tekst Z Kilkoma Slowami
+int colorbuf::overflow(int c)
+{
+ static prevwhitespace=1;
+
+ terminal_putchar( prevwhitespace ? toupper(c) : c);
+
+ prevwhitespace = isspace(c);
+
+ return ~EOF;
+}
+</pre>
+<p>Inny przykład to wyświetlanie numerów szesnastkowych znaków kontrolnych (w
+ASCII znaki te mają numery od 0 do 31), jedyny wyjątek stanowić będzie znak
+nowej linii o numerze 13.</p>
+<pre class="literal-block">
+// cout &lt;&lt; &quot;Znak ESC ma kod \033.&quot;
+// wyjście: Znak ESC ma kod 0x1b.
+int colorbuf::overflow(int c)
+{
+ if ((c &gt; 31) || (c == 13)) // zwykły znak
+    terminal_putchar(c);
+ else
+    printf(&quot;0x%x&quot;, (int)c);
+
+ return ~EOF;
+}
+</pre>
+<p>Proszę zwrócić uwagę, że funkcja zwraca negację wartości EOF &mdash; w ogólności
+wartość <strong>różną</strong> od EOF. Gdyby został zwrócony EOF to do
+czasu wyczyszczenia flagi <tt class="docutils literal">eof</tt> stanu strumienia (np. poprzez
+wywołanie metody <tt class="docutils literal">clear()</tt>) nic nie zostanie
+wyświetlone. Tę własność można użyć np. do wyświetlania danych w
+ograniczonych polach tekstowych (oczywiście przy wsparciu jakichś
+rozsądnych manipulatorów).</p>
+</div>
+<div class="section" id="podmiana-standardowych-buforow">
+<h1>Podmiana standardowych buforów</h1>
+<p>Podpięcie własnego bufora do nowotworzonego strumienia jest bardzo proste,
+z tego względu, że klasa <tt class="docutils literal">ostream</tt> ma konstruktor akceptujący
+wskaźnik do <tt class="docutils literal">streambuf</tt>:</p>
+<pre class="literal-block">
+#include &lt;iostream&gt;
+
+int main()
+{
+ colorbuf __buf;
+ ostream  my_cout( (streambuf*)&amp;__buf );
+
+ my_cout &lt;&lt; &quot;test\n&quot;
+}
+</pre>
+<p>Jednak podmiana bufora w istniejącym strumieniu (np. <tt class="docutils literal">cout</tt>) jest
+niestety nieprzenośna. W GCC klasa <tt class="docutils literal">ios</tt> ma publiczne pole
+<tt class="docutils literal">_strbuf</tt> będące wskaźnikiem na <tt class="docutils literal">streambuf</tt>, także metoda
+<tt class="docutils literal">rdbuf()</tt> posiada wersję  umożliwiającą podmianę bufora.</p>
+<pre class="literal-block">
+#include &lt;iostream&gt;
+
+int main()
+{
+ colorbuf __buf;
+
+ cout._strbuf = (strambuf*)&amp;__buf;
+ cout.rdbuf((strambuf*)&amp;__buf);
+ cout &lt;&lt; &quot;test\n&quot;;
+}
+</pre>
+<p>Niestety w innych kompilatorach tak nie jest, np. Watcom składowa
+przechowująca wskaźnik do obiektu <tt class="docutils literal">streambuf</tt> jest prywatna i nie
+istnieje żadna metoda umożliwiająca ustawienie nowego bufora (w gcc jest
+metoda <tt class="docutils literal">strambuf* rdbuf(streambuf* new_buf)</tt>).</p>
+<p>W miarę elegancki i co ważniejsze przenośny sposób na podmianę bufora jest
+możliwy po zaprzęgnięciu do pracy preprocesora &mdash; wystarczy użyć definicji:</p>
+<pre class="literal-block">
+#define cout my_cout
+</pre>
+<p>Większość kompilatorów ma możliwość podania w linii polecenia definicji, w
+gcc wygląda to tak:</p>
+<pre class="literal-block">
+gcc -lstdc++ program.cpp -Dcout=my_cout
+</pre>
+</div>
+<div class="section" id="manipulatory">
+<h1>Manipulatory</h1>
+<p>Manipulatory pozwalają na wywoływanie określonych funkcji bezpośrednio w
+strumieniu. Standardowe manipulatory to np. <tt class="docutils literal">hex</tt>, <tt class="docutils literal">dec</tt>, <tt class="docutils literal">endl</tt>,
+<tt class="docutils literal">setprecision(int)</tt> itp.</p>
+<p>Manipulator bezparametrowy to funkcja o następującej deklaracji:</p>
+<pre class="literal-block">
+ostream&amp; manipulator(ostream&amp;);
+</pre>
+<p>Np. manipulator przywracający typowe ustawienia terminala może mieć
+postać:</p>
+<pre class="literal-block">
+ostream&amp; defcolor(ostream&amp; os)
+{
+ colorbuf *c = (colorbuf*)os.rdbuf(); // składowa ios::streambuf* rdbuf();
+
+ c-&gt;setfore(default_foreground);
+ c-&gt;setback(default_background);
+
+ return os;
+}
+</pre>
+<p>Z kolei manipulator z jednym parametrem jest bardzo łatwy do uzyskania
+dzięki wzorcom z pliku <em>iomanip</em> &mdash; jako przykład podam manipulator
+zmieniający kolor liter.</p>
+<pre class="literal-block">
+#include &lt;iostream&gt;
+#include &lt;iomanip&gt;
+
+// ta funkcja wykonuje tylko zadanie
+ostream&amp; colorbuf_manipulator_setcolor(ostream&amp; os, int color)
+{
+ colorbuf *c = (colorbuf*)os.rdbuf();
+
+ c-&gt;setfore(color);
+
+ return os;
+}
+
+// manipulator definiowany ze wzorca
+omanip&lt;int&gt; setcolor(int color)
+{
+ return omanip&lt;int&gt;(&amp;colorbuf_manipulator_setcolor, color);
+}
+</pre>
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>--- takie funkcje to np. <tt class="docutils literal">textcolor</tt> i <tt class="docutils literal">textbackground</tt>
+z DOS-owego <tt class="docutils literal">conio.h</tt>.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/streambuf.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+</html>

@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/string.h.asm.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Operacje na łańcuchach ASCII-Z w asemblerze</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="operacje-na-lancuchach-ascii-z-w-asemblerze">
+<h1 class="title">Operacje na łańcuchach ASCII-Z w asemblerze</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">28.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">9.08.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#porownywanie-lancuchow" id="toc-entry-2">Porównywanie łańcuchów</a><ul>
+<li><a class="reference internal" href="#memcmp-porownywanie-lancuchow-o-tej-samej-dlugosci-mmx" id="toc-entry-3"><tt class="docutils literal">memcmp</tt> &mdash; porównywanie łańcuchów o tej samej długości (MMX)</a></li>
+<li><a class="reference internal" href="#memcmp-x86" id="toc-entry-4">memcmp (x86)</a></li>
+<li><a class="reference internal" href="#strcmp-mmx-9-08-2007" id="toc-entry-5"><tt class="docutils literal">strcmp</tt> (MMX) [9.08.2007]</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#strlen-dlugosc-lancucha-mmx-23-06-2007" id="toc-entry-6"><tt class="docutils literal">strlen</tt> &mdash; długość łańcucha (MMX) [23.06.2007]</a></li>
+<li><a class="reference internal" href="#strchr-wyszukiwanie-pierwszego-wystapienia-znaku-mmx-24-06-2007" id="toc-entry-7"><tt class="docutils literal">strchr</tt> &mdash; wyszukiwanie pierwszego wystąpienia znaku (MMX) [24.06.2007]</a></li>
+<li><a class="reference internal" href="#uwagi-do-funkcji-mmx-owych-strcmp-strchr-i-strlen-24-06-2007" id="toc-entry-8">Uwagi do funkcji MMX-owych <tt class="docutils literal">strcmp</tt>, <tt class="docutils literal">strchr</tt> i <tt class="docutils literal">strlen</tt> [24.06.2007]</a></li>
+<li><a class="reference internal" href="#zamiana-wielkosci-liter" id="toc-entry-9">Zamiana wielkości liter</a><ul>
+<li><a class="reference internal" href="#tolower-toupper-x86" id="toc-entry-10"><tt class="docutils literal">tolower</tt>/<tt class="docutils literal">toupper</tt> (x86)</a></li>
+<li><a class="reference internal" href="#strupr-mmx" id="toc-entry-11"><tt class="docutils literal">strupr</tt> (MMX)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#szukanie-lancuchow" id="toc-entry-12">Szukanie łańcuchów</a><ul>
+<li><a class="reference internal" href="#strstr-386" id="toc-entry-13"><tt class="docutils literal">strstr</tt> (386+)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#strstr-686" id="toc-entry-14"><tt class="docutils literal">strstr</tt> (686+)</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>W artykule zostaną pokazane asemblerowe implementacje niektórych funkcji
+zadeklarowanych w pliku nagłówkowym <tt class="docutils literal">string.h</tt>.</p>
+<p><strong>UWAGA</strong>: na początku września 2007 opublikowałem bibliotekę
+<a class="reference external" href="https://github.com/WojciechMula/sse2string">see2string</a>, która zawiera niektóre funkcje ze <tt class="docutils literal">string.h</tt>
+zaimplementowane z użyciem rozkazów <a class="reference external" href="http://en.wikipedia.org/wiki/SSE2">SSE2</a>.  Oczywiście
+zastosowałem w nich metody opisane w tym artykule.</p>
+</div>
+<div class="section" id="porownywanie-lancuchow">
+<h1>Porównywanie łańcuchów</h1>
+<div class="section" id="memcmp-porownywanie-lancuchow-o-tej-samej-dlugosci-mmx">
+<h2><tt class="docutils literal">memcmp</tt> &mdash; porównywanie łańcuchów o tej samej długości (MMX)</h2>
+<p>Funkcja stwierdza czy dwa łańcuchy znaków, <strong>o tej samej
+długości</strong> są takie same.</p>
+<pre class="literal-block">
+segment .text
+; edi, esi - wskaźniki na łańcuchy
+; ecx      - długość łańcuchów
+; eax      - wynik
+memcmp:
+
+        mov ebx, ecx       ; liczba bajtów które nie zmieszczą się
+        and ebx, 0x7       ; w rejestrze MMX
+
+        shr ecx, 3         ; ecx/=3;
+        jz  .compare_rest  ; jeśli zero porównanie MMX zostaje pominięte
+
+.compare_mmx:
+
+        movq    mm0, [edi] ; takie same                 różne (przykład)
+        pcmpeqd mm0, [esi] ; |ffffffff|ffffffff|        |ffffffff|00000000|
+        psrlq   mm0, 16    ; |0000ffff|ffffffff|        |0000ffff|ffff0000|
+
+        movd    eax, mm0   ;          |ffffffff|                 |ffff0000|
+        cmp     eax, -1    ;
+        jne     .diff
+
+        add     edi, 8
+        add     esi, 8
+        dec     ecx
+        jnz     .compare_mmx
+
+.compare_rest:
+or   ebx, ebx  ; jeśli nie jest potrzebne dodatkowe porównanie
+jz  .equal     ; łańcuchy są identyczne
+
+movq    mm0, [edi]
+movq    mm1, [edi]
+pand    mm0, [mask + ebx*8 - 8] ; wyzeruj dane spoza końca łańcucha
+pand    mm1, [mask + ebx*8 - 8]
+
+pcmpeqd mm0, mm1
+psrlq   mm0, 16
+movd    eax, mm0
+cmp     eax, -1
+sete    eax                     ; eax = 1 gdy równe
+ret
+
+segment .data
+
+mask db 0xff,0x00,0x00,0x00, 0x00,0x00,0x00,0x00 ; 1
+     db 0xff,0xff,0x00,0x00, 0x00,0x00,0x00,0x00 ; 2
+     db 0xff,0xff,0xff,0x00, 0x00,0x00,0x00,0x00 ; 3
+     db 0xff,0xff,0xff,0xff, 0x00,0x00,0x00,0x00 ; 4
+     db 0xff,0xff,0xff,0xff, 0xff,0x00,0x00,0x00 ; 5
+     db 0xff,0xff,0xff,0xff, 0xff,0xff,0x00,0x00 ; 6
+     db 0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0x00 ; 7
+</pre>
+</div>
+<div class="section" id="memcmp-x86">
+<h2>memcmp (x86)</h2>
+<pre class="literal-block">
+segment .text
+; edi, esi - wskaźniki na łańcuchy
+; ecx      - długość łańcuchów
+; eax      - wynik
+strncmp:
+        mov ebx, ecx
+        shr ecx, 2      ; ecx/=4 - ilość dword'ów
+        jz  .compare_rest
+
+.compare4b:
+        mov edx, [edi]
+        cmp edx, [esi]
+        jne .diff
+
+        add edi, 4
+        add esi, 4
+
+        dec ecx
+        jnz .compare4b
+
+.compare_rest:
+and ebx, 0x3    ; ebx    - pozostałe bajty
+jz  .equal
+
+mov ebx, [mask + ebx*4 - 4]
+
+mov eax, [edi]  ; pobierz 4 bajty
+mov ecx, [esi]  ;
+
+and eax, ebx    ; zamaskuj bajty pobrane
+and ecx, ebx    ; spoza łańcuchów
+
+cmp  eax, ecx    ; porównanie
+sete eax
+
+segment .data
+
+mask db 0xff,0x00,0x00,0x00
+     db 0xff,0xff,0x00,0x00
+     db 0xff,0xff,0xff,0x00
+</pre>
+</div>
+<div class="section" id="strcmp-mmx-9-08-2007">
+<h2><tt class="docutils literal">strcmp</tt> (MMX) [9.08.2007]</h2>
+<p>Poniższa funkcja porównuje dwa łańcuchy. Zwracany wynik jest zgodny z
+konwencją funkcji <tt class="docutils literal">strcmp</tt> znanej z C.</p>
+<pre class="literal-block">
+; wejście: esi (A), edi (B) - porównywane łańcuchy
+; wyjście: eax
+; modyfikowane:
+;       MMX: mm0, mm1, mm2, mm6, mm7
+;   x86: ebx
+
+strcmp:
+pxor    mm7, mm7 ; mm7 = packed_byte(0x00)
+xor     ecx, ecx ; ecx = 0
+
+.compare:
+        movq mm0, [esi+ecx]
+        movq mm1, [edi+ecx]
+        add  ecx, 8
+
+        pcmpeqb  mm1, mm0 ; 0x00 na pozycji gdzie różnią się oba łańcuchy
+        pcmpeqb  mm0, mm7 ; 0xff na pozycji '\0' w łańcuchu A
+        pandn    mm0, mm1 ; połącz wyniki - 0x00 gdzie łańcuchy różne/zero w A
+
+        pmovmskb eax, mm0 ; i zamień na maskę bitową
+
+        cmp      al, 0xff ; gdy którykolwiek bit jest wyzerowany, świadczy o
+        jz       .compare ; napotkaniu końca A lub różniącego je bajtu
+
+
+not eax
+bsf eax, eax              ; pozycja pierwszego ustawionego bitu
+add ecx, eax
+
+movzx ebx, byte [esi+ecx] ; pobierz
+movzx eax, byte [edi+ecx] ; znaki
+sub   eax, ebx            ; i oblicz różnicę
+
+ret
+</pre>
+</div>
+</div>
+<div class="section" id="strlen-dlugosc-lancucha-mmx-23-06-2007">
+<h1><tt class="docutils literal">strlen</tt> &mdash; długość łańcucha (MMX) [23.06.2007]</h1>
+<p>Funkcja oblicza długość łańcucha znaków zakończonego zerem, z
+powodzeniem może być wykorzystana jako <tt class="docutils literal">strchr</tt>, wystarczy wypełnić
+<tt class="docutils literal">mm1</tt> szukanym znakiem.</p>
+<pre class="literal-block">
+; edi - pierwszy znak
+; ecx - wynik: długość łańcucha
+
+mmx_strlen:
+
+        pxor mm1, mm1 ; packed_byte(0x00)
+        xor  ecx, ecx
+
+.count:                     ; np.
+        movq     mm0, [edi] ; mm0 = | 0 |'e'| 0 |'b'|'m'|'e'|'s'|'a'|
+        pcmpeqb  mm0, mm1   ; mm0 = | ff| 0 | ff| 0 | 0 | 0 | 0 | 0 |
+
+        pmovmskb eax, mm0   ; eax = 10100000b (0xa0)
+        test      al, al
+        jnz      .founded   ; w wyniku są ustawione bity, znaleziono kończące zero
+                            ; w przeciwny przypadku...
+
+        add      edi, 8     ; następne 8 bajtów
+        add      ecx, 8     ; zwiększ o 8 długość
+
+        jmp .count
+
+.founded:
+
+bsf eax, eax    ; znajdź pierwszy ustawiony bit
+add ecx, eax
+ret
+</pre>
+</div>
+<div class="section" id="strchr-wyszukiwanie-pierwszego-wystapienia-znaku-mmx-24-06-2007">
+<h1><tt class="docutils literal">strchr</tt> &mdash; wyszukiwanie pierwszego wystąpienia znaku (MMX) [24.06.2007]</h1>
+<pre class="literal-block">
+; edi - pierwszy znak
+;  al - szukany znak
+; edi - wynik (wskaźnik, NULL gdy znak nie znaleziony)
+
+mmx_strlen:
+
+        pxor      mm7, mm7  ; packed_byte(0x00)
+
+        movzx     eax, al
+        imul      eax, 0x01010101
+        movd      mm6, eax
+        punpcklbw mm6, mm6  ; |AL|AL|AL|AL|AL|AL|AL|AL|
+
+.count:                 ; np. AL = 'e'
+        movq     mm0, [edi] ; mm0 = | 0 |'e'| 0 |'b'|'m'|'e'|'s'|'a'|
+        movq     mm1, mm0
+        pcmpeqb  mm0, mm7   ; mm0 = | ff| 0 | ff| 0 | 0 | 0 | 0 | 0 | -- \0
+        pcmpeqb  mm1, mm6   ; mm1 = | 0 | ff| 0 | 0 | 0 | ff| 0 | 0 | -- AL
+        por      mm0, mm1   ; mm0 = | ff| ff| ff| 0 | 0 | ff| 0 | 0 | -- AL &amp; \0
+
+        pmovmskb eax, mm0   ; eax = 11100100b (0xa0)
+        test      al, al
+        jnz      .founded   ; w wyniku są ustawione bity, znaleziono
+                            ; kończące zero lub szukany znak;
+                            ; w przeciwny przypadku...
+
+        add      edi, 8     ; następne 8 bajtów
+        jmp .count
+
+.founded:
+
+bsf eax, eax    ; znajdź pierwszy ustawiony bit
+add edi, eax    ; edi - adres albo \0 albo szukany znak
+
+cmp [edi], 0    ; edi == 0?
+jz  .NULL
+ret             ; nie, edi wskazuje na szukany znak
+
+.NULL
+xor edi, edi    ; tak, nie znaleziono znaku, edi = NULL
+ret
+</pre>
+</div>
+<div class="section" id="uwagi-do-funkcji-mmx-owych-strcmp-strchr-i-strlen-24-06-2007">
+<h1>Uwagi do funkcji MMX-owych <tt class="docutils literal">strcmp</tt>, <tt class="docutils literal">strchr</tt> i <tt class="docutils literal">strlen</tt> [24.06.2007]</h1>
+<p>Pierwsze procesory (Pentium MMX, Pentium II) posiadające rozszerzenie
+MMX nie miały wielu obecnie dostępnych instrukcji, w tym intensywnie
+wykorzystywaną w wymienionych funkcjach <tt class="docutils literal">PMOVMSKB</tt> &mdash; można ją z
+powodzeniem zastąpić czteroma dodatkowymi rozkazami:</p>
+<pre class="literal-block">
+; mm0 -- maska bajtowa                   ; |aaaaaaaa|bbbbbbbb|cccccccc|dddddddd|eeeeeeee|ffffffff|gggggggg|hhhhhhhh|
+psrlq    mm0, 4                          ; |0000aaaa|aaaabbbb|bbbbcccc|ccccdddd|ddddeeee|eeeeffff|ffffgggg|gggghhhh|
+pand     mm0, [maska_0x0011001100110011] ; |00000000|000a000b|00000000|000c000d|00000000|000e000f|00000000|000g000h|
+packsswb mm0, mm0                        ; |000a000b|000c000d|000e000f|000g000h|000a000b|000c000d|000e000f|000g000h|
+                        ; ustawione bity są umieszczone
+                        ; na początku każdej tetrady
+movd     eax, mm0
+bsf/bsr  eax, eax       ; czyli wynikiem jest index*4, a stąd:
+shr      eax, 2         ; eax = index
+</pre>
+<p>Funkcje wykorzystujące zarówno <tt class="docutils literal">PMOVMSKB</tt> jak i opisany wyżej
+zamiennik są dostępne w pliku <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/mmx-string/mmx_string.c">mmx_string.c</a>
+(kompilacja w GCC).</p>
+</div>
+<div class="section" id="zamiana-wielkosci-liter">
+<h1>Zamiana wielkości liter</h1>
+<p>Kody małych liter ASCII różnią się od dużych tylko jednym, piątym bitem.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td>A..Z</td>
+<td>0x41..0x5a</td>
+</tr>
+<tr><td>a..z</td>
+<td>0x61..0x7a</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="tolower-toupper-x86">
+<h2><tt class="docutils literal">tolower</tt>/<tt class="docutils literal">toupper</tt> (x86)</h2>
+<pre class="literal-block">
+; wejście/wyjście - al litera
+tolower:
+        cmp al, 0x41 ;
+        jb  .skip    ;
+        cmp al, 0x5a ;
+        ja  .skip    ; sprawdź zakres
+
+        xor al, 0x20 ; zaneguj 5-ty bit, jeśli to duża litera
+.skip:
+        ret
+</pre>
+<p>Kod bez rozgałęzień:</p>
+<pre class="literal-block">
+tolower:
+        cmp   al, 0x41
+        setnb bl       ; (al &gt;= 0x41) ? bl=1 : bl=0;
+        cmp   al, 0x5a
+        setna bh       ; (al &lt;= 0x5a) ? bh=1 : bh=0;
+
+        and   bl, bh
+        shl   bl, 5
+        xor   al, bl   ; wyzeruj 5-ty bit jeśli (al&gt;=41h) &amp; (al&lt;=5ah)
+</pre>
+<p>W przypadku funkcji <tt class="docutils literal">toupper</tt> wystarczy zmienić sprawdzany zakres.</p>
+</div>
+<div class="section" id="strupr-mmx">
+<h2><tt class="docutils literal">strupr</tt> (MMX)</h2>
+<p>Interesujące może być sprawdzenie czy bajt należy do przedziału (w kodzie
+wydzielone <tt class="docutils literal">***</tt>). Poniższa funkcja asemblerowa jest odpowiednikiem
+funkcji <tt class="docutils literal">strupr</tt>, ale tak jak wcześniej wystarczy zmienić sprawdzany
+zakres aby uzyskać <tt class="docutils literal">strlwr</tt>.</p>
+<pre class="literal-block">
+segment .text
+
+; wejście: edi - wskaźnik na łańcuch 8 znaków
+;          mm3 = packed_byte(0x00)
+;          mm4 = packed_byte(0x20)
+simple_strupr:
+
+        mov mm0, [edi]          ; wprowadź 8 znaków
+
+        ;***
+        mov mm1, mm0            ; kopiuj
+        mov mm2, mm0            ;
+
+        psubusb mm1, [mmx_0x40] ; wszystkie bajty mniejsze od 0x41
+        psubusb mm2, [mmx_0x5a] ; i 0x5a zostaną wyzerowane
+
+        pcmpeqb mm1, mm3        ; mm1 = (bajt &lt;  'A') ? 0xff : 0x00
+        pcmpeqb mm2, mm3        ; mm2 = (bajt &lt;= 'Z') ? 0xff : 0x00
+
+        pandn   mm1, mm2        ; mm1 = (bajt &gt;= 'A' &amp;&amp; bajt &lt;= 'Z') ? 0xff : 0x00
+        pand    mm1, mm4        ; dla odpowiednich bajtów przypisz maskę
+        ;***
+
+        pxor    mm0, mm1        ; zanegowanie 5-go bitu - małe litery
+        movq  [edi], mm0
+        ret
+
+segment .data
+
+mmx_0x40 dd 0x40404040, 0x40404040
+mmx_0x5a dd 0x5a5a5a5a, 0x5a5a5a5a
+</pre>
+</div>
+</div>
+<div class="section" id="szukanie-lancuchow">
+<h1>Szukanie łańcuchów</h1>
+<p>Oto używany algorytm (dzięki uprzejmości <strong>Dale Moora</strong>).</p>
+<pre class="literal-block">
+char * strstr (const char *s1, const char *s2) {
+        int j = 0;
+        while (1) {
+
+                if (!s2[j])
+                        return (char *)s1;
+                if (!s1[j])
+                        return NULL;
+
+        if (s1[j] == s2[j])
+                j++;
+        else
+                j = 0,
+                s1++;
+     }
+}
+</pre>
+<div class="section" id="strstr-386">
+<h2><tt class="docutils literal">strstr</tt> (386+)</h2>
+<pre class="literal-block">
+_strstr:
+        push esi                        ; s1
+        push edi                        ; s2
+        push ecx                        ; j
+
+        xor ecx, 0                      ; j = 0
+
+  .loop:
+        mov  al, byte ptr [esi+ecx]     ; al = s1[j]
+        mov  ah, byte ptr [edi+ecx]     ; ah = s2[j]
+
+        or   ah, ah                     ; if (!s2[j]) return (char *)s1;
+        jnz  .1
+                lea eax, [esi+ecx]
+                jmp .exit
+     .1:
+
+        or   al, al                     ; if (!s1[j]) return NULL
+        jnz  .2
+                mov eax, NULL
+                jmp .exit
+     .2:
+
+        sub  al, ah                     ; if (s1[j] == s2[j])
+        jnz  &#64;else
+   .then:
+        inc ecx                         ; j++
+        jmp &#64;loop
+   .else:
+        xor ecx, ecx                    ; j=0, s1++
+        inc esi
+        jmp .loop
+
+   .exit:
+        pop ecx
+        pop edi
+        pop esi
+        ret
+</pre>
+</div>
+</div>
+<div class="section" id="strstr-686">
+<h1><tt class="docutils literal">strstr</tt> (686+)</h1>
+<pre class="literal-block">
+_strstr:
+        push esi                        ; s1
+        push edi                        ; s2
+        push ecx                        ; j
+        push ebx
+        push edx
+
+        xor ecx, 0                      ; j = 0
+
+  .loop:
+        mov  al, byte ptr [esi+ecx]     ; al = s1[j]
+        mov  ah, byte ptr [edi+ecx]     ; ah = s2[j]
+
+        or   ah, ah                     ; if (!s2[j]) return (char *)s1;
+        jz   .exit
+
+        or   al, al                     ; if (!s1[j]) return NULL
+        jz   .exit
+
+        mov  edx, esi
+        mov  ebx, ecx
+        inc  edx                        ; edx = s1+1
+        inc  ebx                        ; ebx = j+1
+
+        cmp  al, ah                     ; eq = (s1[j] == s2[j])
+
+        mov    ecx, 0                   ; j = 0
+        cmove  ecx, ebx                 ; if  (eq) j = ebx
+        cmovne esi, edx                 ; if (!eq) s1++
+
+        jmp .loop
+
+   .exit:
+        add    esi, ecx                 ; esi = &amp;s1[j]
+        mov    edi, NULL                ; edi = NULL
+
+        or      al, al                  ; ZF  = al==0
+        cmovz  eax, edi
+        cmovnz eax, esi
+
+        pop edx
+        pop ebx
+        pop ecx
+        pop edi
+        pop esi
+        ret
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/string.h.asm.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

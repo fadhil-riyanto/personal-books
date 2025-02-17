@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/bilinear.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:12 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Filtrowanie bilinearne</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="filtrowanie-bilinearne">
+<h1 class="title">Filtrowanie bilinearne</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">16.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">14.12.2003</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#filtrowanie" id="toc-entry-2">Filtrowanie</a><ul>
+<li><a class="reference internal" href="#implementacja-w-c" id="toc-entry-3">Implementacja (w C)</a></li>
+<li><a class="reference internal" href="#implementacja-kod-x86" id="toc-entry-4">Implementacja (kod x86)</a></li>
+<li><a class="reference internal" href="#implementacja-mmx" id="toc-entry-5">Implementacja (MMX)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#podsumowanie" id="toc-entry-6">Podsumowanie</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Dokonując różnych przekształceń bitmap (np. efekt soczewki, czy
+teksturowanie wielokątów) otrzymuje się współrzędne bitmapy o
+wartościach ułamkowych <span class="math">(<i>x</i>.<i>u</i>, <i>y</i>.<i>v</i>)</span>. Można oczywiście brać
+pod uwagę tylko części całkowite i pobierać piksel z bitmapy o
+współrzędnych <span class="math">(<i>x</i>, <i>y</i>)</span>, ale wówczas efekt nie będzie
+najlepszy.</p>
+<p>Rysunek przedstawia pozycję piksela o współrzędnych rzeczywistych
+<span class="math">P = (<i>x</i>.<i>u</i>, <i>y</i>.<i>v</i>)</span>; współrzędna fizycznego piksela określają
+jego środek.</p>
+<img alt="Piksel o współrzędnych rzeczywistych na siatce pikseli" class="align-center" src="img/bilinear_pixel.png" />
+<p>Filtrowanie bilinearne polega na policzeniu jasności piksela, jako sumy
+ważonej sąsiednich pikseli. Waga danego piksela jest uzależniona od
+stopnia pokrycia przez filtrowany piksel P. Wymiary piksela można
+ustalić dowolnie, ja przyjmuję że bok piksela ma długość 1.</p>
+<p>Aby uprościć zapis wprowadźmy oznaczenia:</p>
+<ul class="simple">
+<li><strong>P</strong> &mdash; piksel <span class="math">(<i>x</i>.<i>u</i>, <i>y</i>.<i>v</i>)</span></li>
+<li><strong>A</strong> &mdash; piksel <span class="math">(<i>x</i>, <i>y</i>)</span></li>
+<li><strong>B</strong> &mdash; piksel <span class="math">(<i>x</i> + 1, <i>y</i>)</span></li>
+<li><strong>C</strong> &mdash; piksel <span class="math">(<i>x</i>, <i>y</i> + 1)</span></li>
+<li><strong>D</strong> &mdash; piksel <span class="math">(<i>x</i> + 1, <i>y</i> + 1)</span></li>
+</ul>
+<p>wówczas stopień pokrycia poszczególnych pikseli wyniesie:</p>
+<ul class="simple">
+<li><strong>A</strong> &mdash; <span class="math">(1 &minus; <i>u</i>) &sdot; (1 &minus; <i>v</i>)</span></li>
+<li><strong>B</strong> &mdash; <span class="math"><i>u</i> &sdot; (1 &minus; <i>v</i>)</span></li>
+<li><strong>C</strong> &mdash; <span class="math">(1 &minus; <i>u</i>) &sdot; <i>v</i></span></li>
+<li><strong>D</strong> &mdash; <span class="math"><i>u</i> &sdot; <i>v</i></span></li>
+</ul>
+</div>
+<div class="section" id="filtrowanie">
+<h1>Filtrowanie</h1>
+<p>Kolor piksela P wyznaczany jest z zależności:</p>
+<p><span class="cmath">P = A &sdot; (1 &minus; <i>u</i>) &sdot; (1 &minus; <i>v</i>) + B &sdot; <i>u</i> &sdot; (1 &minus; <i>v</i>) + C &sdot; (1 &minus; <i>u</i>) &sdot; <i>v</i> + D &sdot; <i>u</i> &sdot; <i>v</i></span></p>
+<p>Podstawową wadą, przy bezpośredniej implementacji tego wzoru, jest ilość
+mnożeń &mdash; aż 8 na jeden piksel. Wyciągając <span class="math">(1 &minus; <i>v</i>)</span> i
+<span class="math"><i>v</i></span> przed nawiasy równanie uprości się do postaci:</p>
+<p><span class="cmath">P = (1 &minus; <i>v</i>)[A &sdot; (1 &minus; <i>u</i>) + B &sdot; <i>u</i>] + <i>v</i>[C &sdot; (1 &minus; <i>u</i>) + D &sdot; <i>u</i>]</span></p>
+<p>Wyrażenia w nawiasach kwadratowych nie zależą już od zmiennej
+<span class="math"><i>v</i></span> &mdash; można liczyć je niezależnie. Uproszczenie tych
+wyrażeń, tak by wymagane było tylko jednego mnożenie, jest pokazane poniżej.</p>
+<p><span class="cmath"><i>temp</i>1 = A &sdot; (1 &minus; <i>u</i>) + B &sdot; <i>u</i> = A + <i>u</i> &sdot; (B &minus; A)</span></p>
+<p>W praktyce filtrowanie będzie przebiegało według schematu:</p>
+<pre class="literal-block">
+temp1 = A + u*(B-A);
+temp2 = C + u*(D-C);
+    P = temp1 + v*(temp2-temp1)
+</pre>
+<div class="section" id="implementacja-w-c">
+<h2>Implementacja (w C)</h2>
+<p>Zakładam, że zarówno <tt class="docutils literal">u</tt> i <tt class="docutils literal">v</tt> będą w przedziale 0..255 (<em>fixed
+point</em> 8:8). Pochłaniającą najwięcej czasu czynnością jest mnożenie, wobec czego
+można tablicować wyniki mnożenia.</p>
+<pre class="literal-block">
+int mul_tbl[256][256];
+
+for (i=0; i&lt;256; i++)
+  for (j=0; j&lt;256; j++)
+    mul_tbl[i][j] = i*j;
+//...
+
+int u,v;
+
+int a,b,c,d;
+int temp, temp;
+
+// ...
+temp = b-a;
+if (temp &lt; 0) a -= mul_tbl[u][-temp]
+         else a += mul_tbl[u][temp]
+
+temp = d-c;
+if (temp &lt; 0) c -= mul_tbl[u][-temp]
+         else c += mul_tbl[u][temp]
+
+a &gt;&gt;= 8; // dzielenie przez 256
+c &gt;&gt;= 8; //
+
+temp = c-a;
+if (temp &lt; 0) a -= mul_tbl[u][-temp]
+         else a += mul_tbl[u][temp]
+
+a &gt;&gt;= 8; // wynik jest w a
+</pre>
+<p>Czynnikiem rzutującym na prędkość są instrukcje warunkowe, można
+rozszerzyć zakres tablicy, by je pominąć.</p>
+<pre class="literal-block">
+int mul_tbl[256][512];
+
+for (i=0; i&lt;256; i++)
+  for (j=-255; j&lt;256; j++)
+    mul_tbl[i][255+j] = i*j;
+// ...
+
+a += mul_tbl[b-a+255];
+c += mul_tbl[d-c+255];
+
+a &gt;&gt;= 8;
+c &gt;&gt;= 8;
+
+a += mul_tbl[c-a+255];
+
+a &gt;&gt;= 8;
+</pre>
+<p>W obu przypadkach, podczas generacji tablicy można wynik od razu dzielić
+przez 256, uniknie się wówczas trzech przesunięć bitowych.</p>
+<p>Podstawową wadą przedstawionych metod są dość duże tablice (minimum 130kB),
+co praktycznie gwarantuje to problemy z pamięcią podręczną, tzn. dużymi
+opóźnieniami spowodowanymi nietrafieniami w cache.</p>
+</div>
+<div class="section" id="implementacja-kod-x86">
+<h2>Implementacja (kod x86)</h2>
+<p>Kodując algorytmy przedstawione w poprzednim punkcie podstawowym problemem
+jest odejmowanie &mdash; niestety trzeba rozszerzać zakresy liczb. Poniżej
+przykładowy kod dla ostatniej metody.</p>
+<pre class="literal-block">
+; edi -&gt; mul_tbl[u][0]
+; esi -&gt; mul_tbl[v][0]
+;
+
+movzx eax, byte [pixelA]
+movzx ebx, byte [pixelB]
+movzx ecx, byte [pixelC]
+movzx edx, byte [pixelD]
+
+sub ebx, eax
+sub edx, ecx
+
+add ebx, 255
+add edx, 255
+
+add eax, [edi + ebx*4] ; ebx*4 bo sizeof(mul_tbl[0][0]) == 4
+add ecx, [edi + ebx*4] ; gdyby rozmiar ten był mniejszy mielibyśmy kolejne
+                       ; kłopoty
+
+sub ecx, eax
+add ecx, 255
+
+add eax, [esi + ecx*4]
+</pre>
+<p>W pierwszych procesora Pentium wykonanie rozkazu <tt class="docutils literal">movzx</tt> zajmuje 4
+cykle, dodatkowo dochodzą zatrzymania spowodowane AGI. Kod i bez tego
+będzie niezbyt szybki. Można zaimplementować, kosztem liczby odwołań do
+pamięci, pierwszą postać wzoru. Nie będzie natomiast koniecznym
+rozszerzanie zakresu.</p>
+<p><span class="cmath"><i>a</i> &sdot; (1 &minus; <i>u</i>) + <i>b</i> &sdot; <i>u</i></span></p>
+<p>Dla <tt class="docutils literal">u</tt> i <tt class="docutils literal">v</tt> zapisanych w fixed point wyrażenie
+<span class="cmath">1 &minus; <i>u</i></span> przyjmie postać <tt class="docutils literal"><span class="pre">256-u</span> == not u</tt>.</p>
+<pre class="literal-block">
+; założenia:
+; rejestry eax, ebx, ecx, i edx zostały wyzerowane.
+;
+; byte mul_tbl[256][256];
+;
+; inicjacja mul_tbl:
+; for (i=0...)
+;   for (j=0...) mul_tbl[i][j] = (i*j) &gt;&gt; 8;
+;
+
+mov ah, [pixelA]               ; ładując do starszego bajtu
+mov bh, [pixelB]               ; wynik jest automatycznie mnożony
+mov ch, [pixelC]               ; przez 256
+mov dh, [pixelD]               ;
+
+mov edi, [u]                   ; edi = u
+mov esi, edi                   ;
+xor esi, 0x000000ff            ; esi = not u
+
+mov  ah, [esi + mul_tbl + eax] ;
+add  ah, [edi + mul_tbl + ebx] ; al = (255-u)*al + u*bl
+
+mov  ch, [esi + mul_tbl + ecx] ;
+add  ch, [edi + mul_tbl + edx] ; cl = (255-u)*cl + u*dl
+
+mov edi, [v]                   ; edi = v
+mov esi, edi                   ;
+xor esi, 0x000000ff            ; esi = not v
+
+mov  ah, [esi + mul_tbl + eax]
+add  ah, [esi + mul_tbl + ecx]
+</pre>
+<p>Kod się nieco uprościł, ale zapewniam, że również teraz będą problemy z
+cache &mdash; nawet większe niż w poprzednim przypadku.</p>
+<p>Słabą stroną starszych Pentiumów jest powolność mnożenia, teraz na
+szczęście jest inaczej.</p>
+<pre class="literal-block">
+; cl - u
+; bl - v
+
+mov  al, cl   ;
+xor  al, 0xff ; al  = not u
+shl ecx, 16
+mov  cl, al   ; ecx = |  0  |  u  |  0  |not u|
+
+mov  al, bl   ;
+xor  al, 0xff ; al  = not v
+shl ebx, 16
+mov  bl, al   ; ebx = |  0  |  v  |  0  |not v|
+
+; ...
+; w pętli
+
+xor eax, eax      ;
+mov  al, [pixelB] ;
+shl eax, 16       ;
+mov  al, [pixelC] ; eax = |  0  |pixB|  0  |pixA|
+
+mul ecx           ; eax = | pixB * u |pixA*not u|
+                  ; interesujące są tylko starsze bajty cząstkowych wyników
+                  ; de facto wynik podzielony przez 256
+                  ; eax = |hiB|loB|hiA|loA|
+
+mov  al, ah       ; eax = |hiB|loB|hiA|hiA|
+rol eax, 8        ; eax = |loB|hiA|hiA|hiB|
+
+add  al, ah       ; eax = |.......|...|hiA+hiB|
+
+; powyższy kod należy powtórzyć jeszcze 2 razy: by uzyskać hiC+hiD,
+; oraz ostateczny wynik.
+</pre>
+</div>
+<div class="section" id="implementacja-mmx">
+<h2>Implementacja (MMX)</h2>
+<p>W zestawie instrukcji MMX rozkaz <tt class="docutils literal">pmaddwd</tt> który <strong>idealnie</strong> nadaje
+się do użycia przy filtrowaniu bilinearnym.</p>
+<pre class="literal-block">
+; wejście: mm0 = |  d  |  c  |  b  |  a  |
+;          mm1 = |  u  | 1-u |  u  | 1-u |
+;          mm2 = |  0  |  0  |  v  | 1-v |
+
+
+pmaddwd mm0, mm1 ; mm0 = |d*u + c*(1-u)|b*u + a*(1-u)|
+                 ;       ale wyniki mnożeń są &lt; od 0x10000
+                 ;     = |   0  |  d+c |  0   |  b+a |
+
+movq    mm3, mm0 ;
+psrlq   mm3, 16  ; mm3 = |   0  |   0  |  d+c |  0   |
+por     mm0, mm3 ; mm0 = |   0  |   0  |  d+c |  b+a |
+
+psrlw   mm0, 8   ; podziel przez 256
+
+paddw   mm0, mm2 ; mm0 = |   0  |   0  |  0   |dc*v+ba*(1-v)|
+psrlw   mm0, 8
+</pre>
+</div>
+</div>
+<div class="section" id="podsumowanie">
+<h1>Podsumowanie</h1>
+<p>Wiem, że nie wszystkie metody zaprezentowane metody są efektywne,
+chciałem pokazać różne rozwiązania tego problemu bo jest on dość istotny
+--- wszak nikt nie lubi tzw. pikselizacji.</p>
+<p>Używając tablic warto zastanowić się nad ich organizacją &mdash; polecam
+lekturę dokumentu Intela <em>Optimization Manual</em> (nr 242816),
+szczególnie rozdział 3.5 <em>Data arrangement for improved cache
+performance</em>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/bilinear.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+</html>

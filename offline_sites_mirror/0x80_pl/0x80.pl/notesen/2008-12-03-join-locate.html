@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2008-12-03-join-locate.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:25 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Join locate databases</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="join-locate-databases">
+<h1 class="title">Join locate databases</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2008-12-03</td>
+</tr>
+</tbody>
+</table>
+<p>man locatedb says: <em>&quot;Databases can not be concatenated together, even if
+the first (dummy) entry is trimmed from all but the first database. This
+is because the offset-differential count in the first entry of the
+second and following databases will be wrong&quot;.</em></p>
+<p>It's true if we follow man authors &mdash; but concatenation is possible
+without reencoding any database.</p>
+<p>For details about the compression scheme algorithm please refer to
+<a class="reference external" href="http://en.wikipedia.org/wiki/Incremental_coding">Wikipedia</a>, the file format is described in
+<tt class="docutils literal">man locatedb</tt>. In short: compression is based on common prefix
+elimination in a sequence of strings &mdash; when a string share prefix
+with the previous string, we store pair (length of prefix, rest of string).
+For example if previous string is &quot;aaabbb&quot; and current is &quot;aaabcd&quot;, then
+output is (4, &quot;cd&quot;), where 4 is length of common prefix: &quot;aaab&quot;. Locate
+files also store differences between prefixes lengths; for example (4,
+&quot;...&quot;), (5, &quot;...&quot;), (2, &quot;...&quot;) is encoded as (4, &quot;...&quot;), (5-4=1, &quot;...&quot;),
+(2-5=-3, &quot;...&quot;) &mdash; this is the reason why we can't simply join database
+files.</p>
+<p>However joining locate files isn't very complicated and, as I previously
+stated, do not require reencoding databases. We have to set diff value
+for the first entry of an appended file to negative value of the length of common
+prefix for the last entry of first file.</p>
+<p>For example when the first file contains three entries (0, &quot;...&quot;), (10,
+&quot;...&quot;), (-2, &quot;...&quot;), then last length is 0+10-2 = 8. The second file
+contains (0, &quot;...&quot;), (5, &quot;...&quot;). After join: (0, &quot;...&quot;), (10, &quot;...&quot;),
+(-2, &quot;...&quot;), (<strong>-8</strong>, &quot;...&quot;), (5, &quot;...&quot;).</p>
+<p>Some time ago I wrote python <a class="reference external" href="https://github.com/WojciechMula/locatedb">utility/library</a>, and now extended it to
+perform this task. Implementation details:</p>
+<ol class="arabic simple">
+<li>To obtain the length L of common prefix of the last entry, the first database is
+decoded in a dry-mode (no results are saved).</li>
+<li>Then the first file is simply copied to an output file.</li>
+<li>Before copy the second database skip first dummy-entry (diff=0,
+string=&quot;LOCATE02&quot;) and skip diff=0 of second entry &mdash; this need simple
+file seek. Then save diff=-L, and finally copy rest of the second database
+file.</li>
+</ol>
+<p>I've tested joined database with native Linux locate (under Cygwin) and
+didn't notice any problems.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2008-12-03-join-locate.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:25 GMT -->
+</html>

@@ -1,0 +1,73 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/vpbroadcast.php?f=vpbroadcastq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:35:38 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/vpbroadcast.php?f=vpbroadcastq" />
+<link rel="alternate" hreflang="en" href="vpbroadcaste2c1.html?f=vpbroadcastq" />
+    <title>vpbroadcastq</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>VPBROADCASTQ - Packed BROADCAST Qword</h2>
+VPBROADCASTQ <span class="operand">xmm1, xmm2/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2<br>
+<span class="intr">__m128i _mm_broadcastq_epi64(__m128i a)</span><br>
+<span class="intr">__m128i _mm_set1_epi64x(__int64 a)</span><br>
+VPBROADCASTQ <span class="operand">xmm1{k1}{z}, xmm2/r64#/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m128i _mm_mask_broadcastq_epi64(__m128i s, __mmask8 k, __m128i a)</span><br>
+<span class="intr">__m128i _mm_maskz_broadcastq_epi64(__mmask8 k, __m128i a)</span><br>
+<span class="intr">__m128i _mm_mask_set1_epi64(__m128i s, __mmask8 k, __int64 a)</span><br>
+<span class="intr">__m128i _mm_maskz_set1_epi64(__mmask8 k, __int64 a)</span><br>
+<div style="height: 2px;"></div><img src="broadcast_qword_1283860.png?v=1" /><br />
+<div style="height: 30px"></div>
+VPBROADCASTQ <span class="operand">ymm1, xmm2/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2<br>
+<span class="intr">__m256i _mm256_broadcastq_epi64(__m128i a)</span><br>
+<span class="intr">__m256i _mm256_set1_epi64x(__int64 a)</span><br>
+VPBROADCASTQ <span class="operand">ymm1{k1}{z}, xmm2/r64#/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m256i _mm256_mask_broadcastq_epi64(__m256i s, __mmask8 k, __m128i a)</span><br>
+<span class="intr">__m256i _mm256_maskz_broadcastq_epi64(__mmask8 k, __m128i a)</span><br>
+<span class="intr">__m256i _mm256_mask_set1_epi64(__m256i s, __mmask8 k, __int64 a)</span><br>
+<span class="intr">__m256i _mm256_maskz_set1_epi64(__mmask8 k, __int64 a)</span><br>
+<div style="height: 2px;"></div><img src="broadcast_qword_2563860.png?v=1" /><br />
+<div style="height: 30px"></div>
+VPBROADCASTQ <span class="operand">zmm1{k1}{z}, xmm2/r64#/m64</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br>
+<span class="intr">__m512i _mm512_broadcastq_epi64(__m128i a)</span><br>
+<span class="intr">__m512i _mm512_mask_broadcastq_epi64(__m512i s, __mmask8 k, __m128i a)</span><br>
+<span class="intr">__m512i _mm512_maskz_broadcastq_epi64(__mmask8 k, __m128i a)</span><br>
+<span class="intr">__m512i _mm512_set1_epi64(__int64 a)</span><br>
+<span class="intr">__m512i _mm512_mask_set1_epi64(__m512i s, __mmask8 k, __int64 a)</span><br>
+<span class="intr">__m512i _mm512_maskz_set1_epi64(__mmask8 k, __int64 a)</span><br>
+<div style="height: 2px;"></div><img src="broadcast_qword_5123860.png?v=1" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vpbroadcastq" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/vpbroadcast.php?f=vpbroadcastq by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:35:42 GMT -->
+</html>

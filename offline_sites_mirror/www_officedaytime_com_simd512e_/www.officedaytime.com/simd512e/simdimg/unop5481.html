@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unop.php?f=pabsb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:32 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unop.php?f=pabsb" />
+<link rel="alternate" hreflang="en" href="unop5481.html?f=pabsb" />
+<title>pabsb</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+</style>
+</head>
+
+<body>
+<h2>PABSB - Packed ABSolute Byte<br /></h2>
+PABSB<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(SS3<br />
+<span class="intr">__m128i _mm_abs_epi8(__m128i a)</span><br />
+VPABSB<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128i _mm_abs_epi8(__m128i a)</span><br />
+VPABSB<span class="operand"> xmm1{k1}{z}, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL<br />
+<span class="intr">__m128i _mm_mask_abs_epi8(__m128i s, __mmask16 k, __m128i a)</span><br />
+<span class="intr">__m128i _mm_maskz_abs_epi8(__mmask16 k, __m128i a)</span><br />
+<div style="height: 2px;"></div><img src="unop_byte_1.png" /><br />
+<span style="padding-left: 110px">For each BYTE, set the abosolute value of (1) to (2).</span><br />
+<div style="height: 30px"></div>
+VPABSB<span class="operand"> ymm1, ymm2/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2<br />
+<span class="intr">__m256i _mm256_abs_epi8(__m256i a)</span><br />
+VPABSB<span class="operand"> ymm1{k1}{z}, ymm2/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL<br />
+<span class="intr">__m256i _mm256_mask_abs_epi8(__m256i s, __mmask32 k, __m256i a)</span><br />
+<span class="intr">__m256i _mm256_maskz_abs_epi8(__mmask32 k, __m256i a)</span><br />
+<div style="height: 2px;"></div><img src="unop_byte_2.png" /><br />
+<span style="padding-left: 110px">For each BYTE, set the abosolute value of (1) to (2).</span><br />
+<div style="height: 30px"></div>
+VPABSB<span class="operand"> zmm1{k1}{z}, zmm2/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW<br />
+<span class="intr">__m512i _mm512_abs_epi8(__m512i a)</span><br />
+<span class="intr">__m512i _mm512_mask_abs_epi8(__m512i s, __mmask64 k, __m512i a)</span><br />
+<span class="intr">__m512i _mm512_maskz_abs_epi8(__mmask64 k, __m512i a)</span><br />
+<div style="height: 2px;"></div><img src="unop_byte_3.png" /><br />
+<span style="padding-left: 110px">For each BYTE, set the abosolute value of (1) to (2).</span><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=pabsb" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unop.php?f=pabsb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:35 GMT -->
+</html>

@@ -1,0 +1,88 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/shift.php?f=psrlw by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:15 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/shift.php?f=psrlw" />
+<link rel="alternate" hreflang="en" href="shiftbe9d.html?f=psrlw" />
+    <title>psrlw</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>PSRLW - Packed Shift Right Logical Word<br /></h2>
+PSRLW <span class="operand"> xmm1, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by imm8.<br />
+<span class="intr">__m128i _mm_srli_epi16(__m128i m, int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+PSRLW <span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of xmm2/m128.<br />
+<span class="intr">__m128i _mm_srl_epi16(__m128i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count</span><br />
+<div style="height: 2px;"></div><img src="shift_right_word_sse.png" /><br />
+<span style="padding-left: 110px">For each WORD, shift the bits to the right by the specified number of bits.  Emptied upper bits are zeroed.</span><br />
+<div style="height: 30px"></div>
+VPSRLW <span class="operand"> xmm1, xmm2, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by imm8.<br />
+<span class="intr">__m128i _mm_srli_epi16(__m128i m, int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+VPSRLW <span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of xmm3/m128.<br />
+<span class="intr">__m128i _mm_srl_epi16(__m128i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+VPSRLW <span class="operand"> xmm1{k1}{z}, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by imm8.<br />
+<span class="intr">__m128i _mm_mask_srli_epi16(__m128i s, __mmask8 k, __m128i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+<span class="intr">__m128i _mm_maskz_srli_epi16(__mmask8 k, __m128i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+VPSRLW <span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of xmm3/m128.<br />
+<span class="intr">__m128i _mm_mask_srl_epi16(__m128i s, __mmask8 k, __m128i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<span class="intr">__m128i _mm_maskz_srl_epi16(__mmask8 k, __m128i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<div style="height: 2px;"></div><img src="shift_right_word_128.png" /><br />
+<span style="padding-left: 110px">For each WORD, shift the bits to the right by the specified number of bits.  Emptied upper bits are zeroed.</span><br />
+<div style="height: 30px"></div>
+VPSRLW <span class="operand"> ymm1, ymm2, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by imm8.<br />
+<span class="intr">__m256i _mm256_srli_epi16(__m256i m, int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+VPSRLW <span class="operand"> ymm1, ymm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of xmm3/m128.<br />
+<span class="intr">__m256i _mm256_srl_epi16(__m256i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+VPSRLW <span class="operand"> ymm1{k1}{z}, ymm2/m256, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by imm8.<br />
+<span class="intr">__m256i _mm256_mask_srli_epi16(__m256i s, __mmask16 k, __m256i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+<span class="intr">__m256i _mm256_maskz_srli_epi16(__mmask16 k, __m256i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+VPSRLW <span class="operand"> ymm1{k1}{z}, ymm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of xmm3/m128.<br />
+<span class="intr">__m256i _mm256_mask_srl_epi16(__m256i s, __mmask16 k, __m256i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<span class="intr">__m256i _mm256_maskz_srl_epi16(__mmask16 k, __m256i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<div style="height: 2px;"></div><img src="shift_right_word_256.png" /><br />
+<span style="padding-left: 110px">For each WORD, shift the bits to the right by the specified number of bits.  Emptied upper bits are zeroed.</span><br />
+<div style="height: 30px"></div>
+VPSRLW <span class="operand"> zmm1{k1}{z}, zmm2/m512, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by imm8.<br />
+<span class="intr">__m512i _mm512_srli_epi16(__m512i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+<span class="intr">__m512i _mm512_mask_srli_epi16(__m512i s, __mmask32 k, __m512i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+<span class="intr">__m512i _mm512_maskz_srli_epi16(__mmask32 k, __m512i m, unsigned int count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by count.</span><br />
+VPSRLW <span class="operand"> zmm1{k1}{z}, zmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of xmm3/m128.<br />
+<span class="intr">__m512i _mm512_srl_epi16(__m512i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<span class="intr">__m512i _mm512_mask_srl_epi16(__m512i s, __mmask32 k, __m512i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<span class="intr">__m512i _mm512_maskz_srl_epi16(__mmask32 k, __m512i m, __m128i count)&nbsp;&nbsp;&nbsp;&nbsp;the number of bits is specified by the lower QWORD of count.</span><br />
+<div style="height: 2px;"></div><img src="shift_right_word_512.png" /><br />
+<span style="padding-left: 110px">For each WORD, shift the bits to the right by the specified number of bits.  Emptied upper bits are zeroed.</span><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=psrlw" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/shift.php?f=psrlw by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:19 GMT -->
+</html>

@@ -1,0 +1,647 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2024-11-09-riscv-vector-extension.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:29 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>RISC-V Vector Extension overview</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="risc-v-vector-extension-overview">
+<h1 class="title">RISC-V Vector Extension overview</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2024-11-09</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#the-big-picture" id="toc-entry-2">The big picture</a><ul>
+<li><a class="reference internal" href="#specification" id="toc-entry-3">Specification</a></li>
+<li><a class="reference internal" href="#data-types" id="toc-entry-4">Data types</a></li>
+<li><a class="reference internal" href="#instruction-encoding" id="toc-entry-5">Instruction encoding</a></li>
+<li><a class="reference internal" href="#register-grouping-lmul" id="toc-entry-6">Register grouping (LMUL)</a></li>
+<li><a class="reference internal" href="#vector-fractions-lmul-1" id="toc-entry-7">Vector fractions (LMUL &lt; 1)</a></li>
+<li><a class="reference internal" href="#stripmining-or-dynamic-vector-length" id="toc-entry-8">Stripmining (or dynamic vector length)</a></li>
+<li><a class="reference internal" href="#vstart-register" id="toc-entry-9">Vstart register</a></li>
+<li><a class="reference internal" href="#masks" id="toc-entry-10">Masks</a></li>
+<li><a class="reference internal" href="#tail-mask-agnostic-undisturbed-policies" id="toc-entry-11">Tail/mask agnostic/undisturbed policies</a></li>
+<li><a class="reference internal" href="#vector-register-size" id="toc-entry-12">Vector register size</a></li>
+<li><a class="reference internal" href="#vector-instruction-arguments" id="toc-entry-13">Vector instruction arguments</a></li>
+<li><a class="reference internal" href="#memory-operations" id="toc-entry-14">Memory operations</a></li>
+<li><a class="reference internal" href="#abi" id="toc-entry-15">ABI</a></li>
+<li><a class="reference internal" href="#intrinsic-functions" id="toc-entry-16">Intrinsic functions</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#isa-highlights" id="toc-entry-17">ISA highlights</a><ul>
+<li><a class="reference internal" href="#upcasting-downcasting-vectors" id="toc-entry-18">Upcasting/downcasting vectors</a></li>
+<li><a class="reference internal" href="#reduction-or-horizontal-instructions" id="toc-entry-19">Reduction or horizontal instructions</a></li>
+<li><a class="reference internal" href="#mask-instructions" id="toc-entry-20">Mask instructions</a></li>
+<li><a class="reference internal" href="#vector-iota" id="toc-entry-21">Vector iota</a></li>
+<li><a class="reference internal" href="#integer-division" id="toc-entry-22">Integer division</a></li>
+<li><a class="reference internal" href="#multi-word-arithmetic" id="toc-entry-23">Multi-word arithmetic</a></li>
+<li><a class="reference internal" href="#binary-operations" id="toc-entry-24">Binary operations</a></li>
+<li><a class="reference internal" href="#integer-multiply-add" id="toc-entry-25">Integer multiply-add</a></li>
+<li><a class="reference internal" href="#vector-slide" id="toc-entry-26">Vector slide</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>The goal of this text is to provide an overview of <a class="reference external" href="https://github.com/riscv/riscv-v-spec/tree/master">RISC-V Vector extension</a>
+(<strong>RVV</strong>), and compare &mdash; when applicable &mdash; with widespread SIMD vector
+instruction sets: <a class="reference external" href="http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions">SSE</a>, <a class="reference external" href="http://en.wikipedia.org/wiki/Advanced_Vector_Extensions">AVX</a>,
+<a class="reference external" href="http://en.wikipedia.org/wiki/AVX-512">AVX-512</a>, <a class="reference external" href="http://en.wikipedia.org/wiki/ARM_architecture_family#Advanced_SIMD_(NEON)">ARM Neon</a>
+and <a class="reference external" href="http://en.wikipedia.org/wiki/AArch64#Scalable_Vector_Extension_(SVE)">SVE</a>.</p>
+<p>The RISC-V architecture defines four basic modes (32-bit, 32-bit for embedded
+systems, 64-bit, 128-bit) and <a class="reference external" href="https://en.wikichip.org/wiki/risc-v/standard_extensions">several extensions</a>. For instance, the support for
+single precision floating-point numbers is added by the F extension.</p>
+<p>The vector extension is quite a huge addition. It adds 302 instructions plus
+four highly configurable load &amp; store operations.  The RVV instructions can be
+split into three groups:</p>
+<ul class="simple">
+<li>related to masks,</li>
+<li>integer operations,</li>
+<li>and floating-point operations.</li>
+</ul>
+<p>When a CPU does not support floating-point instructions, it still may provide
+the integer subset.</p>
+<p>RVV introduces 32 vector registers <tt class="docutils literal">v0</tt>, ..., <tt class="docutils literal">v31</tt>, a <strong>concept</strong> of mask
+(similar to AVX-512), and nine control registers.</p>
+<p>Unlike other SIMD ISAs, RVV does not explicitly define size of vector register.
+It is <strong>an implementation parameter</strong> (called <tt class="docutils literal">VLEN</tt>): the size has to be
+a power of two, but not greater than <span class="math">2<sup>16</sup></span> bits. Likewise, the maximum vector
+element size is <strong>an implementation parameter</strong> (called <tt class="docutils literal">ELEN</tt>, also a power
+of two and not less than 8 bits). For example, a 32-bit CPU might not support
+vectors of 64-bit values.</p>
+<p>But generally, we may expect that a decent 64-bit CPU would support elements
+having 8, 16, 32 or 64-bit, interpreted as integers or floats.</p>
+</div>
+<div class="section" id="the-big-picture">
+<h1>The big picture</h1>
+<p>In this section we are discussing generic concepts of RVV.</p>
+<div class="section" id="specification">
+<h2>Specification</h2>
+<p>The specification is given three-fold:</p>
+<ol class="arabic simple">
+<li>There's a plain <a class="reference external" href="https://riscv.org/technical/specifications/">English document</a>, describing RVV fundamentals as well
+as instructions. The document is <em>sparse</em>, and the instruction description
+is not very detailed, but...</li>
+<li>But the RISC-V ISA &mdash; not only RVV! &mdash; is described in SAIL, the language
+designed for ISAs specification. Its syntax resembles Rust, it is
+rather friendly. Yes, there is <a class="reference external" href="https://github.com/riscv/sail-riscv/tree/master">The Formal Specification</a>. No more psuedo-code
+meaning whatever an author had in mind at the moment of writing.</li>
+<li>The RISC-V project provides also <a class="reference external" href="https://github.com/riscv-software-src/riscv-isa-sim">Spike</a>, an ISA-level emulator. One can
+compile code with the favourite compiler and run the binary! The emulator
+is written in C++, and most instructions are defined with some helper macros.
+Although, it's quite easy to understand what the given opcode does, if it
+is needed. Spike is actively maintained and constantly gains support for more
+and more ISA extensions.</li>
+</ol>
+</div>
+<div class="section" id="data-types">
+<h2>Data types</h2>
+<p>In the RVV integer operations accept 8-, 16-, 32- and 64-bit numbers,
+both signed and unsigned. This makes the ISA very regular &mdash; the given
+operation is supported for all possible vector element types. A bright
+example are bit shifts, that in other SIMD ISAs usually exist for a
+limited sub-set of integer types. In particular, SSE, AVX and AVX-512
+have no support for 8-bit shifts.</p>
+<p>Likewise, floating-point operations can be done on single precision
+(32 bits), double precision (64 bits), as well as half-precision numbers
+(16 bits).</p>
+<p>While integer instructions are mandatory, floating point support depends on
+core ISA extensions present in the given core (the F for single precision, D
+for double precision, and <a class="reference external" href="https://github.com/riscv/riscv-isa-manual/blob/main/src/zfa.adoc">Zfh</a> for half-precision).</p>
+</div>
+<div class="section" id="instruction-encoding">
+<h2>Instruction encoding</h2>
+<p>A unique trait of RVV is encoding of instructions. An operation opcode does not
+encode the bit-width of a vector element.  The element width is <strong>a global state</strong>.
+It is called <strong>selected element width</strong> (SEW), and the term SEW is used throughout
+the RVV specification.</p>
+<p>The SEW is set by the dedicated instruction <tt class="docutils literal">vsetvl</tt>. The setting is applied
+to all subsequent instructions, until another <tt class="docutils literal">vsetvl</tt>. (Fast forward: <tt class="docutils literal">vsetvl</tt>
+sets also other aspects of vector processing.)</p>
+<p>Let's look at the dissasembled section of a simple program. The third parameter
+of <tt class="docutils literal">vsetvli</tt> is SEW: <tt class="docutils literal">e8</tt> means 8 bits, <tt class="docutils literal">e16</tt> &mdash; 16 bits, <tt class="docutils literal">e32</tt> &mdash; 32
+bits, and <tt class="docutils literal">e64</tt> &mdash; 64 bits. The integer add operation (<tt class="docutils literal">vadd.vv</tt>) is encoded
+exactly in the same way, as 0x02110057.</p>
+<pre class="code objdump literal-block">
+<span class="mh">0000000000000000</span><span class="w"> </span><span class="p">&lt;</span><span class="nf">.text</span><span class="p">&gt;:</span><span class="w">
+</span><span class="x"># add vectors of 8-bit integers
+   0:   0c007057                vsetvli zero,zero,e8,m1,ta,ma
+   4:   02110057                vadd.vv v0,v1,v2
+</span><span class="w">
+</span><span class="x"># add vectors of 16-bit integers
+   8:   0c807057                vsetvli zero,zero,e16,m1,ta,ma
+   c:   02110057                vadd.vv v0,v1,v2
+</span><span class="w">
+</span><span class="x"># add vectors of 32-bit integers
+  10:   0d007057                vsetvli zero,zero,e32,m1,ta,ma
+  14:   02110057                vadd.vv v0,v1,v2
+</span><span class="w">
+</span><span class="x"># add vectors of 64-bit integers
+  18:   0d807057                vsetvli zero,zero,e64,m1,ta,ma
+  1c:   02110057                vadd.vv v0,v1,v2</span>
+</pre>
+<p>This is completely different from the existing ISAs, that use separate
+encoding for each supported vector element width.</p>
+<p>However, in cases when we need to operate on different elements widths
+within a single procedure, we need to switch modes, which makes things
+a little more complex.</p>
+<p>It forces a compiler to track the current vector settings; the reality
+is that compilers targeting RVV have a separate pass inserting <tt class="docutils literal">vsetvli</tt>.</p>
+</div>
+<div class="section" id="register-grouping-lmul">
+<h2>Register grouping (LMUL)</h2>
+<p>The vector engine can be setup (using the mentioned <tt class="docutils literal">vsetvl</tt> instruction) to
+use <strong>a group</strong> of registers instead of a single register. A similar solution
+exists in ARM SIMD ISAs.</p>
+<p>A group may contain 2, 4 or 8 registers; the group size is called <tt class="docutils literal">LMUL</tt>.
+The combination of <tt class="docutils literal">LMUL</tt> and <tt class="docutils literal">VLEN</tt> yields the parameter <tt class="docutils literal">VLENMAX</tt>.</p>
+<p>When LMUL &gt; 1, then a program is allowed to use vector register having index
+of multiply of LMUL. For instance, if we use <tt class="docutils literal">LMUL = 8</tt>, then the allowed
+registers are only <tt class="docutils literal">v0</tt>, <tt class="docutils literal">v8</tt>, <tt class="docutils literal">v16</tt> and <tt class="docutils literal">v24</tt>, using anything else
+results in a trap (AKA exception).</p>
+<pre class="literal-block">
+       ┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+LMUL=1 │ v0│ v1│ v2│ v3│ v4│ v5│ v6│ v7│ v8│ v9│v10│v11│v12│v13│v14│v15│v16│v17│v18│v19│v20│v21│v22│v23│v24│v25│v26│v27│v28│v29│v30│v31│
+       └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+       ┌───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┬───────┐
+LMUL=2 │   v0  │   v2  │   v4  │   v6  │   v8  │  v10  │  v12  │  v14  │  v16  │  v18  │  v20  │  v22  │  v24  │  v26  │  v28  │  v30  │
+       └───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┴───────┘
+       ┌───────────────┬───────────────┬───────────────┬───────────────┬───────────────┬───────────────┬───────────────┬───────────────┐
+LMUL=4 │       v0      │       v4      │       v8      │      v12      │      v16      │      v20      │      v24      │      v28      │
+       └───────────────┴───────────────┴───────────────┴───────────────┴───────────────┴───────────────┴───────────────┴───────────────┘
+       ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┐
+LMUL=8 │               v0              │               v8              │              v16              │              v24              │
+       └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┘
+</pre>
+<p>Without digging much into assembly details, this code:</p>
+<pre class="code asm literal-block">
+<span class="nf">vsetvli</span><span class="w">     </span><span class="no">x0</span><span class="p">,</span><span class="w"> </span><span class="no">x0</span><span class="p">,</span><span class="w"> </span><span class="no">e8</span><span class="p">,</span><span class="w"> </span><span class="no">m1</span><span class="p">,</span><span class="w"> </span><span class="no">ta</span><span class="p">,</span><span class="w"> </span><span class="no">ma</span><span class="w">
+</span><span class="c1">;                       ^^
+;                       m1 - use a single register
+</span><span class="w">
+</span><span class="c1">; perform 8 vector additions
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v24</span><span class="p">,</span><span class="w"> </span><span class="no">v0</span><span class="p">,</span><span class="w"> </span><span class="no">v8</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v25</span><span class="p">,</span><span class="w"> </span><span class="no">v1</span><span class="p">,</span><span class="w"> </span><span class="no">v9</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v26</span><span class="p">,</span><span class="w"> </span><span class="no">v2</span><span class="p">,</span><span class="w"> </span><span class="no">v10</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v27</span><span class="p">,</span><span class="w"> </span><span class="no">v3</span><span class="p">,</span><span class="w"> </span><span class="no">v11</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v28</span><span class="p">,</span><span class="w"> </span><span class="no">v4</span><span class="p">,</span><span class="w"> </span><span class="no">v12</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v29</span><span class="p">,</span><span class="w"> </span><span class="no">v5</span><span class="p">,</span><span class="w"> </span><span class="no">v13</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v30</span><span class="p">,</span><span class="w"> </span><span class="no">v6</span><span class="p">,</span><span class="w"> </span><span class="no">v14</span><span class="w">
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v31</span><span class="p">,</span><span class="w"> </span><span class="no">v7</span><span class="p">,</span><span class="w"> </span><span class="no">v15</span>
+</pre>
+<p>can be compacted into:</p>
+<pre class="code asm literal-block">
+<span class="nf">vsetvli</span><span class="w">     </span><span class="no">x0</span><span class="p">,</span><span class="w"> </span><span class="no">x0</span><span class="p">,</span><span class="w"> </span><span class="no">e8</span><span class="p">,</span><span class="w"> </span><span class="no">m8</span><span class="p">,</span><span class="w"> </span><span class="no">ta</span><span class="p">,</span><span class="w"> </span><span class="no">ma</span><span class="w">
+</span><span class="c1">;                       ^^
+;                       m8 - use groups of 8 registers
+</span><span class="w">
+</span><span class="c1">; perform 8 vector additions
+</span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v24</span><span class="p">,</span><span class="w"> </span><span class="no">v0</span><span class="p">,</span><span class="w"> </span><span class="no">v8</span>
+</pre>
+</div>
+<div class="section" id="vector-fractions-lmul-1">
+<h2>Vector fractions (LMUL &lt; 1)</h2>
+<p>It is also possible to <strong>limit</strong> instructions to operate only on <strong>a
+fraction</strong> of register &mdash; <tt class="docutils literal">LMUL</tt> can be 1/2, 1/4 or 1/8.
+Similar solution is used for floating-point operations in SSE &amp; AVX:
+an instruction operates either on the whole vector register (like <tt class="docutils literal">ADDPS</tt>)
+or only on the first element (like <tt class="docutils literal">ADDSS</tt>).</p>
+<p>It's important to note that not all fractions are valid. For example, when
+<tt class="docutils literal">VLEN = 128</tt> and <tt class="docutils literal">SEW = 64</tt>, then a single register can hold only
+two elements. Thus, it's impossible to use its 1/4 or 1/8.</p>
+<p>When the instruction <tt class="docutils literal">vsetvli</tt> sets something which is not sane in the
+given implementation, then the bit <tt class="docutils literal">vill</tt> of the control register
+<tt class="docutils literal">vtype</tt> is set; then any subsequent vector operation results in a trap
+(AKA exception).</p>
+</div>
+<div class="section" id="stripmining-or-dynamic-vector-length">
+<h2>Stripmining (or dynamic vector length)</h2>
+<p>Let's start with the problem we have with current SIMD ISAs.  The majority of
+(auto)vectorization of code is done on loops. When we have a loop like that:</p>
+<pre class="code cpp literal-block">
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">C</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">B</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>and we know that the target's ISA registers can hold <strong>K</strong> elements,
+the loop can be rewritten as:</p>
+<pre class="code cpp literal-block">
+<span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+</span><span class="c1">// main loop (process input in K-element chunks)
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">K</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">load</span><span class="w"> </span><span class="n">K</span><span class="w"> </span><span class="n">elements</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">..</span><span class="n">i</span><span class="o">+</span><span class="n">K</span><span class="p">]</span><span class="w">
+    </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">load</span><span class="w"> </span><span class="n">K</span><span class="w"> </span><span class="n">elements</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">B</span><span class="p">[</span><span class="n">i</span><span class="p">..</span><span class="n">i</span><span class="o">+</span><span class="n">K</span><span class="p">]</span><span class="w">
+    </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">vector</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="w">
+
+    </span><span class="n">store</span><span class="w"> </span><span class="n">K</span><span class="w"> </span><span class="n">elements</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="n">to</span><span class="w"> </span><span class="n">C</span><span class="p">[</span><span class="n">i</span><span class="p">..</span><span class="n">i</span><span class="o">+</span><span class="n">K</span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="c1">// tail (process 0 to K-1 elements)
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="cm">/**/</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">C</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">B</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Because <strong>K</strong> is fixed, we have to add an extra processing of &quot;a tail&quot; to
+handle cases when <tt class="docutils literal">n</tt> is not a multiple of <tt class="docutils literal">K</tt>. This requires
+<strong>duplication</strong> of the body's loop.  In our example the body is just a simple
+addition, but often things are way more complex.</p>
+<p>With AVX512 it might be solved in a more elegant way, by using the explicit mask
+applied for <strong>all operations</strong>. For the main loop the mask is full, just for the
+last iteration we limit the mask to the tail elements. While it's nicer, we
+still have some kind of tail processing, but present at a different layer of
+user code.</p>
+<p>The RVV solves that particular problem at the architecture level, allowing to
+tell the vector engine how many elements we're going to process. This number
+is called <strong>application vector length</strong> (AVL), and in our example it's
+the <tt class="docutils literal">n</tt> parameter.</p>
+<p>A programmer feeds <tt class="docutils literal">vsetvli</tt> with that number. The RVV implementation
+<strong>responses</strong> with the actual number of elements it will process. The response
+is called <strong>vector length</strong> (<tt class="docutils literal">VL</tt>), it's a value from 0 to <tt class="docutils literal">VLMAX</tt>. The
+<tt class="docutils literal">VLMAX</tt> is the total number of <strong>elements</strong>, which is calculated as:
+register width (<tt class="docutils literal">VLEN</tt>) times register multiplier (<tt class="docutils literal">LMUL</tt>) divided by
+the element width (<tt class="docutils literal">SEW</tt>).</p>
+<p>For example <tt class="docutils literal">VLEN = 128 bits</tt>, <tt class="docutils literal">LMUL = 4</tt> and <tt class="docutils literal">SEW = 32 bits</tt>,
+then the maximum length is <tt class="docutils literal">VLMAX = 128 * 4 / 32 = 16</tt> elements.</p>
+<p>Let's see how the above loop can coded in plain assembler. It's not
+complicated, don't worry.</p>
+<pre class="code asm literal-block">
+<span class="c1">; register t0 holds a pointer to array A
+; register t1 holds a pointer to array B
+; register t2 holds a pointer to array C
+; register a0 has value n (the initial number of elements)
+</span><span class="nl">loop:</span><span class="w">
+    </span><span class="nf">vsetvli</span><span class="w">     </span><span class="no">a1</span><span class="p">,</span><span class="w"> </span><span class="no">a0</span><span class="p">,</span><span class="w"> </span><span class="no">e8</span><span class="p">,</span><span class="w"> </span><span class="no">m1</span><span class="p">,</span><span class="w"> </span><span class="no">ta</span><span class="p">,</span><span class="w"> </span><span class="no">ma</span><span class="w">
+    </span><span class="c1">;           ^^  ^^
+</span><span class="w">    </span><span class="c1">;           |   |
+</span><span class="w">    </span><span class="c1">;           |   +- (input)  [AVL] the number of remaining elements
+</span><span class="w">    </span><span class="c1">;           +----- (result) [VL]  actual vector length: value in range 0..VLMAX-1
+</span><span class="w">
+    </span><span class="nf">vle8.v</span><span class="w">      </span><span class="no">v0</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="no">t0</span><span class="p">)</span><span class="w">    </span><span class="c1">; load `a1` elements into v0
+</span><span class="w">    </span><span class="nf">vle8.v</span><span class="w">      </span><span class="no">v1</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="no">t1</span><span class="p">)</span><span class="w">    </span><span class="c1">; load `a1` elements into v1
+</span><span class="w">
+    </span><span class="nf">vadd.vv</span><span class="w">     </span><span class="no">v2</span><span class="p">,</span><span class="w"> </span><span class="no">v0</span><span class="p">,</span><span class="w"> </span><span class="no">v1</span><span class="w">  </span><span class="c1">; add v0 and v1 - process only `a1` head elements
+</span><span class="w">
+    </span><span class="nf">vse8.v</span><span class="w">      </span><span class="no">v2</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="no">t2</span><span class="p">)</span><span class="w">    </span><span class="c1">; store `a1` elements from v2
+</span><span class="w">
+    </span><span class="c1">; update pointers: ptr += a1
+</span><span class="w">    </span><span class="nf">add</span><span class="w">         </span><span class="no">t0</span><span class="p">,</span><span class="w"> </span><span class="no">t0</span><span class="p">,</span><span class="w"> </span><span class="no">a1</span><span class="w">
+    </span><span class="nf">add</span><span class="w">         </span><span class="no">t1</span><span class="p">,</span><span class="w"> </span><span class="no">t0</span><span class="p">,</span><span class="w"> </span><span class="no">a1</span><span class="w">
+    </span><span class="nf">add</span><span class="w">         </span><span class="no">t2</span><span class="p">,</span><span class="w"> </span><span class="no">t0</span><span class="p">,</span><span class="w"> </span><span class="no">a1</span><span class="w">
+
+    </span><span class="c1">; update the counter: counter -= a1
+</span><span class="w">    </span><span class="nf">sub</span><span class="w">         </span><span class="no">a0</span><span class="p">,</span><span class="w"> </span><span class="no">a0</span><span class="p">,</span><span class="w"> </span><span class="no">a1</span><span class="w">
+    </span><span class="nf">bnez</span><span class="w">        </span><span class="no">a0</span><span class="p">,</span><span class="w"> </span><span class="no">loop</span><span class="w">        </span><span class="c1">; repeat if a0 != 0</span>
+</pre>
+<p>Taking this from another angle, the vector length acts as
+<strong>an implicit mask</strong>.</p>
+<p>The vector length is applied for almost all instructions. Only a few
+vector instructions do not obey this settings, but it's for purpose
+(for example, loading &amp; storing whole registers).</p>
+</div>
+<div class="section" id="vstart-register">
+<h2>Vstart register</h2>
+<p>A quite obvious complement to setting vector length would be setting the first
+element of vector. Thus our code would process any subvector!</p>
+<p>And indeed, there is the <tt class="docutils literal">vstart</tt> control register which is... weird.
+Although it is exposed to the user code, it's indented to use in exception
+handlers. A CPU has to set <tt class="docutils literal">vstart</tt> to the index of the faulting element,
+for instance when accessing unmapped memory while loading multiple elements.</p>
+<p>A user code may set the <tt class="docutils literal">vstart</tt>, but the outcome is <em>implementation-defined</em>:</p>
+<ol class="arabic simple">
+<li>the vector instructions work, but are expected to be slow;</li>
+<li>the CPU reports <strong>invalid instruction</strong> trap if <tt class="docutils literal">vstart</tt> has value
+that &quot;would never be set by the hardware&quot;. Let's take into account
+a simple vector addition &mdash; this instruction never fails, thus
+<tt class="docutils literal">vstart</tt> is always 0. And setting the register to anything else
+before addition results in a trap.</li>
+</ol>
+<p>For the sake of completeness: some instructions &mdash; mostly related to masks ---
+explicitly disallow <tt class="docutils literal">vstart</tt> other than zero.</p>
+</div>
+<div class="section" id="masks">
+<h2>Masks</h2>
+<p>Similarly to AVX-512, RVV uses a concept of mask &mdash; a mask is a bit vector that
+determines which elements of vector are being processed. Most vector instructions
+can be masked.</p>
+<p>A mask is also a result of comparisons, and multi-word arithmetic instructions.</p>
+<p>However, unlike AVX-512, the RVV does not have a separate register file
+for masks. A mask is interpreted as the <tt class="docutils literal">VL</tt> lowest bits of a vector register.
+In practice it means that we have to sacrifice some vector registers solely for
+masks.</p>
+<p>Another caveat is that only the register <tt class="docutils literal">v0</tt> can be used for masking
+instruction. (It's important when we write in plain assembler, compilers
+for ages been dealing with architecturally fixed registers.)</p>
+<p>A natural consequence of having masks is providing a subset of instructions
+that operate on mask. That are logical instructions (and, or, xor), but also
+an instruction that returns the index of the first set element and an instruction
+that yields number of set bits (population count). AVX-512 supports only logical
+instructions, a mask register has to be moved to a generic purpose register
+in order to do something more advanced with mask bits.</p>
+</div>
+<div class="section" id="tail-mask-agnostic-undisturbed-policies">
+<h2>Tail/mask agnostic/undisturbed policies</h2>
+<p>Before we move forward, we need to formalize a little how a vector is interpreted:</p>
+<ul class="simple">
+<li><strong>prestart</strong> are elements before <tt class="docutils literal">vstart</tt>;</li>
+<li><strong>tail</strong> are elements after <tt class="docutils literal">vl</tt>;</li>
+<li><strong>body</strong> are elements in range [<tt class="docutils literal">vstart</tt>, <tt class="docutils literal">vl</tt>);</li>
+</ul>
+<img alt="2024-11-09-riscv-vector-extension/vector-layout.png" src="2024-11-09-riscv-vector-extension/vector-layout.png" />
+<p>When an instruction is not masked, all its body elements are <strong>active</strong>.  When
+an instruction is masked, then the elements of body can be either <strong>active</strong> or
+<strong>inactive</strong>, depending on the mask bits.</p>
+<p>We can decide how <strong>prestart</strong>/<strong>tail</strong> &amp; <strong>inactive</strong> elements are being
+updated in the destination register. There are two policies: undisturbed
+and agnostic.</p>
+<p>The policy <strong>undistrubed</strong> keeps the previous value. This is generally slower,
+because a CPU has to read the destination register and then do an implicit
+<strong>merge operation</strong>.</p>
+<p>The policy <strong>agnostic</strong> may not keep the previous values, filling elements
+with bit 1. Not all elements have be filled in that way &mdash; it's perfectly
+valid to get a non-deterministic outcome. With the agnostic policy we
+cannot assume anything about non-active elements, thus we choose that policy
+iff we really don't care about the non-active elements.</p>
+<p>These policies are set <strong>independently</strong> for <strong>prestart</strong>/<strong>tail</strong> and
+<strong>inactive</strong> elements.  In most cases we'll have tail agnostic policy,
+and undistrubed masked elements.</p>
+<p>Side note: setting all ones instead of zeroing non-active elements looks odd.
+The specification justifies this choice:</p>
+<blockquote>
+The agnostic policy was added to accommodate machines with vector register
+renaming. With an undisturbed policy, all elements would have to be read
+from the old physical destination vector register to be copied into the new
+physical destination vector register.</blockquote>
+<p>I'm not buying it. Both AVX-512 and SVE fill with zeros the inactive elements
+and there's no performance penalty because of that.</p>
+</div>
+<div class="section" id="vector-register-size">
+<h2>Vector register size</h2>
+<p>As it was said, RVV does not define the size of vector register. The vector
+register size can be read from control register <tt class="docutils literal">vlenb</tt>, which is the width
+given in <strong>bytes</strong>.</p>
+<p>A portable program should not assume anything about <tt class="docutils literal">vlenb</tt>, in particular
+it's minimum value.</p>
+<p>Caveat: in-register gathers, known as <strong>shuffle</strong> or <strong>permutation</strong> on other
+architectures, are not fully portable.</p>
+</div>
+<div class="section" id="vector-instruction-arguments">
+<h2>Vector instruction arguments</h2>
+<p>Most RVV instructions have three arguments:</p>
+<ul class="simple">
+<li>destination (<tt class="docutils literal">vd</tt>),</li>
+<li>source #1 (<tt class="docutils literal">vs1</tt>),</li>
+<li>source #2 (<tt class="docutils literal">vs2</tt>).</li>
+</ul>
+<p>The majority of instructions update <tt class="docutils literal">vd</tt> with the result of some binary operation
+on sources (like addition, multiplication):</p>
+<pre class="literal-block">
+vd := vs1 op vs2
+</pre>
+<p>Only multiply-add instructions additionally read <tt class="docutils literal">vd</tt>:</p>
+<pre class="literal-block">
+vd := (vs1 * vs2) + vd
+</pre>
+<p>A useful feature of RVV is that for many instructions the <strong>source #1</strong> can be
+also:</p>
+<ul class="simple">
+<li>a scalar register (integer or floating point one),</li>
+<li>a 5-bit immediate (signed or unsigned integer).</li>
+</ul>
+<p>Conceptually, the scalar argument is <strong>splat</strong> (<em>broadcast</em>) before applying
+a vector operation. For example following code adds 3 to each element of
+vector <tt class="docutils literal">v7</tt>:</p>
+<pre class="code asm literal-block">
+<span class="nf">vadd.vi</span><span class="w">     </span><span class="no">v5</span><span class="p">,</span><span class="w"> </span><span class="no">v7</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="w">
+</span><span class="c1">;    ^^             ^
+;    use immediate
+</span><span class="w">
+</span><span class="nf">li</span><span class="w">          </span><span class="no">t0</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="w">
+</span><span class="nf">vadd.vx</span><span class="w">     </span><span class="no">v5</span><span class="p">,</span><span class="w"> </span><span class="no">v7</span><span class="p">,</span><span class="w"> </span><span class="no">t0</span><span class="w">
+</span><span class="c1">;    ^^
+;    use integer register (t0)</span>
+</pre>
+<p>The intrinsics functions do not expose immediate variants, their
+scalar argument will be properly interpreted by a compiler. For
+the sake of completeness the above assembler code with C intrinisic function.</p>
+<pre class="code c literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">vl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__riscv_vsetvl_e32m1</span><span class="p">(</span><span class="n">n</span><span class="p">);</span><span class="w">
+</span><span class="n">vuint32m1_t</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__riscv_vadd_vx_e32m1</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="n">vl</span><span class="p">);</span>
+</pre>
+</div>
+<div class="section" id="memory-operations">
+<h2>Memory operations</h2>
+<p>RVV offers several load/store operations.</p>
+<ul>
+<li><p class="first">First of all, we can load/store whole registers, regardless of the vector
+length. These instructions are meant more for bare data movement, like
+registers spilling or saving registers on a stack.</p>
+</li>
+<li><p class="first">There are load/stores the operate on vector length elements.</p>
+<pre class="literal-block">
+for i in 0..vl loop
+   index := i * SEW
+   vd[i] = load_sew_bits(base_address + index)
+endloop
+</pre>
+</li>
+<li><p class="first">There are gathers/scatter, that load indices from another vector register.</p>
+<pre class="literal-block">
+for i in 0..vl loop
+    index := vs1[i] * SEW
+    vd[i] = load_sew_bits(base_address + index)
+end loop
+</pre>
+</li>
+<li><p class="first">There are specialised gather/scatter, that load elements with given spacing.</p>
+<pre class="literal-block">
+for i in 0..vl loop
+    index := i * SEW * multiplier
+    vd[i] = load_sew_bits(base_address + index)
+end loop
+</pre>
+<p>Note that the for regular load/stores, mentioned earlier, <tt class="docutils literal">multiplier = 1</tt>.</p>
+<p>It's possible to set multiplier to zero &mdash; then effectively such instruction
+perform <strong>broadcast</strong> of a single element from memory into a vector register.</p>
+<p>It's also possible to set <strong>negative</strong> multiplier, if somebody really wants.</p>
+</li>
+<li><p class="first">There are load/stores that performs <strong>transposition</strong>, loading elements
+at the given offset into <strong>separate</strong> registers. This is something ARM Neon
+supports. A classical example is splitting RGB images (3 x 8 bit) into
+separate channels, something like that:</p>
+<pre class="literal-block">
+for i in 0..vl loop
+    index := i * SEW * number-of-registers (=3)
+
+    v0[i] = load_sew_bits(base_address + index + 0 * SEW)
+    v1[i] = load_sew_bits(base_address + index + 1 * SEW)
+    v2[i] = load_sew_bits(base_address + index + 2 * SEW)
+end loop
+</pre>
+</li>
+<li><p class="first">There are loads that allow to <strong>mask accessing unmapped memory</strong>. This feature
+is also present in SVE.</p>
+</li>
+</ul>
+</div>
+<div class="section" id="abi">
+<h2>ABI</h2>
+<p>The ABI for RVV is simple: all registers may be freely clobbered.</p>
+<p>Taking this from the perspective of shared libs, it's not ideal.  Functions are
+accessed via bare calls, without inlining. Any utility-level function has to
+preserve the modified RVV registers, thus RVV-intensive code should be rather
+huge (called less often). Forget about short helper functions.</p>
+</div>
+<div class="section" id="intrinsic-functions">
+<h2>Intrinsic functions</h2>
+<p>Intrinsics functions are well-defined by <a class="reference external" href="https://github.com/riscv-non-isa/rvv-intrinsic-doc">a separate spec</a>. That's really
+good, kudos for that!</p>
+<p>There is a nice <a class="reference external" href="https://dzaima.github.io/intrinsics-viewer/info.html">online viewer</a></p>
+</div>
+</div>
+<div class="section" id="isa-highlights">
+<h1>ISA highlights</h1>
+<p>This section is not meant to enumerate all instructions, it lists things
+the author found interesting.</p>
+<div class="section" id="upcasting-downcasting-vectors">
+<h2>Upcasting/downcasting vectors</h2>
+<p>In one of the previous sections we mentioned that when a procedure uses different
+element widths, we're forced to switch the mode using <tt class="docutils literal">vsetvl</tt> instruction.
+That's quite often in integer-intensitive code.  For example, if we're summing
+vectors of bytes, we need to cast <tt class="docutils literal">uint8</tt> into <tt class="docutils literal">uint16</tt> to avoid overflow.</p>
+<p>The RVV comes with many variants of instructions that implicitly do widening
+(upcasting) and narrowing (downcasting), <strong>without changing the mode</strong>.
+Widening means that we operate on vectors with <tt class="docutils literal">SEW</tt>, but the result is
+written as <tt class="docutils literal">2*SEW</tt>. In the case of narrowing, we're usually have <tt class="docutils literal">SEW</tt>
+inputs and <tt class="docutils literal">1/n*SEW</tt> outputs.</p>
+<p>For example instruction <tt class="docutils literal">vwaddu.vv</tt> adds two vectors of width <tt class="docutils literal">SEW</tt>, and
+then casts the addition results into <tt class="docutils literal">2*SEW</tt> unsigned numbers.
+The instruction <tt class="docutils literal">vaddu.wv</tt> adds a vector of <tt class="docutils literal">2*SEW</tt> and a vector of <tt class="docutils literal">SEW</tt>:
+it first casts <tt class="docutils literal">SEW</tt> vector into <tt class="docutils literal">2*SEW</tt>, and then performs additions of
+<tt class="docutils literal">2*SEW</tt> unsigneds, yielding a vector of <tt class="docutils literal">2*SEW</tt> numbers.</p>
+<p>The other SIMD ISAs do not provide anything similar, they have dedicated
+instructions to upcast or downcast explicitly.</p>
+</div>
+<div class="section" id="reduction-or-horizontal-instructions">
+<h2>Reduction or horizontal instructions</h2>
+<p>The Intel documentation coined terms &quot;vertical&quot; and &quot;horizontal&quot; to distinguish
+between vector instructions that process corresponding elements of arguments
+(vertical) and instructions that process adjacent elements of arguments
+(horizontal).</p>
+<p>The keyword here is adjacent: Intel ISAs provides way to process pairs of
+adjacent elements, a good instance is <tt class="docutils literal">PMADDWD</tt> instruction.</p>
+<p>The RVV made a leap: it's possible to apply the given operation to a vector
+and get a <strong>scalar result</strong>. It's called <strong>reduction</strong>; reduction is defined
+for floats or integers.</p>
+<p>For floats we have three operations: sum, min and max. Summing may be ordered
+or not &mdash; the latter means that a CPU is free to add elements in any order,
+but presumably faster.</p>
+<p>For integers we have: sum, min (signed/unsigned), max (signed/unsigned) as well
+as binary operations: or, and, xor. In the case of summing elements, there
+are also variants that widen the result, so there's no wrapping on overflow.</p>
+<img alt="2024-11-09-riscv-vector-extension/reduce.png" src="2024-11-09-riscv-vector-extension/reduce.png" />
+</div>
+<div class="section" id="mask-instructions">
+<h2>Mask instructions</h2>
+<p>Masks are used in the same way, regardless if they are applied to integer
+or floating-point instructions.</p>
+<p>Mask can be build from other masks using several boolean functions,
+like <tt class="docutils literal">and</tt>, <tt class="docutils literal">or</tt>, <tt class="docutils literal">xor</tt>; there are also unusual <tt class="docutils literal">nand</tt>, <tt class="docutils literal">nor</tt>
+and <tt class="docutils literal">xnor</tt>.</p>
+<p>It's possible to construct a new mask from the existing one, that
+takes into account the first bit set:</p>
+<ul class="simple">
+<li><tt class="docutils literal">vmsof.m</tt> &mdash; set-only-first,</li>
+<li><tt class="docutils literal">vmsbf.m</tt> &mdash; set-before-first,</li>
+<li><tt class="docutils literal">vmsif.m</tt> &mdash; set-including-first.</li>
+</ul>
+<p>They work in the following way:</p>
+<pre class="literal-block">
+mask =              = 0101_01101_1010_0000
+                                   ^
+                             first bit set
+
+set-only-first      = 0000_00000_0010_0000
+set-before-first    = 0000_00000_0001_1111
+set-including-first = 0000_00000_0011_1111
+</pre>
+<p>We can query the mask, getting result in a generic-purpose register:</p>
+<ul class="simple">
+<li>get the index of the first bit set, or -1 if the mask is zero,</li>
+<li>the number of set bits in the mask.</li>
+</ul>
+</div>
+<div class="section" id="vector-iota">
+<h2>Vector iota</h2>
+<p>The instruction <tt class="docutils literal">viota</tt> is quite unusual, and its main purpose is
+implementation of vector decompress operation. The instruction
+takes a mask and produces a vector, where each element of vector
+is the number of bits in mask that are set before the i-th position.</p>
+<p>The following C-like code shows the idea.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">iota</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span><span class="w"> </span><span class="n">vector</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">VL</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">before</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="w">
+        </span><span class="n">vector</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">population_count</span><span class="p">(</span><span class="n">mask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">before</span><span class="p">)</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<img alt="2024-11-09-riscv-vector-extension/iota.png" src="2024-11-09-riscv-vector-extension/iota.png" />
+</div>
+<div class="section" id="integer-division">
+<h2>Integer division</h2>
+<p>The most striking difference with other SIMD ISAs is that RVV supports
+<strong>integer division</strong> as well as reminder. There is support for both
+signed and unsigned numbers.</p>
+</div>
+<div class="section" id="multi-word-arithmetic">
+<h2>Multi-word arithmetic</h2>
+<p>It is possible to add or subtract multi-word numbers. A similar feature was
+present in <a class="reference external" href="http://en.wikipedia.org/wiki/AltiVec">AltiVec</a>.</p>
+<p>Addition/Subtract accepts three arguments: two numbers and carry/borrow
+from the previous addition. There's a separate instruction for producing
+carry/borrow bits.</p>
+</div>
+<div class="section" id="binary-operations">
+<h2>Binary operations</h2>
+<p>There are only three operations available: <tt class="docutils literal">and</tt>, <tt class="docutils literal">or</tt> and <tt class="docutils literal">xor</tt>.
+It cannot be compared with AVX-512 with its <a class="reference external" href="2015-03-22-avx512-ternary-functions.html">ternary logic instruction</a>.
+But not having &quot;and-not&quot; operation or &quot;bit-merge&quot;
+(<tt class="docutils literal">(x and c) or (y and not c)</tt>) seems an obvious omission.</p>
+</div>
+<div class="section" id="integer-multiply-add">
+<h2>Integer multiply-add</h2>
+<p>Mulitply-add/subtract are well known in the world of floating-point numbers.
+Having similar operations for integers is a nice addition, saving
+a few instructions.</p>
+</div>
+<div class="section" id="vector-slide">
+<h2>Vector slide</h2>
+<p>It's possible to slide vector elements by the given offset (in elements).
+For single-element slides it's possible to shift-in a scalar register
+content.</p>
+<p>It's similar to vector alignments from SSE/AVX, but more generic.</p>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2024-11-09-riscv-vector-extension.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+</html>

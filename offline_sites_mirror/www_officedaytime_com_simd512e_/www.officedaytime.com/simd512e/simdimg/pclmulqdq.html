@@ -1,0 +1,221 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/pclmulqdq.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:52 GMT -->
+<head>
+    <meta charset="utf-8" />
+    <link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/pclmulqdq.html" />
+    <link rel="alternate" hreflang="en" href="pclmulqdq.html" />
+    <title>pclmulqdq</title>
+    <style type="text/css">
+        .red {
+            color: #FF0000;
+        }
+
+        h1 {
+            font-size: 15pt;
+            font-weight: bold;
+            background-color: #8288FD;
+            color: #FFFFFF;
+            padding: 2pt;
+        }
+
+        body {
+            font-family: sans-serif;
+            font-size: 10pt;
+        }
+
+        h2 {
+            font-weight: bold;
+            padding: 2pt 2pt 0pt 0pt;
+            font-size: 10pt;
+            border-bottom-style: solid;
+            border-bottom-width: 2px;
+            border-bottom-color: #0000FF;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0000FF;
+        }
+
+        dt {
+            font-weight: bold;
+        }
+
+        td {
+            background-color: #FFFFFF;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+
+        .srcprogdiv {
+            border: 1px solid #0000FF;
+            border-radius: 5px;
+            padding: 5px 10px 5px 10px;
+        }
+
+        srcprogdiv {
+        }
+
+        .intr {
+            color: #6778ED;
+        }
+
+        .IL {
+            color: black;
+        }
+
+        .operand {
+            font-style: italic;
+        }
+
+        .cppcmnt {
+            color: #00A000;
+        }
+    </style>
+</head>
+<body>
+    <h2>PCLMULQDQ - Packed CarryLess MULtiplication Qword DoubleQword</h2>
+    <p>
+        PCLMULQDQ <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;(PCLMULQDQ<br>
+        <span class="intr">__m128i&nbsp; _mm_clmulepi64_si128(__m128i a, __m128i b, const int imm8);</span>
+    </p>
+    <p><img src="pclmulqdq_11.png" /></p>
+    <p>
+        Select one QWORD from each of (1) and (2), perform carryless multification of the selected QWORDs and set the result to (3).
+    </p>
+    <div style="height: 30px"></div>
+
+    <p>VPCLMULQDQ <span class="operand">xmm1, xmm2, xmm3/m128, imm8</span>&nbsp;&nbsp;&nbsp;(PCLMULQDQ + (V1</p>
+    <p><img src="pclmulqdq_12.png" /></p>
+    <p>
+        Select one QWORD from each of (1) and (2), perform carryless multification of the selected QWORDs and set the result to (3).
+    </p>
+    <div style="height: 30px"></div>
+
+    <p>
+        VPCLMULQDQ <span class="operand">ymm1, ymm2, ymm3/m256, imm8</span>&nbsp;&nbsp;&nbsp;(VPCLMULQDQ<br>
+        <span class="intr">__m256i&nbsp; _mm256_clmulepi64_epi128(__m256i a, __m256i b, const int imm8);</span>
+    </p>
+    <p><img src="pclmulqdq_13.png" /></p>
+    <p>
+        For each lane, select one QWORD from each of (1) and (2), perform carryless multification of the selected QWORDs and set the result to (3).
+        Same bits of imm8 are used for both lanes.
+    </p>
+    <div style="height: 30px"></div>
+
+    <p>
+        VPCLMULQDQ <span class="operand">zmm1, zmm2, zmm3/m512, imm8</span>&nbsp;&nbsp;&nbsp;(VPCLMULQDQ + (V5<br>
+        <span class="intr">__m512i&nbsp; _mm512_clmulepi64_epi128(__m512i a, __m512i b, const int imm8);</span>
+    </p>
+    <p><img src="pclmulqdq_14.png" /></p>
+    <p>
+        For each lane, select one QWORD from each of (1) and (2), perform carryless multification of the selected QWORDs and set the result to (3).
+        Same bits of imm8 are used for all lanes.
+    </p>
+
+    <div style="height: 30px"></div>
+    <p>Carryless multiplication is a special operation used in some cipher algorithms.</p>
+    <p><img src="pclmulqdq_exp.png" /></p>
+    <!--
+        <h2>Sample: applying to GCM/GMAC dot operation</h2>
+        <p>In <a href="https://software.intel.com/sites/default/files/managed/72/cc/clmul-wp-rev-2.02-2014-04-20.pdf">the Intel sample</a>, this instruction is used only for the calculation of the first 255-bit product, and subsequent multiplications with constant R are done by combinations of bit shifts and XORs. But using this instruction more extensively can accelerate the execution (at least on my environment: Visiaul Studio 2017 + i7-7700).</p>
+        <div class="srcprogdiv">
+    <pre class="srcprog">
+    <span class="cppcmnt">/////////////////////////////////////////////////</span>
+    <span class="cppcmnt">// Dot operation for GCM/GMAC</span>
+    <span class="cppcmnt">// NOTE: x, y and return value are LITTLE ENDIAN</span>
+
+    <span class="cppcmnt">// defining this constant within the function slows down the execution incredibly</span>
+    <span class="cppcmnt">// in MS Visual Studio Envrironment.</span>
+    static const __m128i R = _mm_set_epi64x(0xE100000000000000, 0);
+
+    __m128i GCM_Mul_LE(__m128i x, __m128i y)
+    {
+        <span class="cppcmnt">// CLMUL x and y to produce the 255-bit product z:zL</span>
+
+        __m128i zL  = _mm_clmulepi64_si128(x, y, 0x00);
+        __m128i zM  = _mm_clmulepi64_si128(x, y, 0x01);
+        __m128i zM2 = _mm_clmulepi64_si128(x, y, 0x10);
+        __m128i z   = _mm_clmulepi64_si128(x, y, 0x11);
+        zM = _mm_xor_si128(zM, zM2);
+        zL = _mm_xor_si128(zL, _mm_slli_si128(zM, 8));
+        z  = _mm_xor_si128(z,  _mm_srli_si128(zM, 8));
+
+        <span class="cppcmnt">// z:zL 256-bit data</span>
+        <span class="cppcmnt">//  bit 255: zero</span>
+        <span class="cppcmnt">//  bit 254-127: the upper 128-bit of the product</span>
+        <span class="cppcmnt">//  bit 126-0: overflow bits</span>
+
+        <span class="cppcmnt">// Extract the overflow bits, aligned to the left.</span>
+        __m128i ov = _mm_slli_epi64(zL, 1);
+        ov = _mm_or_si128(ov, _mm_slli_si128(_mm_srli_epi64(zL, 63), 8));
+
+        <span class="cppcmnt">// CLMUL lower part of overflow bits and R.</span>
+        __m128i wM = _mm_clmulepi64_si128(ov, R, 0x10);
+        __m128i wL = _mm_slli_si128(wM, 8);
+
+        <span class="cppcmnt">// wL 128-bit data</span>
+        <span class="cppcmnt">//  bit 127: the LSB of the upper 128-bit of R * the overflow bits</span>
+        <span class="cppcmnt">//  bit 126-121: the overflow-again bits</span>
+        <span class="cppcmnt">//  bit 120-0: zero</span>
+
+        <span class="cppcmnt">// Extract the overflow-again bits,  aligned to the left.</span>
+        __m128i w2 = _mm_slli_epi64(wL, 1);
+        ov = _mm_xor_si128(ov, w2);
+
+        <span class="cppcmnt">// CLMUL (the overflow bits ^ the overflow-again bits) and R.</span>
+        __m128i w  = _mm_clmulepi64_si128(ov, R, 0x11);
+        <span class="cppcmnt">// wM and wL is not affected by the XORing of the overflow-again bits</span>
+        <span class="cppcmnt">// so we can use the values calculated before.</span>
+        w = _mm_xor_si128(w, _mm_srli_si128(wM, 8));
+
+        <span class="cppcmnt">// w:wL 256-bit data</span>
+        <span class="cppcmnt">//  bit 255: zero</span>
+        <span class="cppcmnt">//  bit 254-127: the result of R * (the overflow bits ^ the overflow-again bits)</span>
+        <span class="cppcmnt">//  bit 126-0: garbage</span>
+
+        <span class="cppcmnt">// xor to make the final result.</span>
+        z  = _mm_xor_si128(z, w);
+        zL = _mm_xor_si128(zL, wL);
+
+        <span class="cppcmnt">// z:zL 256-bit data</span>
+        <span class="cppcmnt">//  bit 255: zero</span>
+        <span class="cppcmnt">//  bit 254-127: The final result</span>
+        <span class="cppcmnt">//  bit 126-0: garbage</span>
+
+        <span class="cppcmnt">// Extract the final result.</span>
+        __m128i hc = _mm_srli_epi64(z, 63);
+        __m128i lc = _mm_srli_epi64(zL, 63);
+        z  = _mm_slli_epi64(z, 1);
+        hc = _mm_unpackhi_epi64(lc, _mm_slli_si128(hc, 8));
+        z  = _mm_or_si128(z, hc);
+
+        return z;
+    }
+    </pre>
+        </div>
+    -->
+    <hr />
+
+
+
+    <a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp;
+    <a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=ternlogcalc" target="_blank">Feedback</a>
+    <br>
+    <script type="text/javascript" src="https://www.officedaytime.com/tips/simdfeedback/alog.js"></script>
+    <script type="text/javascript">alog("alles");</script>
+    <br />
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/pclmulqdq.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:57 GMT -->
+</html>

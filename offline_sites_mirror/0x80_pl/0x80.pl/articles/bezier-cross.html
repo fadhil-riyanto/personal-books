@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/bezier-cross.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:58 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Punkty przecięcia dwóch krzywych Beziera 3. stopnia</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="punkty-przeciecia-dwoch-krzywych-beziera-3-stopnia">
+<h1 class="title">Punkty przecięcia dwóch krzywych Beziera 3. stopnia</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">15.02.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Analitycznie jest to możliwe: jedną z krzywych wyraża się za pomocą funkcji
+uwikłanej <span class="math"><i>f</i>(<i>x</i>, <i>y</i>) = 0</span> (wykonalne), a funkcje tworzące drugą krzywą
+podstawia (wykonalne) i otrzymujemy wielomian 9. stopnia ze względu na
+parametr drugiej krzywej.  Praktyczny problem to wyznaczenie pierwiastków
+wielomianu.</p>
+<p>Dlatego o wiele prościej aproksymować dwie krzywe łamaną &mdash; krzywe są
+dzielone na coraz mniejsze łuki aż do chwili, gdy staną się dostatecznie
+&bdquo;płaskie&rdquo; (zobacz w <a class="reference external" href="bezier-flat.html">osobnym artykule</a>), a wtedy zastąpić je
+odcinkami i obliczyć przecięcia, co jest bardzo łatwe.  Jeśli krzywe zostaną
+podzielone na dostatecznie krótkie łuki, można odczytać punkty przecięcia i
+wartości parametrów z praktycznie dowolną dokładnością.</p>
+<img alt="img/cbezier-cc-tkdemo.png" class="align-center" src="img/cbezier-cc-tkdemo.png" />
+<p>Program:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/cbezier-cc-tkdemo.py">cbezier-cc-tkdemo.py</a></li>
+</ul>
+<p>Wymaga:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/cbezier2D.py">cbezier2D.py</a>  &mdash; różne funkcje dotyczące krzywych Beziera 3. stopnia, w tym <tt class="docutils literal">cc_intersection</tt> realizująca wyznaczanie punktów przecięć</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/aabb2D.py">aabb2D.py</a>     &mdash; pudełka otaczające w 2D,</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/utils2D.py">utils2D.py</a>    &mdash; działania na wektorach (pary (x, y)),</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/poly_root.py">poly_root.py</a>  &mdash; pierwiastki wielomianów 1., 2. i 3. stopnia.</li>
+</ul>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/bezier-cross.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:59 GMT -->
+</html>

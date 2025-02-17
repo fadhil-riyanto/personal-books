@@ -1,0 +1,19 @@
+Charakterystyki przej¶ciowe bramki CMOS NOR pracuj±cej jako inwerter
+* Wojciech Mu³a, 13.10.2005
+
+Vdd	10 0		10V
+R	9 10		100
+*Xnor	1 1 2 9		CMOS_NOR_BUF
+Xnor	1 1 2 9		CMOS_NOR
+Vin	1 0		5V
+
+.include bramki_cmos.spice 
+
+* analiza
+.DC Vin 0 10V 50mV, Vdd 3 10 1
+
+* Uwy = f(Uwe)
+* Icc = f(Uwe)
+.plot DC V(2) V(9,10)
+
+.end

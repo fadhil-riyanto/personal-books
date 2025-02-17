@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/aver.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Średnia arytmetyczna</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="srednia-arytmetyczna">
+<h1 class="title">Średnia arytmetyczna</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#rozszerzanie-zakresu-x86" id="toc-entry-1">Rozszerzanie zakresu (x86)</a></li>
+<li><a class="reference internal" href="#bez-rozszerzania-zakresu-x86" id="toc-entry-2">Bez rozszerzania zakresu (x86)</a></li>
+<li><a class="reference internal" href="#wzor-2-x86-rownolegle-obliczenia" id="toc-entry-3">Wzór 2 (x86, równoległe obliczenia)</a></li>
+<li><a class="reference internal" href="#obliczania-mmx" id="toc-entry-4">Obliczania MMX</a></li>
+<li><a class="reference internal" href="#wzor-2-mmx" id="toc-entry-5">Wzór 2 (MMX)</a></li>
+</ul>
+</div>
+<p>Średnia arytmetyczna liczona jest według wzoru (nr 1):</p>
+<pre class="literal-block">
+av1 = (a+b)/2
+</pre>
+<p>W przypadku operacji całkowitoliczbowych dzielenie przez 2 jest
+równoważne przesunięciu bitowemu w prawo o jedną pozycję.</p>
+<p>W takich przypadkach problemem może być przekraczanie zakresu podczas
+dodawania.  Można albo rozszerzyć zakres liczb, albo zastosować troszkę
+inny wzór &mdash; wymaga więcej dzielenia, ale na pewno nie spowoduje
+przekroczenia zakresu.</p>
+<p>Można się przed tym zabezpieczyć, stosując inny wzór (nr 2):</p>
+<pre class="literal-block">
+la = LSB(a)
+lb = LSB(b)
+
+av2 = (a/2 + b/2) + (la+lb)/2
+</pre>
+<p>Z kolei <tt class="docutils literal"><span class="pre">(la+lb)/2</span></tt> może zostać zapisane jako <tt class="docutils literal">(la &amp; lb)</tt>, co
+upraszcza nieco sprawę. Można jeszcze bardziej uprościć wzór na <tt class="docutils literal">av2</tt>,
+pomijając ten czynnik &mdash; nie spowoduje to zauważalnych gołym okiem
+różnic.</p>
+<div class="section" id="rozszerzanie-zakresu-x86">
+<h1>Rozszerzanie zakresu (x86)</h1>
+<pre class="literal-block">
+; wejście: al, bl
+; wyjście: al = (al+bl)/2
+: niszczy: ah, bh
+
+xor ah, ah
+xor bh, bh
+add ax, bx   ; a+b
+shr ax, 1    ; ax/2
+</pre>
+</div>
+<div class="section" id="bez-rozszerzania-zakresu-x86">
+<h1>Bez rozszerzania zakresu (x86)</h1>
+<p>Wykorzystano fakt, że wynik dodawania i odejmowanie jest o jeden bit
+szerszy niż operandy &mdash; dodatkowym bitem wyniku jest <tt class="docutils literal">CF</tt> (bit
+przeniesienia).</p>
+<pre class="literal-block">
+; wejście: al, bl
+; wyjście: al = (al+bl)/2
+
+add al, bl   ; (CF:al) = (0:al) + (0:bl)
+rcr al, 1    ; podzielenie (CF:al)/2
+</pre>
+</div>
+<div class="section" id="wzor-2-x86-rownolegle-obliczenia">
+<h1>Wzór 2 (x86, równoległe obliczenia)</h1>
+<pre class="literal-block">
+; wejście: eax, ebx (zawartość każdego rejestru traktowana
+;                    jako wektor 4 bajtów)
+; wyjście: eax
+
+mov ecx, eax        ; ecx = la
+mov edx, ebx        ; edx = lb
+
+and ecx, edx        ;
+and ecx, 0x01010101 ; ecx = la &amp; lb
+
+; -- zaznaczona część wystarczy do zaimplementowania
+;    uproszczonego wzoru na av2
+        shr eax, 1          ;
+        shr ebx, 1          ;
+        and eax, 0x7f7f7f7f ; a&gt;&gt;1
+        and ebx, 0x7f7f7f7f ; b&gt;&gt;1
+
+        add eax, ebx        ; eax = (a&gt;&gt;1 + b&gt;&gt;1)
+
+add eax, ecx        ; eax += (la&amp;lb)
+</pre>
+</div>
+<div class="section" id="obliczania-mmx">
+<h1>Obliczania MMX</h1>
+<p>Niestety, Intel w pierwszej wersji MMX nie wpadł na pomysł rozkazu <tt class="docutils literal">pavgub</tt>.</p>
+<pre class="literal-block">
+; wejście: mm0, mm1 - packed bytes
+; wyjście: mm3
+; niszczy: mm2, mm3
+
+segment .data
+
+mmx_MSB dd 0x80808080, 0x80808080
+
+segment .text
+
+movq    mm3, [mmx_MSB]
+
+movq    mm2, mm0
+paddb   mm0, mm1 ; dodaj &quot;normalnie&quot;
+paddusb mm2, mm1 ; i z nasyceniem
+
+pcmpeqb mm2, mm0 ; tam gdzie wystąpiło nasycenie bajt jest zerowany,
+                 ; w przeciwnym przypadku równy 0xff
+pand    mm2, mm3 ; zostaw tylko najstarsze bity &mdash; ósme (licząc od zera)
+                 ; bity wyniku
+
+psrlq   mm0, 1
+pandn   mm3, mm0 ; mm3 = mm0/2
+
+por     mm3, mm2 ; uzupełnij wynik ósmym bitem (w wyniku &mdash; siódmym)
+</pre>
+</div>
+<div class="section" id="wzor-2-mmx">
+<h1>Wzór 2 (MMX)</h1>
+<pre class="literal-block">
+; wejście: mm0, mm1 = packed bytes
+; wyjście: mm0
+; niszczy: mm2, mm3
+
+segment .data
+
+mmx_LSB     dd 0x01010101,0x01010101
+mmx_7lowest dd 0x7f7f7f7f,0x7f7f7f7f
+
+segment .text
+
+movq  mm2, mm0
+movq  mm3, mm1
+
+psrlq mm0, 1             ;
+psrlq mm1, 1             ;
+
+pand  mm0, [mmx_7lowest] ;
+pand  mm1, [mmx_7lowest] ;
+paddb mm0, mm1           ; mm0 = mm0/2 + mm1/2
+
+
+pand  mm2, mm3           ;
+pand  mm2, [mmx_LSB]     ;
+paddb mm0, mm2           ; mm0 += LSB(mm0) &amp; LSB(mm1)
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/aver.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:13 GMT -->
+</html>

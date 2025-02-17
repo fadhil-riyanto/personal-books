@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/radixsort.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Sortowanie pozycyjne &mdash; optymalizacja</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sortowanie-pozycyjne-optymalizacja">
+<h1 class="title">Sortowanie pozycyjne &mdash; optymalizacja</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">9.03.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Sortowanie pozycyjne (ang. <em>radix sort</em>) jest jednym
+z efektywniejszych algorytmów sortowania. Jego złożoność obliczeniowa
+wynosi O(n), jego podstawową wadą są dość duże wymagania pamięciowe.</p>
+</div>
+<div class="section" id="sortowanie-binarne">
+<h1>Sortowanie binarne</h1>
+<p>Poniżej przedstawiona została funkcja implementująca sortowanie pozycyjne o
+podstawie 2 (binarne).</p>
+<pre class="literal-block">
+// table - tablica
+// count - ilość elementów w tablicy
+// unsigned int ma 32 bity
+void radix_sort(unsigned int* table, int count)
+{
+ unsigned int* temp0 = (unsigned int)malloc(count*sizeof(unsigned int));
+ unsigned int* temp1 = (unsigned int)malloc(count*sizeof(unsigned int));
+
+ unsigned int bit = 1;
+
+ for (int i=1; i&lt;32; i++)
+    {
+     unsigned int* t0 = temp0;
+     unsigned int* t1 = temp1;
+
+     for (int j=0; j&lt;count; j++, table++)
+        if (table[j] &amp;&amp; bit) // rozdzielanie elementów
+           *t1++ = table[j];
+        else
+           *t0++ = table[j];
+
+     // tutaj następuje połączenie tablic temp0 i temp1 w jedną:
+     int num0 = (int)t0-(int)temp0;
+     int num1 = (int)t1-(int)temp1;
+
+     memcpy(table,      temp0, num0*sizeof(int));
+     memcpy(table+num0, temp1, num1*sizeof(int));
+
+     bit &lt;&lt;= 1;
+    }
+
+ free(temp0);
+ free(temp1);
+}
+</pre>
+<p>Pamiętając, że sortowanych może być naprawdę dużo danych, należałoby jakoś
+wyeliminować wspomniane łączenie tablic. Poniższa funkcja pokazuje ideę
+proponowanej optymalizacji.</p>
+<pre class="literal-block">
+void sort(unsigned int* table, int count)
+{
+ typedef unsigned int* ptr;
+
+ ptr input0 = table;
+ ptr input1 = (unsigned int)malloc(count*sizeof(unsignd int));
+
+ int count0 = count;
+ int count1 = 0;
+
+ ptr output1 = (unsigned int)malloc(count*sizeof(unsignd int));
+ ptr output1 = (unsigned int)malloc(count*sizeof(unsignd int));
+
+ unsigned int bit = 1;
+ for (int i=0; i&lt;32; i++)
+    {
+     ptr temp0 = output0;
+     ptr temp1 = output1;
+
+     for (int j=0; j&lt;count0; j++) // sortujemy pierwszą
+         if (input0[j] &amp;&amp; bit)
+            *temp1++ = input0[j];
+         else
+            *temp0++ = input0[j];
+
+     for (int j=0; j&lt;count1; j++) // i drugą cześć tablicy
+         if (input1[j] &amp;&amp; bit)
+            *temp1++ = input1[j];
+         else
+            *temp0++ = input1[j];
+
+     bit &lt;&lt;= 1;
+
+     // teraz już nie kopiujemy danych, tylko zamieniamy wskaźniki
+     // jednocześnie należy obliczyć nowe rozmiary tablic wejściowych
+
+     count0 = (int)temp0 - (int)output0;
+     count1 = (int)temp1 - (int)output1;
+
+     ptr t;
+
+     t       = input0;
+     input0  = output0;
+     output0 = t;
+
+     t       = input1;
+     input1  = output1;
+     output1 = t;
+    }
+
+ // Dopiero na samym końcu trzeba połączyć tablice wyjściowe.
+ // Jako że input0==table, tak więc pierwsza część tablicy
+ // jest już &quot;na miejscu&quot;.
+ memcpy(table+count0, input1, count1);
+
+ free(input1);
+ free(output0);
+ free(output1);
+}
+</pre>
+<p>Bez wątpienia wadą powyższego rozwiązania jest zwiększenie wymagań
+pamięciowych &mdash; o 33% większe niż w pierwszej wersji. O wiele
+istotniejszą zaletą jest jednak znaczne zmniejszenie ilości
+przenoszonych danych.</p>
+<p>Koszt stały, wynikający z metody, to przesłanie <tt class="docutils literal">count</tt> elementów
+w jednej iteracji. W przypadku pierwszej metody w każdej iteracji jest
+przesyłane dodatkowe  <tt class="docutils literal">count</tt> elementów.</p>
+<p>Sumaryczna ilość danych przenoszona w trakcie sortowania to:</p>
+<ul class="simple">
+<li>pierwsza metoda: <tt class="docutils literal">64*count</tt>,</li>
+<li>druga metoda: od <tt class="docutils literal">32*count</tt> do <tt class="docutils literal">33*count</tt>.</li>
+</ul>
+</div>
+<div class="section" id="uwagi">
+<h1>Uwagi</h1>
+<ol class="arabic simple">
+<li>W przypadku gdy sortowane są duże struktury względem jakiegoś
+rekordu efektywniej jest sortować wskaźniki do struktur.</li>
+<li>Sortowanie binarne umożliwia również sortowanie liczb
+zmiennoprzecinkowych: najpierw brany jest pod uwagę
+<strong>zanegowany</strong> bit znaku, następnie bity wykładnika,
+a na końcu bity mantysy.</li>
+</ol>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/radixsort.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+</html>

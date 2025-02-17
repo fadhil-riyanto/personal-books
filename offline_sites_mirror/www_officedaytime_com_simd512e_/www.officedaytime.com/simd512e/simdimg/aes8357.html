@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/aes.php?f=aeskeygenassist by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:52 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<title>x86/x64 AESNI Instructions</title>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<meta content="ja" http-equiv="Content-Language" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/aes.php?f=aeskeygenassist" />
+<link rel="alternate" hreflang="en" href="aes8357.html?f=aeskeygenassist" />
+<style type="text/css">
+.red {
+	color: #FF0000;
+}
+h1 {
+	font-size: 15pt;
+	font-weight: bold;
+	background-color: #8288FD;
+	color: #FFFFFF;
+	padding: 2pt;
+}
+body {
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+h3 {
+	font-size: 10pt;
+	font-weight: bold;
+	color: #0000FF;
+}
+dt {
+	font-weight:bold;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+.srcprogdiv {
+	border: 1px solid #0000FF;
+	border-radius: 5px;
+	padding: 5px 10px 5px 10px;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.IL {
+	color: black;
+}
+.operand {
+	font-style:italic;
+}
+.cppcmnt {
+	color:#00A000;
+}
+</style>
+</head>
+
+<body>
+
+<h1>x86/x64 AESNI Instructions</h1>
+<p>As for AES cipher, <a href="http://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf" target="_blank">FIPS 197</a> issued by the government agency of the United States,  is the original specification.</p>
+<h2>Key length, Block Length, Number of Rounds</h2>
+<p><img src="aes010.png" /><br> (from FIPS 197)</p>
+
+<h2>state array</h2>
+<p>
+The state array is a 2-dimensional array of 4 * 4 bytes. The 16-byte plaintext is put here, and processed  by repeating the procedure called "round",  to generate the ciphertext. Rounds are repeated for Nr times.</p>
+<p><img src="aes020.png" /><br> (from FIPS 197)</p>
+<p>AESNI instructions handle the whole state array in one XMMWORD.</p>
+<p><img src="aes030.png" /></p>
+<p>Note that no byte-order swapping (endian conversion) required for using AESNI instructions.</p>
+<h2>w array</h2>
+<p>The w array is a one-dimensional array of 4 * (Nr + 1) words.  (An AES "word" is 32-bit). Before encryption, the Nk-word cipher key must be expanded to the w array by the procedure called KeyExpansion.  In each round, 4 words of the w array are consumed. Before the rounds, 4 words are consumed in pre-processing, so 4 * (Nr + 1) words are required.</p>
+<p>AESNI instructions handle 4 words of the w array (for one round) in one XMMWORD.</p>
+<p><img src="aes040.png" /></p>
+<p>&nbsp;</p>
+<h1>Encryption</h1>
+<p>The following is the AES encryption algorithm defined in FIPS 197. AESNI instructions do <span class="red">A</span> and <span class="red">B</span>. <span class="red">C</span> is just an XOR operation, so PXOR can do it.</p>
+<p><img src="aes110.png" /></p>
+<h2>AESENC - AES ENCrypt<br>AESENCLAST - AES ENCrypt LAST</h2>
+<p>AESENC <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;(AESNI<br>
+<span class="intr">__m128i&nbsp; _mm_aesenc_si128(__m128i state, __m128i w);<br></span>
+AESENCLAST <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;(AESNI<br>
+<span class="intr">__m128i&nbsp; _mm_aesenclast_si128(__m128i state, __m128i w);</span></p>
+<p><img src="aes120.png" /></p>
+
+<p>VAESENC <span class="operand">xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;(AESNI+(V1<br>
+VAESENCLAST <span class="operand">xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;(AESNI+(V1</p>
+<p><img src="aes130.png" /></p>
+
+<p>VAESENC <span class="operand">ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;(VAES<br>
+<span class="intr">__m256i&nbsp; _mm256_aesenc_epi128(__m256i state, __m256i w);<br></span>
+VAESENCLAST <span class="operand">ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;(VAES<br>
+<span class="intr">__m256i&nbsp; _mm256_aesenclast_epi128(__m256i state, __m256i w);</span></p>
+<p><img src="aes140.png" /></p>
+
+<p>VAESENC <span class="operand">zmm1, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;(VAES+(V5<br>
+<span class="intr">__m512i&nbsp; _mm512_aesenc_epi128(__m512i state, __m512i w);<br></span>
+VAESENCLAST <span class="operand">zmm1, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;(VAES+(V5<br>
+<span class="intr">__m512i&nbsp; _mm512_aesenclast_epi128(__m512i state, __m512i w);</span></p>
+<p><img src="aes150.png" /></p>
+
+<p>AESENC instruction processes <span class="red">A</span> above (one round).</p>
+<p><span class="red">B</span> is the last round.  AESENCLAST instruction processes this round.</p>
+<p>Inputs: (1) = the state array before the round, (2) = the w array elements for the round.</p>
+<p>Output: (3) = the state array after the round</p>
+
+<h1>Generating the w array</h1>
+<p>Before the encryption, the w array must be generated by the KeyExpansion procedure defined in FIPS 197 as following.</p>
+<p><img src="aes220.png" /></p>
+<p>Rcon is an array of constants calculated by the method defined in FIPS 197. The values are as following.</p>
+<p>static const BYTE Rcon[] = {<br>&nbsp;0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 
+0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a,<br>};</p>
+<p>Only elements [1] to [10] are actually used in the AES cipher.
+<p>Note that no byte-order swapping required when copying the key to the w array.</p>
+<h2>AESKEYGENASSIST - AES KEY GENeration ASSIST</h2>
+<p>AESKEYGENASSIST <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;(AESNI<br>
+VAESKEYGENASSIST <span class="operand">xmm1, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;(AESNI+(V1<br>
+<span class="intr">__m128i&nbsp; _mm_aeskeygenassist_si128(__m128i temp, const int Rcon);</span></p>
+<p><img src="aes230.png" /></p>
+<p>AESKEYGENASSIST instruction calculates the values of <span class="red">A</span> and <span class="red">B</span> expressions.</p>
+<p>Inputs: (1) = value of temp, (2) = Rcon[i / Nk]</p>
+<p>Output: (3) = the values calculated</p> 
+
+
+<h1>Decryption</h1>
+
+
+<p>FIPS 
+197 defines 2 algorithms of the AES decryption: InvCipher and EqInvCipher. Both algorithms produce the same result, but only the latter is supported by AESNI instructions.</p>
+<p>EqInvCipher uses the dw array, which is generated from the w array with some additional procedure.  How to generate the dw array is described later.</p>
+<p><img src="aes310.png" /></p>
+
+<h2>AESDEC - AES DECrypt<br>AESDECLAST - AES DECrypt LAST</h2>
+
+<p>AESDEC <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;(AESNI<br>
+<span class="intr">__m128i&nbsp; _mm_aesdec_si128(__m128i state, __m128i dw);<br></span>
+AESDECLAST <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;(AESNI<br>
+<span class="intr">__m128i&nbsp; _mm_aesdeclast_si128(__m128i state, __m128i dw);</span></p>
+<p><img src="aes320.png" /></p>
+
+<p>VAESDEC <span class="operand">xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;(AESNI+(V1<br>
+VAESDECLAST <span class="operand">xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;(AESNI+(V1</p>
+<p><img src="aes330.png" /></p>
+
+<p>VAESDEC <span class="operand">ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;(VAES<br>
+<span class="intr">__m256i&nbsp; _mm256_aesdec_epi128(__m256i state, __m256i dw);<br></span>
+VAESDECLAST <span class="operand">ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;(VAES<br>
+<span class="intr">__m256i&nbsp; _mm256_aesdeclast_epi128(__m256i state, __m256i dw);</span></p>
+<p><img src="aes340.png" /></p>
+
+<p>VAESDEC <span class="operand">zmm1, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;(VAES+(V5<br>
+<span class="intr">__m512i&nbsp; _mm512_aesdec_epi128(__m512i state, __m512i dw);<br></span>
+VAESDECLAST <span class="operand">zmm1, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;(VAES+(V5<br>
+<span class="intr">__m512i&nbsp; _mm512_aesdeclast_epi128(__m512i state, __m512i dw);</span></p>
+<p><img src="aes350.png" /></p>
+
+
+<p>AESDEC instruction processes <span class="red">A</span> above (one round).</p>
+<p><span class="red">B</span> is the last round. AESDECLAST instruction processes this round.</p>
+<p>Inputs: (1) = the state array before the round, (2) = the dw array elements for the round.</p>
+<p>Output: (3) = the state array after the round</p>
+
+<h1>Generating the dw array</h1>
+<p>The dw array for EqInvCipher is generated from the w array with the following additional process.</p>
+<p><img src="aes410.png" /></p>
+
+
+<h2>AESIMC - AES InvMixColumns</h2>
+<p>AESIMC <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;(AESNI<br>
+VAESIMC <span class="operand">xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;(AESNI+(V1<br>
+<span class="intr">__m128i&nbsp; _mm_aesimc_si128(__m128i w);</span></p>
+<p><img src="aes420.png" /></p>
+
+<p>AESIMC instruction processes the InvMixColumns() function above.</p>
+<p>Input: (1) = the w array elements.</p>
+<p>Output: (2) = the dw array elements.</p>
+
+<h1>Samples</h1>
+<script type="text/javascript">
+function onClickedSample()
+{
+
+	document.getElementById("AES128_SAMPLE").style.display = document.getElementById("radio_aes128_sample").checked ? "block" :"none";
+	document.getElementById("AES192_SAMPLE").style.display = document.getElementById("radio_aes192_sample").checked ? "block" :"none";
+	document.getElementById("AES256_SAMPLE").style.display = document.getElementById("radio_aes256_sample").checked ? "block" :"none";
+}
+document.addEventListener("DOMContentLoaded", onClickedSample);
+</script>
+<p>
+	<input type="radio" name="samplesel" value="AES128" id="radio_aes128_sample" onclick="onClickedSample();" checked="checked">AES-128&nbsp;&nbsp;
+	<input type="radio" name="samplesel" value="AES192" id="radio_aes192_sample" onclick="onClickedSample();">AES-192&nbsp;&nbsp;
+	<input type="radio" name="samplesel" value="AES256" id="radio_aes256_sample" onclick="onClickedSample();">AES-256
+</p>
+
+<!-- ---------------------------------------------------------------------------------------- -->
+<div id="AES128_SAMPLE">
+<div class="srcprogdiv">
+<pre class="srcprog">
+#pragma once
+
+#include &lt;intrin.h&gt;
+
+class AES128_NI
+{
+public:
+    <span class="cppcmnt">// AES128</span>
+    static const int Nk = 4;
+    static const int Nb = 4;
+    static const int Nr = 10;
+
+protected:
+    __m128i w128[Nr + 1];
+    __m128i dw128[Nr + 1];
+    bool decrypting;
+
+public:
+    AES128_NI(const unsigned char key[4 * Nk], bool decrypting)
+        : decrypting(decrypting)
+    {
+        KeyExpansion(key);
+    }
+
+    void Cipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb]);
+    void EqInvCipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb]);
+
+protected:
+    void KeyExpansion(const unsigned char key[4 * Nk]);
+};
+</pre>
+</div>
+<p></p>
+<div class="srcprogdiv">
+<pre class="srcprog">
+#include &quot;AES128_NI.h&quot;
+
+<span class="cppcmnt">//Cipher(byte in[4*Nb], byte out[4*Nb], word w[Nb*(Nr+1)])</span>
+<span class="cppcmnt">//begin</span>
+void AES128_NI::Cipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb])
+{
+    <span class="cppcmnt">//  ASSERT(!decrypting);</span>
+
+    <span class="cppcmnt">//state = in</span>
+    __m128i state = _mm_loadu_si128(reinterpret_cast&lt;const __m128i *&gt;(in));
+
+    <span class="cppcmnt">//AddRoundKey(state, w[0, Nb-1])</span>
+    <span class="cppcmnt">// just XOR</span>
+    state = _mm_xor_si128(state, w128[0]);
+
+    <span class="cppcmnt">//for round = 1 step 1 to Nr-1</span>
+        <span class="cppcmnt">//SubBytes(state)</span>
+        <span class="cppcmnt">//ShiftRows(state)</span>
+        <span class="cppcmnt">//MixColumns(state)</span>
+        <span class="cppcmnt">//AddRoundKey(state, w[round*Nb, (round+1)*Nb-1])</span>
+    <span class="cppcmnt">//end for</span>
+    state = _mm_aesenc_si128(state, w128[1]);
+    state = _mm_aesenc_si128(state, w128[2]);
+    state = _mm_aesenc_si128(state, w128[3]);
+    state = _mm_aesenc_si128(state, w128[4]);
+    state = _mm_aesenc_si128(state, w128[5]);
+    state = _mm_aesenc_si128(state, w128[6]);
+    state = _mm_aesenc_si128(state, w128[7]);
+    state = _mm_aesenc_si128(state, w128[8]);
+    state = _mm_aesenc_si128(state, w128[9]);
+
+    <span class="cppcmnt">// The last round</span>
+    <span class="cppcmnt">//SubBytes(state)</span>
+    <span class="cppcmnt">//ShiftRows(state)</span>
+    <span class="cppcmnt">//AddRoundKey(state, w[Nr*Nb, (Nr+1)*Nb-1])</span>
+    state = _mm_aesenclast_si128(state, w128[Nr]);
+
+    <span class="cppcmnt">//out = state</span>
+    _mm_storeu_si128(reinterpret_cast&lt;__m128i *&gt;(out), state);
+
+    <span class="cppcmnt">//end</span>
+}
+
+<span class="cppcmnt">//EqInvCipher(byte in[4*Nb], byte out[4*Nb], word dw[Nb*(Nr+1)])</span>
+<span class="cppcmnt">//begin</span>
+void AES128_NI::EqInvCipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb])
+{
+    <span class="cppcmnt">//  ASSERT(decrypting);</span>
+
+    <span class="cppcmnt">//byte  state[4,Nb]</span>
+    <span class="cppcmnt">//state = in</span>
+    __m128i state = _mm_loadu_si128(reinterpret_cast&lt;const __m128i *&gt;(in));
+
+    <span class="cppcmnt">//AddRoundKey(state, dw[Nr*Nb, (Nr+1)*Nb-1])</span>
+    state = _mm_xor_si128(state, w128[Nr]);
+
+    <span class="cppcmnt">//for round = Nr-1 step -1 downto 1</span>
+        <span class="cppcmnt">//InvSubBytes(state)</span>
+        <span class="cppcmnt">//InvShiftRows(state)</span>
+        <span class="cppcmnt">//InvMixColumns(state)</span>
+        <span class="cppcmnt">//AddRoundKey(state, dw[round*Nb, (round+1)*Nb-1])</span>
+    <span class="cppcmnt">//end for</span>
+    state = _mm_aesdec_si128(state, dw128[9]);
+    state = _mm_aesdec_si128(state, dw128[8]);
+    state = _mm_aesdec_si128(state, dw128[7]);
+    state = _mm_aesdec_si128(state, dw128[6]);
+    state = _mm_aesdec_si128(state, dw128[5]);
+    state = _mm_aesdec_si128(state, dw128[4]);
+    state = _mm_aesdec_si128(state, dw128[3]);
+    state = _mm_aesdec_si128(state, dw128[2]);
+    state = _mm_aesdec_si128(state, dw128[1]);
+
+    <span class="cppcmnt">//InvSubBytes(state)</span>
+    <span class="cppcmnt">//InvShiftRows(state)</span>
+    <span class="cppcmnt">//AddRoundKey(state, dw[0, Nb-1])</span>
+    state = _mm_aesdeclast_si128(state, dw128[0]);
+
+    <span class="cppcmnt">//out = state</span>
+    _mm_storeu_si128(reinterpret_cast&lt;__m128i *&gt;(out), state);
+    <span class="cppcmnt">//end</span>
+}
+
+<span class="cppcmnt">//static const BYTE Rcon[] = {</span>
+<span class="cppcmnt">//  0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a,</span>
+<span class="cppcmnt">//};</span>
+
+<span class="cppcmnt">//KeyExpansion(byte key[4*Nk], word w[Nb*(Nr+1)], Nk)</span>
+<span class="cppcmnt">//begin</span>
+void AES128_NI::KeyExpansion(const unsigned char key[4 * Nk])
+{
+    <span class="cppcmnt">//word  temp</span>
+    <span class="cppcmnt">//i = 0</span>
+
+    <span class="cppcmnt">//while (i &lt; Nk)</span>
+        <span class="cppcmnt">//w[i] = word(key[4*i], key[4*i+1], key[4*i+2], key[4*i+3])</span>
+        <span class="cppcmnt">//i = i+1</span>
+    <span class="cppcmnt">//end while</span>
+    __m128i work = _mm_loadu_si128(reinterpret_cast&lt;const __m128i*&gt;(key));  <span class="cppcmnt">// work = w3 : w2 : w1 : w0</span>
+    w128[0] = work;
+
+    <span class="cppcmnt">//i = Nk</span>
+    <span class="cppcmnt">//while (i &lt; Nb * (Nr+1)]</span>
+        <span class="cppcmnt">//temp = w[i-1]</span>
+        <span class="cppcmnt">//if (i mod Nk = 0)</span>
+            <span class="cppcmnt">//temp = SubWord(RotWord(temp)) xor Rcon[i/Nk]</span>
+        <span class="cppcmnt">//else if (Nk &gt; 6 and i mod Nk = 4)</span>
+            <span class="cppcmnt">//temp = SubWord(temp)</span>
+        <span class="cppcmnt">//end if</span>
+        <span class="cppcmnt">//w[i] = w[i-Nk] xor temp</span>
+        <span class="cppcmnt">//i = i + 1</span>
+    <span class="cppcmnt">//end while</span>
+
+
+    __m128i t, t2;
+
+    <span class="cppcmnt">// f(w) = SubWord(RotWord(w)) xor Rcon</span>
+
+    <span class="cppcmnt">// work = w3 : w2 : w1 : w0</span>
+    <span class="cppcmnt">// w4 = w0^f(w3)</span>
+    <span class="cppcmnt">// w5 = w1^w4 = w1^w0^f(w3)</span>
+    <span class="cppcmnt">// w6 = w2^w5 = w2^w1^w0^f(w3)</span>
+    <span class="cppcmnt">// w7 = w3^w6 = w3^w2^w1^w0^f(w3)</span>
+#define EXPAND(n, RCON) \
+    t  = _mm_slli_si128(work, 4);       <span class="cppcmnt">/* t    = w2                : w1             : w0          : 0        */</span>\
+    t  = _mm_xor_si128(work, t);        <span class="cppcmnt">/* t    = w3^w2             : w2^w1          : w1^w0       : w0       */</span>\
+    t2 = _mm_slli_si128(t, 8);          <span class="cppcmnt">/* t2   = w1^w0             : w0             : 0           : 0        */</span>\
+    t  = _mm_xor_si128(t, t2);          <span class="cppcmnt">/* t    = w3^w2^w1^w0       : w2^w1^w0       : w1^w0       : w0       */</span>\
+    work = _mm_aeskeygenassist_si128(work, RCON);           <span class="cppcmnt">/* work = f(w3) : - : - : - */</span>                      \
+    work = _mm_shuffle_epi32(work, 0xFF);<span class="cppcmnt">/*work = f(w3)             : f(w3)          : f(w3)       ; f(w3)    */</span>\
+    work = _mm_xor_si128(t, work);      <span class="cppcmnt">/* work = w3^w2^w1^w0^f(w3) : w2^w1^w0^f(w3) : w1^w0^f(w3) : w0^f(w3) */</span>\
+    w128[n] = work;                     <span class="cppcmnt">/* work = w7 : w6 : w5 : w4 */</span>
+
+    EXPAND(1, 0x01);
+
+    <span class="cppcmnt">// Go on...</span>
+    EXPAND(2, 0x02);
+    EXPAND(3, 0x04);
+    EXPAND(4, 0x08);
+    EXPAND(5, 0x10);
+    EXPAND(6, 0x20);
+    EXPAND(7, 0x40);
+    EXPAND(8, 0x80);
+    EXPAND(9, 0x1b);
+    EXPAND(10, 0x36);
+
+    <span class="cppcmnt">// Additional process for EqInvCipher</span>
+    if (decrypting) {
+        <span class="cppcmnt">//for i = 0 step 1 to (Nr+1)*Nb-1</span>
+            <span class="cppcmnt">//dw[i] = w[i]</span>
+        <span class="cppcmnt">//end for</span>
+        dw128[0] = w128[0];
+
+        <span class="cppcmnt">//for round = 1 step 1 to Nr-1</span>
+            <span class="cppcmnt">//InvMixColumns(dw[round*Nb, (round+1)*Nb-1])</span>
+        <span class="cppcmnt">//end for</span>
+        dw128[1] = _mm_aesimc_si128(w128[1]);
+        dw128[2] = _mm_aesimc_si128(w128[2]);
+        dw128[3] = _mm_aesimc_si128(w128[3]);
+        dw128[4] = _mm_aesimc_si128(w128[4]);
+        dw128[5] = _mm_aesimc_si128(w128[5]);
+        dw128[6] = _mm_aesimc_si128(w128[6]);
+        dw128[7] = _mm_aesimc_si128(w128[7]);
+        dw128[8] = _mm_aesimc_si128(w128[8]);
+        dw128[9] = _mm_aesimc_si128(w128[9]);
+
+        dw128[Nr] = w128[Nr];
+    }
+    <span class="cppcmnt">//end</span>
+}
+</pre>
+</div>
+</div>
+
+<!-- ---------------------------------------------------------------------------------------- -->
+<div id="AES192_SAMPLE">
+<div class="srcprogdiv">
+<pre class="srcprog">
+#pragma once
+
+#include &lt;intrin.h&gt;
+
+class AES192_NI
+{
+public:
+    <span class="cppcmnt">// AES192</span>
+    static const int Nk = 6;
+    static const int Nb = 4;
+    static const int Nr = 12;
+
+protected:
+    __m128i w128[Nr + 1];
+    __m128i dw128[Nr + 1];
+    bool decrypting;
+
+public:
+    AES192_NI(const unsigned char key[4 * Nk], bool decrypting)
+        : decrypting(decrypting)
+    {
+        KeyExpansion(key);
+    }
+
+    void Cipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb]);
+    void EqInvCipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb]);
+
+protected:
+    void KeyExpansion(const unsigned char key[4 * Nk]);
+};
+</pre>
+</div>
+<p></p>
+<div class="srcprogdiv">
+<pre class="srcprog">
+#include &quot;AES192_NI.h&quot;
+
+<span class="cppcmnt">//Cipher(byte in[4*Nb], byte out[4*Nb], word w[Nb*(Nr+1)])</span>
+<span class="cppcmnt">//begin</span>
+void AES192_NI::Cipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb])
+{
+    <span class="cppcmnt">//  ASSERT(!decrypting);</span>
+
+    <span class="cppcmnt">//state = in</span>
+    __m128i state = _mm_loadu_si128(reinterpret_cast&lt;const __m128i*&gt;(in));
+
+    <span class="cppcmnt">//AddRoundKey(state, w[0, Nb-1])</span>
+    <span class="cppcmnt">// just XOR</span>
+    state = _mm_xor_si128(state, w128[0]);
+
+    <span class="cppcmnt">//for round = 1 step 1 to Nr-1</span>
+        <span class="cppcmnt">//SubBytes(state)</span>
+        <span class="cppcmnt">//ShiftRows(state)</span>
+        <span class="cppcmnt">//MixColumns(state)</span>
+        <span class="cppcmnt">//AddRoundKey(state, w[round*Nb, (round+1)*Nb-1])</span>
+    <span class="cppcmnt">//end for</span>
+    state = _mm_aesenc_si128(state, w128[1]);
+    state = _mm_aesenc_si128(state, w128[2]);
+    state = _mm_aesenc_si128(state, w128[3]);
+    state = _mm_aesenc_si128(state, w128[4]);
+    state = _mm_aesenc_si128(state, w128[5]);
+    state = _mm_aesenc_si128(state, w128[6]);
+    state = _mm_aesenc_si128(state, w128[7]);
+    state = _mm_aesenc_si128(state, w128[8]);
+    state = _mm_aesenc_si128(state, w128[9]);
+    state = _mm_aesenc_si128(state, w128[10]);
+    state = _mm_aesenc_si128(state, w128[11]);
+
+    <span class="cppcmnt">// The last round</span>
+    <span class="cppcmnt">//SubBytes(state)</span>
+    <span class="cppcmnt">//ShiftRows(state)</span>
+    <span class="cppcmnt">//AddRoundKey(state, w[Nr*Nb, (Nr+1)*Nb-1])</span>
+    state = _mm_aesenclast_si128(state, w128[Nr]);
+
+    <span class="cppcmnt">//out = state</span>
+    _mm_storeu_si128(reinterpret_cast&lt;__m128i*&gt;(out), state);
+
+    <span class="cppcmnt">//end</span>
+}
+
+<span class="cppcmnt">//EqInvCipher(byte in[4*Nb], byte out[4*Nb], word dw[Nb*(Nr+1)])</span>
+<span class="cppcmnt">//begin</span>
+void AES192_NI::EqInvCipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb])
+{
+    <span class="cppcmnt">//  ASSERT(decrypting);</span>
+
+    <span class="cppcmnt">//byte  state[4,Nb]</span>
+    <span class="cppcmnt">//state = in</span>
+    __m128i state = _mm_loadu_si128(reinterpret_cast&lt;const __m128i*&gt;(in));
+
+    <span class="cppcmnt">//AddRoundKey(state, dw[Nr*Nb, (Nr+1)*Nb-1])</span>
+    state = _mm_xor_si128(state, dw128[Nr]);
+
+    <span class="cppcmnt">//for round = Nr-1 step -1 downto 1</span>
+        <span class="cppcmnt">//InvSubBytes(state)</span>
+        <span class="cppcmnt">//InvShiftRows(state)</span>
+        <span class="cppcmnt">//InvMixColumns(state)</span>
+        <span class="cppcmnt">//AddRoundKey(state, dw[round*Nb, (round+1)*Nb-1])</span>
+    <span class="cppcmnt">//end for</span>
+    state = _mm_aesdec_si128(state, dw128[11]);
+    state = _mm_aesdec_si128(state, dw128[10]);
+    state = _mm_aesdec_si128(state, dw128[9]);
+    state = _mm_aesdec_si128(state, dw128[8]);
+    state = _mm_aesdec_si128(state, dw128[7]);
+    state = _mm_aesdec_si128(state, dw128[6]);
+    state = _mm_aesdec_si128(state, dw128[5]);
+    state = _mm_aesdec_si128(state, dw128[4]);
+    state = _mm_aesdec_si128(state, dw128[3]);
+    state = _mm_aesdec_si128(state, dw128[2]);
+    state = _mm_aesdec_si128(state, dw128[1]);
+
+    <span class="cppcmnt">//InvSubBytes(state)</span>
+    <span class="cppcmnt">//InvShiftRows(state)</span>
+    <span class="cppcmnt">//AddRoundKey(state, dw[0, Nb-1])</span>
+    state = _mm_aesdeclast_si128(state, dw128[0]);
+
+    <span class="cppcmnt">//out = state</span>
+    _mm_storeu_si128(reinterpret_cast&lt;__m128i*&gt;(out), state);
+    <span class="cppcmnt">//end</span>
+}
+
+<span class="cppcmnt">//static const BYTE Rcon[] = {</span>
+<span class="cppcmnt">//  0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a,</span>
+<span class="cppcmnt">//};</span>
+
+<span class="cppcmnt">//KeyExpansion(byte key[4*Nk], word w[Nb*(Nr+1)], Nk)</span>
+<span class="cppcmnt">//begin</span>
+void AES192_NI::KeyExpansion(const unsigned char key[4 * Nk])
+{
+    <span class="cppcmnt">//word  temp</span>
+    <span class="cppcmnt">//i = 0</span>
+
+    <span class="cppcmnt">//while (i &lt; Nk)</span>
+        <span class="cppcmnt">//w[i] = word(key[4*i], key[4*i+1], key[4*i+2], key[4*i+3])</span>
+        <span class="cppcmnt">//i = i+1</span>
+    <span class="cppcmnt">//end while</span>
+    __m128i work1 = _mm_loadu_si128(reinterpret_cast&lt;const __m128i*&gt;(key));         <span class="cppcmnt">// w3 : w2 : w1 : w0</span>
+    __m128i work2 = _mm_loadl_epi64(reinterpret_cast&lt;const __m128i*&gt;(key + 16));    <span class="cppcmnt">// - : - : w5 : w4</span>
+
+    w128[0] = work1;
+
+    <span class="cppcmnt">//i = Nk</span>
+    <span class="cppcmnt">//while (i &lt; Nb * (Nr+1)]</span>
+        <span class="cppcmnt">//temp = w[i-1]</span>
+        <span class="cppcmnt">//if (i mod Nk = 0)</span>
+            <span class="cppcmnt">//temp = SubWord(RotWord(temp)) xor Rcon[i/Nk]</span>
+        <span class="cppcmnt">//else if (Nk &gt; 6 and i mod Nk = 4)</span>
+            <span class="cppcmnt">//temp = SubWord(temp)</span>
+        <span class="cppcmnt">//end if</span>
+        <span class="cppcmnt">//w[i] = w[i-Nk] xor temp</span>
+        <span class="cppcmnt">//i = i + 1</span>
+    <span class="cppcmnt">//end while</span>
+
+    __m128i t, t2;
+    __m128i work3;
+
+    <span class="cppcmnt">// f(w) = SubWord(RotWord(w)) xor Rcon</span>
+
+    <span class="cppcmnt">// work1 = w3 : w2 : w1 : w0</span>
+    <span class="cppcmnt">// work2 = - : - : w5 : w4</span>
+    <span class="cppcmnt">// w6 = w0^f(w5)</span>
+    <span class="cppcmnt">// w7 = w1^w6 = w1^w0^f(w5) </span>
+    t = _mm_aeskeygenassist_si128(work2, 0x01); <span class="cppcmnt">/* t = - : - : f(w5) : -     */</span>
+    t = _mm_shuffle_epi32(t, 0x55);     <span class="cppcmnt">/* t     = f(w5) : f(w5) : f(w5) : f(w5) */</span>
+    t2 = _mm_slli_si128(work1, 4);      <span class="cppcmnt">/* t2    = -     : -     : w0    : 0     */</span>
+    t2 = _mm_xor_si128(work1, t2);      <span class="cppcmnt">/* t2    = -     : -     : w1^w0 : w0    */</span>
+    t = _mm_xor_si128(t2, t);           <span class="cppcmnt">/* t     = -     : -     : w7    : w6    */</span>
+    work2 = _mm_unpacklo_epi64(work2, t);   <span class="cppcmnt">/* work2 = w7    : w6    : w5    : w4    */</span>
+    w128[1] = work2;
+
+    <span class="cppcmnt">// work1 = w3 : w2 : w1 : w0</span>
+    <span class="cppcmnt">// work2 = w7 : w6 : w5 : w4</span>
+    <span class="cppcmnt">// w8 = w2^w7 </span>
+    <span class="cppcmnt">// w9 = w3^w8 = w3^w2^w7</span>
+    <span class="cppcmnt">// w10 = w4^w9 = w4^w3^w2^w7</span>
+    <span class="cppcmnt">// w11 = w5^w10 = w5^w4^w3^w2^w7</span>
+#define EXPAND1(n)                                                                           \
+    t     = _mm_alignr_epi8(work2, work1, 8);<span class="cppcmnt">/* t    = w5          : w4       : w3    : w2 */</span>\
+    work3 = _mm_shuffle_epi32(work2, 0xFF); <span class="cppcmnt">/* work3 = w7          : w7       : w7    : w7 */</span>\
+    t2    = _mm_slli_si128(t, 4);           <span class="cppcmnt">/* t2    = w4          : w3       : w2    : 0  */</span>\
+    t     = _mm_xor_si128(t, t2);           <span class="cppcmnt">/* t     = w5^w4       : w4^w3    : w3^w2 : w2 */</span>\
+    t2    = _mm_slli_si128(t, 8);           <span class="cppcmnt">/* t2    = w3^w2       : w2       : 0     : 0  */</span>\
+    t2    = _mm_xor_si128(t, t2);           <span class="cppcmnt">/* t2    = w5^w4^w3^w2 : w4^w3^w2 : w3^w2 : w2 */</span>\
+    work3 = _mm_xor_si128(t2, work3);       <span class="cppcmnt">/* work3 = w11         : w10      : w9    : w8 */</span>\
+    w128[n] = work3;
+
+    EXPAND1(2);
+
+    <span class="cppcmnt">// work2 = w7 : w6 : w5 : w4</span>
+    <span class="cppcmnt">// work3 = w11: w10 : w9 : w8</span>
+    <span class="cppcmnt">// w12 = w6^f(w11)</span>
+    <span class="cppcmnt">// w13 = w7^w12 = w7^w6^f(w11)</span>
+    <span class="cppcmnt">// w14 = w8^w13 = w8^w7^w6^f(w11)</span>
+    <span class="cppcmnt">// w15 = w9^w14 = w9^w8^w7^w6^f(w11)</span>
+#define EXPAND2(n, RCON)                                                                          \
+    t     = _mm_alignr_epi8(work3, work2, 8);<span class="cppcmnt">/*t     = w9          : w8       : w7     : w6     */</span>\
+    work1 = _mm_aeskeygenassist_si128(work3, RCON);<span class="cppcmnt">/* work1 = f(w11) : - : - : -                */</span>\
+    work1 = _mm_shuffle_epi32(work1, 0xFF); <span class="cppcmnt">/* work1 = f(w11)      : f(w11)   : f(w11) : f(w11) */</span>\
+    t2    = _mm_slli_si128(t, 4);           <span class="cppcmnt">/* t2    = w8          : w7       : w6     : 0      */</span>\
+    t     = _mm_xor_si128(t, t2);           <span class="cppcmnt">/* t     = w9^w8       : w8^w7    : w7^w6  : w6     */</span>\
+    t2    = _mm_slli_si128(t, 8);           <span class="cppcmnt">/* t2    = w7^w6       : w6       : 0      : 0      */</span>\
+    t     = _mm_xor_si128(t, t2);           <span class="cppcmnt">/* t     = w9^w8^w7^w6 : w8^w7^w6 : w7^w6  : w6     */</span>\
+    work1 = _mm_xor_si128(t, work1);        <span class="cppcmnt">/* work1 = w15         : w14      : w13    : w12    */</span>\
+    w128[n] = work1;
+
+    EXPAND2(3, 0x02);
+
+    const __m128i idx1 = _mm_set_epi8(-1, -1, -1, -1, -1, -1, -1, -1, 15, 14, 13, 12, 15, 14, 13, 12);
+    const __m128i idx2 = _mm_set_epi8(7, 6, 5, 4, 7, 6, 5, 4, -1, -1, -1, -1, -1, -1, -1, -1);
+
+    <span class="cppcmnt">// work3 = w11 : w10 : w9 : w8</span>
+    <span class="cppcmnt">// work1 = w15 : w14 : w13 : w12</span>
+    <span class="cppcmnt">// w16 = w10^w15 </span>
+    <span class="cppcmnt">// w17 = w11^w16 = w11^w10^w15</span>
+    <span class="cppcmnt">// w18 = w12^f(w17)</span>
+    <span class="cppcmnt">// w19 = w13^w18 = w13^w12^f(w17)</span>
+#define EXPAND3(n, RCON)                                                                      \
+    work2 = _mm_alignr_epi8(work1, work3, 8);<span class="cppcmnt">/*work2 = w13     : w12    : w11     : w10     */</span>\
+    t     = _mm_slli_epi64(work2, 32);      <span class="cppcmnt">/* t     = w12     : 0      : w10     : 0       */</span>\
+    work2 = _mm_xor_si128(work2, t);        <span class="cppcmnt">/* work2 = w13^w12 : w12    : w11^w10 : w10     */</span>\
+    t     = _mm_shuffle_epi8(work1, idx1);  <span class="cppcmnt">/* t     = 0       : 0      : w15     : w15     */</span>\
+    work2 = _mm_xor_si128(work2, t);        <span class="cppcmnt">/* work2 = w13^w12 : w12    : w17     : w16     */</span>\
+    t     = _mm_aeskeygenassist_si128(work2, RCON);<span class="cppcmnt">/*t=-       : -      : f(w17)  : -       */</span>\
+    t     = _mm_shuffle_epi8(t, idx2);      <span class="cppcmnt">/* t     = f(w17)  : f(w17) : 0       : 0       */</span>\
+    work2 = _mm_xor_si128(work2, t);        <span class="cppcmnt">/* work2 = w19     : w18    : w17     : w16     */</span>\
+    w128[n] = work2;
+
+    EXPAND3(4, 0x04);
+
+    <span class="cppcmnt">// Go on...</span>
+    EXPAND1(5);         <span class="cppcmnt">// w20-w23</span>
+    EXPAND2(6, 0x08);   <span class="cppcmnt">// w24-w27</span>
+    EXPAND3(7, 0x10);   <span class="cppcmnt">// w28-w31</span>
+
+    EXPAND1(8);         <span class="cppcmnt">// w32-w35</span>
+    EXPAND2(9, 0x20);   <span class="cppcmnt">// w36-w39</span>
+    EXPAND3(10, 0x40);  <span class="cppcmnt">// w40-w43</span>
+
+    EXPAND1(11);        <span class="cppcmnt">// w44-w47</span>
+    EXPAND2(12, 0x80);  <span class="cppcmnt">// w48-w51</span>
+
+
+    <span class="cppcmnt">// Additional process for EqInvCipher</span>
+    if (decrypting) {
+        <span class="cppcmnt">//for i = 0 step 1 to (Nr+1)*Nb-1</span>
+            <span class="cppcmnt">//dw[i] = w[i]</span>
+        <span class="cppcmnt">//end for</span>
+        dw128[0] = w128[0];
+
+        <span class="cppcmnt">//for round = 1 step 1 to Nr-1</span>
+            <span class="cppcmnt">//InvMixColumns(dw[round*Nb, (round+1)*Nb-1])</span>
+        <span class="cppcmnt">//end for</span>
+        dw128[1] = _mm_aesimc_si128(w128[1]);
+        dw128[2] = _mm_aesimc_si128(w128[2]);
+        dw128[3] = _mm_aesimc_si128(w128[3]);
+        dw128[4] = _mm_aesimc_si128(w128[4]);
+        dw128[5] = _mm_aesimc_si128(w128[5]);
+        dw128[6] = _mm_aesimc_si128(w128[6]);
+        dw128[7] = _mm_aesimc_si128(w128[7]);
+        dw128[8] = _mm_aesimc_si128(w128[8]);
+        dw128[9] = _mm_aesimc_si128(w128[9]);
+        dw128[10] = _mm_aesimc_si128(w128[10]);
+        dw128[11] = _mm_aesimc_si128(w128[11]);
+
+        dw128[Nr] = w128[Nr];
+    }
+    <span class="cppcmnt">//end</span>
+}
+</pre>
+</div>
+</div>
+
+<!-- ---------------------------------------------------------------------------------------- -->
+<div id="AES256_SAMPLE">
+<div class="srcprogdiv">
+<pre class="srcprog">
+#pragma once
+
+#include &lt;intrin.h&gt;
+
+class AES256_NI
+{
+public:
+    <span class="cppcmnt">// AES256</span>
+    static const int Nk = 8;
+    static const int Nb = 4;
+    static const int Nr = 14;
+
+protected:
+    __m128i w128[Nr + 1];
+    __m128i dw128[Nr + 1];
+    bool decrypting;
+
+public:
+    AES256_NI(const unsigned char key[4 * Nk], bool decrypting)
+        : decrypting(decrypting)
+    {
+        KeyExpansion(key);
+    }
+
+    void Cipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb]);
+    void EqInvCipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb]);
+
+protected:
+    void KeyExpansion(const unsigned char key[4 * Nk]);
+};
+</pre>
+</div>
+<p></p>
+<div class="srcprogdiv">
+<pre class="srcprog">
+#include &quot;AES256_NI.h&quot;
+
+<span class="cppcmnt">//Cipher(byte in[4*Nb], byte out[4*Nb], word w[Nb*(Nr+1)])</span>
+<span class="cppcmnt">//begin</span>
+void AES256_NI::Cipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb])
+{
+    <span class="cppcmnt">//  ASSERT(!decrypting);</span>
+
+    <span class="cppcmnt">//state = in</span>
+    __m128i state = _mm_loadu_si128(reinterpret_cast&lt;const __m128i *&gt;(in));
+
+    <span class="cppcmnt">//AddRoundKey(state, w[0, Nb-1])</span>
+    <span class="cppcmnt">// Just XOR</span>
+    state = _mm_xor_si128(state, w128[0]);
+
+    <span class="cppcmnt">//for round = 1 step 1 to Nr-1</span>
+        <span class="cppcmnt">//SubBytes(state)</span>
+        <span class="cppcmnt">//ShiftRows(state)</span>
+        <span class="cppcmnt">//MixColumns(state)</span>
+        <span class="cppcmnt">//AddRoundKey(state, w[round*Nb, (round+1)*Nb-1])</span>
+    <span class="cppcmnt">//end for</span>
+    state = _mm_aesenc_si128(state, w128[1]);
+    state = _mm_aesenc_si128(state, w128[2]);
+    state = _mm_aesenc_si128(state, w128[3]);
+    state = _mm_aesenc_si128(state, w128[4]);
+    state = _mm_aesenc_si128(state, w128[5]);
+    state = _mm_aesenc_si128(state, w128[6]);
+    state = _mm_aesenc_si128(state, w128[7]);
+    state = _mm_aesenc_si128(state, w128[8]);
+    state = _mm_aesenc_si128(state, w128[9]);
+    state = _mm_aesenc_si128(state, w128[10]);
+    state = _mm_aesenc_si128(state, w128[11]);
+    state = _mm_aesenc_si128(state, w128[12]);
+    state = _mm_aesenc_si128(state, w128[13]);
+
+    <span class="cppcmnt">// The last round</span>
+    <span class="cppcmnt">//SubBytes(state)</span>
+    <span class="cppcmnt">//ShiftRows(state)</span>
+    <span class="cppcmnt">//AddRoundKey(state, w[Nr*Nb, (Nr+1)*Nb-1])</span>
+    state = _mm_aesenclast_si128(state, w128[Nr]);
+
+    <span class="cppcmnt">//out = state</span>
+    _mm_storeu_si128(reinterpret_cast&lt;__m128i *&gt;(out), state);
+
+    <span class="cppcmnt">//end</span>
+}
+
+<span class="cppcmnt">//EqInvCipher(byte in[4*Nb], byte out[4*Nb], word dw[Nb*(Nr+1)])</span>
+<span class="cppcmnt">//begin</span>
+void AES256_NI::EqInvCipher(const unsigned char in[4 * Nb], unsigned char out[4 * Nb])
+{
+    <span class="cppcmnt">//  ASSERT(decrypting);</span>
+
+    <span class="cppcmnt">//byte  state[4,Nb]</span>
+    <span class="cppcmnt">//state = in</span>
+    __m128i state = _mm_loadu_si128(reinterpret_cast&lt;const __m128i *&gt;(in));
+
+    <span class="cppcmnt">//AddRoundKey(state, dw[Nr*Nb, (Nr+1)*Nb-1])</span>
+    state = _mm_xor_si128(state, dw128[Nr]);
+
+    <span class="cppcmnt">//for round = Nr-1 step -1 downto 1</span>
+        <span class="cppcmnt">//InvSubBytes(state)</span>
+        <span class="cppcmnt">//InvShiftRows(state)</span>
+        <span class="cppcmnt">//InvMixColumns(state)</span>
+        <span class="cppcmnt">//AddRoundKey(state, dw[round*Nb, (round+1)*Nb-1])</span>
+    <span class="cppcmnt">//end for</span>
+    state = _mm_aesdec_si128(state, dw128[13]);
+    state = _mm_aesdec_si128(state, dw128[12]);
+    state = _mm_aesdec_si128(state, dw128[11]);
+    state = _mm_aesdec_si128(state, dw128[10]);
+    state = _mm_aesdec_si128(state, dw128[9]);
+    state = _mm_aesdec_si128(state, dw128[8]);
+    state = _mm_aesdec_si128(state, dw128[7]);
+    state = _mm_aesdec_si128(state, dw128[6]);
+    state = _mm_aesdec_si128(state, dw128[5]);
+    state = _mm_aesdec_si128(state, dw128[4]);
+    state = _mm_aesdec_si128(state, dw128[3]);
+    state = _mm_aesdec_si128(state, dw128[2]);
+    state = _mm_aesdec_si128(state, dw128[1]);
+
+    <span class="cppcmnt">//InvSubBytes(state)</span>
+    <span class="cppcmnt">//InvShiftRows(state)</span>
+    <span class="cppcmnt">//AddRoundKey(state, dw[0, Nb-1])</span>
+    state = _mm_aesdeclast_si128(state, dw128[0]);
+
+    <span class="cppcmnt">//out = state</span>
+    _mm_storeu_si128(reinterpret_cast&lt;__m128i *&gt;(out), state);
+    <span class="cppcmnt">//end</span>
+}
+
+<span class="cppcmnt">//static const BYTE Rcon[] = {</span>
+<span class="cppcmnt">//  0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a,</span>
+<span class="cppcmnt">//};</span>
+
+<span class="cppcmnt">//KeyExpansion(byte key[4*Nk], word w[Nb*(Nr+1)], Nk)</span>
+<span class="cppcmnt">//begin</span>
+void AES256_NI::KeyExpansion(const unsigned char key[4 * Nk])
+{
+    <span class="cppcmnt">//word  temp</span>
+    <span class="cppcmnt">//i = 0</span>
+
+    <span class="cppcmnt">//while (i &lt; Nk)</span>
+        <span class="cppcmnt">//w[i] = word(key[4*i], key[4*i+1], key[4*i+2], key[4*i+3])</span>
+        <span class="cppcmnt">//i = i+1</span>
+    <span class="cppcmnt">//end while</span>
+    __m128i work1 = _mm_loadu_si128(reinterpret_cast&lt;const __m128i*&gt;(key));         
+    __m128i work2 = _mm_loadu_si128(reinterpret_cast&lt;const __m128i*&gt;(key + 16));
+    w128[0] = work1;    <span class="cppcmnt">// work1 = w3 : w2 : w1 : w0</span>
+    w128[1] = work2;    <span class="cppcmnt">// work2 = w7 : w6 : w5 : w4</span>
+
+    <span class="cppcmnt">//i = Nk</span>
+    <span class="cppcmnt">//while (i &lt; Nb * (Nr+1)]</span>
+        <span class="cppcmnt">//temp = w[i-1]</span>
+        <span class="cppcmnt">//if (i mod Nk = 0)</span>
+            <span class="cppcmnt">//temp = SubWord(RotWord(temp)) xor Rcon[i/Nk]</span>
+        <span class="cppcmnt">//else if (Nk &gt; 6 and i mod Nk = 4)</span>
+            <span class="cppcmnt">//temp = SubWord(temp)</span>
+        <span class="cppcmnt">//end if</span>
+        <span class="cppcmnt">//w[i] = w[i-Nk] xor temp</span>
+        <span class="cppcmnt">//i = i + 1</span>
+    <span class="cppcmnt">//end while</span>
+
+    __m128i t;
+
+    <span class="cppcmnt">// f(w) = SubWord(RotWord(w)) xor Rcon</span>
+    <span class="cppcmnt">// g(w) = SubWord(w)</span>
+
+    <span class="cppcmnt">// work1 = w3 : w2 : w1 : w0</span>
+    <span class="cppcmnt">// work2 = w7 : w6 : w5 : w4</span>
+    <span class="cppcmnt">// w8 = w0^f(w7)</span>
+    <span class="cppcmnt">// w9 = w1^w8 = w1^w0^f(w7)</span>
+    <span class="cppcmnt">// w10 = w2^w9 = w2^w1^w0^f(w7)</span>
+    <span class="cppcmnt">// w11 = w3^w11 = w3^w2^w1^w0^f(w7)</span>
+#define EXPAND1(n, RCON)                                                                                        \
+    t = _mm_slli_si128(work1, 4);   <span class="cppcmnt">/* t     = w2                : w1             : w0          : 0        */</span>   \
+    work1 = _mm_xor_si128(work1, t);<span class="cppcmnt">/* work1 = w3^w2             : w2^w1          : w1^w0       : w0       */</span>   \
+    t = _mm_slli_si128(work1, 8);   <span class="cppcmnt">/* t     = w1^w0             : w0             : 0           : 0        */</span>   \
+    work1 = _mm_xor_si128(work1, t);<span class="cppcmnt">/* work1 = w3^w2^w1^w0       : w2^w1^w0       : w1^w0       : w0       */</span>   \
+    t = _mm_aeskeygenassist_si128(work2, RCON); <span class="cppcmnt">/* t = f(w7) : - : - : - */</span>                                     \
+    t = _mm_shuffle_epi32(t, 0xFF); <span class="cppcmnt">/* t     = f(w7)             : f(w7)          : f(w7)       : f(w7)    */</span>   \
+    work1 = _mm_xor_si128(work1, t);<span class="cppcmnt">/* work1 = w3^w2^w1^w0^f(w7) : w2^w1^w0^f(w7) : w1^w0^f(w7) : w0^f(w7) */</span>   \
+    w128[n] = work1;                <span class="cppcmnt">/* work1 = w11 : w10 : w9 : w8 */</span>
+
+    EXPAND1(2, 0x01);
+
+    <span class="cppcmnt">// work2 = w7 : w6 : w5 : w4</span>
+    <span class="cppcmnt">// work1 = w11 : w10 : w9 : w8</span>
+    <span class="cppcmnt">// w12 = w4^g(w11)</span>
+    <span class="cppcmnt">// w13 = w5^w12 = w5^w4^g(w11)</span>
+    <span class="cppcmnt">// w14 = w6^w13 = w6^w5^w4^g(w11)</span>
+    <span class="cppcmnt">// w15 = w7^w14 = w7^w6^w5^w4^g(w11)</span>
+#define EXPAND2(n)                                                                                              \
+    t = _mm_slli_si128(work2, 4);   <span class="cppcmnt">/* t     = w6                : w5             : w4          : 0        */</span>   \
+    work2 = _mm_xor_si128(work2, t);<span class="cppcmnt">/* work2 = w7^w6             : w6^w5          : w5^w4       : w4       */</span>   \
+    t = _mm_slli_si128(work2, 8);   <span class="cppcmnt">/* t     = w5^w4             : w4             : 0           : 0        */</span>   \
+    work2 = _mm_xor_si128(work2, t);<span class="cppcmnt">/* work2 = w7^w6^w5^w4       : w6^w5^w4       : w5^w4       : w4       */</span>   \
+    t = _mm_aeskeygenassist_si128(work1, 0);    <span class="cppcmnt">/* t = - : g(w11) : - : - */</span>                                    \
+    t = _mm_shuffle_epi32(t, 0xAA); <span class="cppcmnt">/* t     = g(w11)            : g(w11)         : g(w11)      : g(w11)   */</span>   \
+    work2 = _mm_xor_si128(work2, t);<span class="cppcmnt">/* work2 = w7^w6^w5^w4^g(w11): w6^w5^w4^g(w11): w5^w4^g(w11): w4^g(w11)*/</span>   \
+    w128[n] = work2;                <span class="cppcmnt">/* work2 = w15 : w14 : w13 : w12 */</span>
+
+    EXPAND2(3);
+
+    <span class="cppcmnt">// Go on...</span>
+    EXPAND1(4, 0x02);
+    EXPAND2(5);
+    EXPAND1(6, 0x04);
+    EXPAND2(7);
+    EXPAND1(8, 0x08);
+    EXPAND2(9);
+    EXPAND1(10, 0x10);
+    EXPAND2(11);
+    EXPAND1(12, 0x20);
+    EXPAND2(13);
+    EXPAND1(14, 0x40);
+
+    <span class="cppcmnt">// Additional process for EqInvCipher</span>
+    if (decrypting) {
+        <span class="cppcmnt">//for i = 0 step 1 to (Nr+1)*Nb-1</span>
+            <span class="cppcmnt">//dw[i] = w[i]</span>
+        <span class="cppcmnt">//end for</span>
+        dw128[0] = w128[0];
+
+        <span class="cppcmnt">//for round = 1 step 1 to Nr-1</span>
+            <span class="cppcmnt">//InvMixColumns(dw[round*Nb, (round+1)*Nb-1])</span>
+        <span class="cppcmnt">//end for</span>
+        dw128[1] = _mm_aesimc_si128(w128[1]);
+        dw128[2] = _mm_aesimc_si128(w128[2]);
+        dw128[3] = _mm_aesimc_si128(w128[3]);
+        dw128[4] = _mm_aesimc_si128(w128[4]);
+        dw128[5] = _mm_aesimc_si128(w128[5]);
+        dw128[6] = _mm_aesimc_si128(w128[6]);
+        dw128[7] = _mm_aesimc_si128(w128[7]);
+        dw128[8] = _mm_aesimc_si128(w128[8]);
+        dw128[9] = _mm_aesimc_si128(w128[9]);
+        dw128[10] = _mm_aesimc_si128(w128[10]);
+        dw128[11] = _mm_aesimc_si128(w128[11]);
+        dw128[12] = _mm_aesimc_si128(w128[12]);
+        dw128[13] = _mm_aesimc_si128(w128[13]);
+
+        dw128[Nr] = w128[Nr];
+    }
+<span class="cppcmnt">//end</span>
+}
+</pre>
+</div>
+</div>
+
+<!-- ---------------------------------------------------------------------------------------- -->
+
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=aeskeygenassist" target="_blank">Feedback</a>
+<br>
+<script type="text/javascript" src="https://www.officedaytime.com/tips/simdfeedback/alog.js"></script>
+<script type="text/javascript">alog("alles");</script>
+
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/aes.php?f=aeskeygenassist by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:52 GMT -->
+</html>

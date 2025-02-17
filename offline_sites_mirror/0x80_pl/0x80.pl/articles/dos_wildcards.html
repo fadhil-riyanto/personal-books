@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/dos_wildcards.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Znaki wieloznaczne (wildcards)</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="znaki-wieloznaczne-wildcards">
+<h1 class="title">Znaki wieloznaczne (<em>wildcards</em>)</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">8.03.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Artykuł omawia procedurę porównującą łańcuch ze wzorcem w którym użyto
+znaków wieloznacznych (ang. <em>wildcards</em>) znanych z DOS-a:</p>
+<ul class="simple">
+<li><tt class="docutils literal">?</tt> (pytajnik) &mdash; zastępuje pojedynczy znak</li>
+<li><tt class="docutils literal">*</tt> (gwiazdka) &mdash; zastępuje dowolną liczbę (także zero) znaków</li>
+</ul>
+<p>Przedstawione funkcje zostały przesłane na grupę dyskusyjną
+<tt class="docutils literal">pl.comp.lang.c</tt>.</p>
+</div>
+<div class="section" id="algorytm">
+<h1>Algorytm</h1>
+<p>Gdy wzorzec zawiera tylko pytajniki sprawdzenie jest bardzo łatwe:</p>
+<pre class="literal-block">
+int str_quotcmp(const char *sring, const char* pattern)
+{
+ char* s = (char*)string;
+ char* p = (char*)pattern;
+
+ while (*s &amp;&amp; *p)
+   {
+    if ((*p != ?') &amp;&amp; (*s != *p)) return 0;
+    s++;
+    p++;
+   }
+ return 1;
+}
+</pre>
+<p>Jeśli jednak we wzorcu są gwiazdki (ang. <em>asterisk</em>) to sprawa nieco się
+komplikuje. Jak zostało napisane gwiazdka zastępuje dowolny ciąg liter,
+należy więc sprawdzić czy w łańcuchu istnieje taki <strong>fragment</strong> tekstu
+który będzie pasował do wzorca (poczynając od gwiazdki). Co jednak jeśli
+we wzorcu występuje większa liczba gwiazdek?  &mdash; należy wziąć fragment
+wzorca spomiędzy dwóch kolejnych.</p>
+<p>Proszę prześledzić przykład:</p>
+<pre class="literal-block">
+wzorzec = &quot;as*ler*cor*r&quot;
+łańcuch = &quot;assembler corner&quot;
+</pre>
+<p>Pierwszym fragmentem wzorca jest <strong>as</strong> &mdash; ponieważ nie ma przed nim
+gwiazdki musi on dokładnie pasować do początku łańcucha i tak jest.</p>
+<pre class="literal-block">
+wzorzec = &quot;*ler*cor*r&quot;
+łańcuch = &quot;sembler corner&quot;
+</pre>
+<p>Następnym fragmentem wzorca jest <em>ler</em>, przed nim występuje
+gwiazdka, czyli trzeba sprawdzić jego wszystkie możliwe położenia.</p>
+<p>Najpierw porównany zostanie z fragmentem łańcucha <strong>sem</strong> &mdash; oczywiście
+nie pasuje. Następnie brane są kolejne 3-literowe fragmenty łańcucha:
+<strong>emb</strong>, <strong>ble</strong>, a w końcu <strong>ler</strong> który rzecz jasna jest identyczny.</p>
+<pre class="literal-block">
+wzorzec = &quot;*cor*r&quot;
+łańcuch = &quot; corner&quot;
+</pre>
+<p>Postępując tak samo jak wcześniej dojdziemy do wniosku, że łańcuch
+pasuje do wzorca.</p>
+</div>
+<div class="section" id="implementacja">
+<h1>Implementacja</h1>
+<p>Poniższa procedura zwraca <tt class="docutils literal">1</tt> gdy łańcuch pasuje do wzorca.</p>
+<pre class="literal-block">
+int match_pattern(const char* string, const char* pattern)
+{
+ char* p = (char*)pattern;
+ char* s = (char*)string;
+
+ char  prev_asterisk;
+ char* asterisk;
+
+ int  len;
+ while (*p)
+  {
+  if ((prev_asterisk = *p) == '*') p++; // jeśli bieżący znak jest gwiazdką
+                                       // przeskocz go (prev_asterisk
+                                       // przechowuje o tym informację)
+   if (!*p) break;            // w przypadku gdy był to ostatni znak kończ
+
+   asterisk = strchr(p, '*'); // znajdź kolejne wystąpienie gwiazdki
+
+   // wyznacz długość fragmentu wzorca
+   if (asterisk) len = (int)asterisk-(int)p;
+            else {
+                  len = strlen(p);
+                  asterisk = &amp;p[len];
+                 }
+
+   if (prev_asterisk == '*') // sprawdzamy dowolną przerwę
+     {
+      char* temp = s;
+      while (*temp)
+        {
+         if (str_quotcmp2(p, temp, len)) break;
+         temp++;
+        }
+     if (!*temp) return 0;   // jeśli doszliśmy do końca 'string'
+                             // znaczy to, że fragment wzorca nie występuje
+                             // w łańcuchu
+     p = asterisk;
+     s = temp+len;
+     }
+   else  // bez przerw, dokładne dopasowanie
+     {
+      if (!str_quotcmp2(p, s, len)) return 0;
+      p = asterisk;
+      s+= len;
+     }
+  }
+ return 1;
+}
+</pre>
+<p>Funkcja <tt class="docutils literal">str_quotcmp2</tt> jest taka sama jak przedstawiona na początku
+<tt class="docutils literal">str_quotcmp</tt>, lecz jako warunek stopu została przyjęta długość
+fragmentu wzorca.</p>
+<pre class="literal-block">
+int str_quotcmp2(const char *sring, const char* pattern, int len)
+{
+ char* s = (char*)string;
+ char* p = (char*)pattern;
+
+ while (*s &amp;&amp; len)
+   {
+    if ((*p != '?') &amp;&amp; (*s != *p)) return 0;
+    s++;
+    p++;
+    len--;
+   }
+ return (len == 0);
+}
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/dos_wildcards.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+</html>

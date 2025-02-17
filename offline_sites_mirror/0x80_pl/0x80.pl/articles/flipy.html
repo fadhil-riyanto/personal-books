@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/flipy.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:27 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Lustrzane odbicie obrazu względem osi X</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="lustrzane-odbicie-obrazu-wzgledem-osi-x">
+<h1 class="title">Lustrzane odbicie obrazu względem osi X</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">6.02.2002</td>
+</tr>
+</tbody>
+</table>
+<p>Lustrzane odbicie obrazu względem osi X polega na wymianie zawartości
+dwu poziomych linii (oczywiście mowa o jednej iteracji), czyli kod
+wygląda mniej więcej tak:</p>
+<pre class="literal-block">
+memcpy(image[y1], temp_buffer, img_width);  // temp = a;
+memcpy(image[y1], image[y2]  , img_width);  //    a = b;
+memcpy(image[y2], temp_buffer, img_width);  //    b = temp;
+</pre>
+<p>Ilość przesłanych bajtów to <tt class="docutils literal">3*img_width</tt> &mdash; oczywiście należałoby
+założyć, że funkcja <tt class="docutils literal">memcpy</tt> została zoptymalizowana &mdash; co jednak
+nic nie znaczy, a przynajmniej znaczy bardzo mało.</p>
+<p>Proponuję zrobić to tak:</p>
+<pre class="literal-block">
+; edi - image[y1]
+; esi - image[y2]
+
+mov ecx, img_width/4
+
+swap_lines:
+
+        mov eax, [edi]
+        mov ebx, [esi]
+
+        mov edx, eax    ; zamiast xchg eax, ebx
+        mov eax, ebx    ;
+        mov ebx, edx    ;
+
+        mov [esi], eax
+        mov [edi], ebx
+
+        add edi, 4
+        add esi, 4
+
+        loop swap_lines
+</pre>
+<p>Powyższy kod przerzuca tylko <tt class="docutils literal">2*img_width</tt> bajtów. Aby zwiększyć
+transfer można użyć rejestrów MMX bądź FPU &mdash; według dokumentacji
+Intela przyrost wydajności to co najmniej 20%.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/flipy.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:27 GMT -->
+</html>

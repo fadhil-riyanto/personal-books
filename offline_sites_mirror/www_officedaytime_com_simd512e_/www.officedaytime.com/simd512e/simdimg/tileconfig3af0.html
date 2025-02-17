@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/tileconfig.php?f=ldtilecfg by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:48 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/tileconfig.php?f=ldtilecfg" />
+<link rel="alternate" hreflang="en" href="tileconfig3af0.html?f=ldtilecfg" />
+<title>ldtilecfg</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+
+</style>
+</head>
+
+<body>
+<h2>
+LDTILECFG - LoaD TILE ConFiG<br />
+STTILECFG - STore TILE ConFiG
+</h2>
+LDTILECFG <span class="operand">m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(AMX-TILE#&nbsp;&nbsp;&nbsp;&nbsp;tile configuration &lt;- memory<br />
+<span class="intr">void _tile_loadconfig(const void* tilecfg)</span><br />
+STTILECFG <span class="operand">m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(AMX-TILE#&nbsp;&nbsp;&nbsp;&nbsp;tile configuration -&gt; memory<br />
+<span class="intr">void _tile_storeconfig(void* tilecfg)<br />
+</span><br />
+
+
+<span class="operand">m512</span> <span class="intr">*tilecfg</span><br>
+<table>
+<tr>
+<th>Byte(s)</th>
+<th>Name</th>
+<th colspan="2">Description</th>
+</tr>
+
+<tr>
+<th>0</th>
+<td>palette</td>
+<td colspan="2">0: don't use AMX (TILERELEASE)<br>1: configure to use AMX tile palette 1</td>
+</tr>
+
+<tr>
+<th>1</th>
+<td>start row</td>
+<td colspan="2">0 (except for the case of restarting after exception)</td>
+</tr>
+
+<tr>
+<th>2-15</th>
+<td>reserved</td>
+<td colspan="2">must be zero</td>
+</tr>
+
+<tr>
+<th>16-17</th>
+<td>tile0.colsb</td>
+<td rowspan="8" colspan="2">total bytes of columns per row of each tile (TMM0-TMM7) (&lt;= 64)<br>if the tile is not used, specify zero for both colsb and rows below</td>
+</tr>
+
+<tr>
+<th>18-19</th>
+<td>tile1.colsb</td>
+</tr>
+
+<tr>
+<th>20-21</th>
+<td>tile2.colsb</td>
+</tr>
+
+<tr>
+<th>22-23</th>
+<td>tile3.colsb</td>
+</tr>
+
+<tr>
+<th>24-25</th>
+<td>tile4.colsb</td>
+</tr>
+
+<tr>
+<th>26-27</th>
+<td>tile5.colsb</td>
+</tr>
+
+<tr>
+<th>28-29</th>
+<td>tile6.colsb</td>
+</tr>
+
+<tr>
+<th>30-31</th>
+<td>tile7.colsb</td>
+</tr>
+
+<tr>
+<th>32-47</th>
+<td>reserved</td>
+<td colspan="2">must be zero</td>
+</tr>
+
+<tr>
+<th>48</th>
+<td>tile0.rows</td>
+<td rowspan="8" colspan="2">number of rows of each tile (TMM0-TMM7) (&lt;= 16)<br>if the tile is not used, specify zero for both colsb above and rows</td>
+</tr>
+
+<tr>
+<th>49</th>
+<td>tile1.rows</td>
+</tr>
+
+<tr>
+<th>50</th>
+<td>tile2.rows</td>
+</tr>
+
+<tr>
+<th>51</th>
+<td>tile3.rows</td>
+</tr>
+
+<tr>
+<th>52</th>
+<td>tile4.rows</td>
+</tr>
+
+<tr>
+<th>53</th>
+<td>tile5.rows</td>
+</tr>
+
+<tr>
+<th>54</th>
+<td>tile6.rows</td>
+</tr>
+
+<tr>
+<th>55</th>
+<td>tile7.rows</td>
+</tr>
+
+<tr>
+<th>56-63</th>
+<td>reserved</td>
+<td colspan="2">must be zero</td>
+</tr>
+
+
+
+</table>
+<br>
+
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=ldtilecfg" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/tileconfig.php?f=ldtilecfg by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:49:48 GMT -->
+</html>

@@ -1,0 +1,1446 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-10-24-sse-sumbytes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMDized sum of all bytes in the array</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simdized-sum-of-all-bytes-in-the-array">
+<h1 class="title">SIMDized sum of all bytes in the array</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-10-24</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction-1" id="toc-entry-1">Introduction</a><ul>
+<li><a class="reference internal" href="#algorithm-used-by-gcc" id="toc-entry-2">Algorithm used by GCC</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#bit-accumulators" id="toc-entry-3">32-bit accumulators</a></li>
+<li><a class="reference internal" href="#bit-accumulators-1" id="toc-entry-4">16-bit accumulators</a><ul>
+<li><a class="reference internal" href="#straightforward-approach" id="toc-entry-5">Straightforward approach</a></li>
+<li><a class="reference internal" href="#bit-halves" id="toc-entry-6">8-bit halves</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#avx2-specific-instruction-vpsadbw" id="toc-entry-7">AVX2-specific instruction VPSADBW</a></li>
+<li><a class="reference internal" href="#experiments-1" id="toc-entry-8">Experiments</a><ul>
+<li><a class="reference internal" href="#skylake" id="toc-entry-9">Skylake</a></li>
+<li><a class="reference internal" href="#skylakex" id="toc-entry-10">SkylakeX</a></li>
+<li><a class="reference internal" href="#westmere" id="toc-entry-11">Westmere</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#conclusions" id="toc-entry-12">Conclusions</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-13">See also</a></li>
+<li><a class="reference internal" href="#acknowledgements" id="toc-entry-14">Acknowledgements</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-15">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction-1">
+<span id="introduction"></span><h1>Introduction</h1>
+<p>I was curious how GCC vectorizes function that sums bytes from an array.
+Below is a loop-based implementation.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">sumbytes</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+        </span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">array</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The same algorithm can be expressed with following C++ code.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;numeric&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="nf">sumbytes</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">accumulate</span><span class="p">(</span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="mi">0</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>When I saw the assembly generated by GCC I was sure that it's possible to make
+it better and faster.  This text summarizes my findings.</p>
+<p>I focus solely on Skylake performance and AVX2 code. The <a class="reference internal" href="#sources">sources</a> have got
+also implementations of SSE procedures and <a class="reference internal" href="#experiments">experiments</a>  include timings
+from an older CPU.</p>
+<div class="section" id="algorithm-used-by-gcc">
+<h2>Algorithm used by GCC</h2>
+<p>Below is the assembly code of the main loop compiled for Skylake by
+GCC 7.3.0 with flags <tt class="docutils literal"><span class="pre">-O3</span> <span class="pre">-march=skylake</span></tt>:</p>
+<pre class="code nasm literal-block">
+<span class="nf">vpmovzxbw</span><span class="w">    </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w"> </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm0</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">    </span><span class="o">%</span><span class="nb">xmm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w"> </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm2</span><span class="w">
+</span><span class="nf">vpmovzxbw</span><span class="w">    </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">    </span><span class="o">%</span><span class="nb">xmm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w">       </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">    </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vextracti128</span><span class="w"> </span><span class="kc">$</span><span class="mh">0x1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">xmm0</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w">       </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpmovzxwd</span><span class="w">    </span><span class="o">%</span><span class="nb">xmm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w">       </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w">       </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span>
+</pre>
+<p>GCC nicely vectorized the algorithm: it keeps multiple 32-bit sub-accumulators
+in single register, i.e. eight in case of AVX2 (four in SSE code).  These 32-bit
+numbers are added together in the end, forming the scalar result.</p>
+<p>Now, let's look how the type casting is done. Although AVX2 has variant of
+instruction <tt class="docutils literal">VPMOVZXBD</tt> that converts directly from <tt class="docutils literal">uint8_t</tt> to
+<tt class="docutils literal">uint32_t</tt> (intrinsic <tt class="docutils literal">_mm256_cvtepu8_epi32</tt>) the compiler does the
+conversion in two steps:</p>
+<ol class="arabic simple">
+<li>First, it extends a vector of <tt class="docutils literal">uint8_t</tt> into two vectors of <tt class="docutils literal">uint16_t</tt>
+numbers (<tt class="docutils literal">VPMOVZXBW</tt>).</li>
+<li>Then, gets four vectors of <tt class="docutils literal">uint32_t</tt> from the vectors obtained in the
+previous step (<tt class="docutils literal">VPMOVZXWD</tt>).</li>
+</ol>
+<p>The cast instruction <tt class="docutils literal">VPMOVZX</tt> extends the lower part of a register, in this
+case the lower half. This is the reason why extractions of helves
+(<tt class="docutils literal">VEXTRACTI128</tt>) are needed.</p>
+</div>
+</div>
+<div class="section" id="bit-accumulators">
+<span id="bit"></span><h1>32-bit accumulators</h1>
+<p>In this approach we cast directly from <tt class="docutils literal">uint8_t</tt> to <tt class="docutils literal">uint32_t</tt>. But casting
+isn't done by the mentioned <tt class="docutils literal">VPMOVZXBD</tt> &mdash;  we use only bit-ands and shifts
+within 32-bit lanes, that has some benefits.</p>
+<ol class="arabic">
+<li><p class="first">Load the vector:</p>
+<pre class="code cpp literal-block">
+<span class="c1">//       |15          13 | 12          8 | 7           4 | 3           0 |
+// v   = [ a | b | c | d | e | f | g | h | i | j | k | l | m | n | o | p ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="n">ptr</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Mask 0th bytes in each 32-bit lane</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lobyte_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="mh">0x000000ff</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// t0  = [ 0 | 0 | 0 | d | 0 | 0 | 0 | h | 0 | 0 | 0 | l | 0 | 0 | 0 | p ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lobyte_mask</span><span class="p">,</span><span class="w"> </span><span class="n">v</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Move 1st bytes into 0th position in each lane.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// t1  = [ 0 | 0 | 0 | c | 0 | 0 | 0 | g | 0 | 0 | 0 | k | 0 | 0 | 0 | o ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lobyte_mask</span><span class="p">,</span><span class="w"> </span><span class="n">v1</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Move 2nd bytes into 0th position in each lane.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// t2  = [ 0 | 0 | 0 | b | 0 | 0 | 0 | f | 0 | 0 | 0 | j | 0 | 0 | 0 | n ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lobyte_mask</span><span class="p">,</span><span class="w"> </span><span class="n">v2</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Move 3rd bytes into 0th position in each lane.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// t3  = [ 0 | 0 | 0 | a | 0 | 0 | 0 | e | 0 | 0 | 0 | i | 0 | 0 | 0 | m ]
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="mi">8</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Update the accumulator.</p>
+<pre class="code cpp literal-block">
+<span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+</span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+</span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t2</span><span class="p">);</span><span class="w">
+</span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+<p>Here is an actual implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">sse_sumbytes_variant2</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lobyte_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="mh">0x000000ff</span><span class="p">);</span><span class="w">
+
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">();</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">;</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="o">*</span><span class="mi">8</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="o">*</span><span class="mi">8</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lobyte_mask</span><span class="p">,</span><span class="w"> </span><span class="n">v0</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lobyte_mask</span><span class="p">,</span><span class="w"> </span><span class="n">v1</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">lobyte_mask</span><span class="p">,</span><span class="w"> </span><span class="n">v2</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v3</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t2</span><span class="p">);</span><span class="w">
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The assembly code of the main loop is:</p>
+<pre class="code nasm literal-block">
+<span class="nf">vpsrld</span><span class="w"> </span><span class="kc">$</span><span class="mh">0x8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="w">
+</span><span class="nf">vpsrld</span><span class="w"> </span><span class="kc">$</span><span class="mh">0x10</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vpsrld</span><span class="w"> </span><span class="kc">$</span><span class="mh">0x18</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpand</span><span class="w">  </span><span class="o">%</span><span class="nb">ymm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm5</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpand</span><span class="w">  </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="w">
+</span><span class="nf">vpand</span><span class="w">  </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="w">
+</span><span class="nf">vpaddd</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">ymm0</span>
+</pre>
+<p>This approach is <a class="reference external" href=".html">two times faster</a> than the compiler's version. There are two
+reasons of that:</p>
+<ol class="arabic simple">
+<li>We have 10 instructions instead of 13.</li>
+<li>All of these instruction are simple and they are fast. Let's look at the
+instructions' parameters for the Skylake architecture taken from <a class="reference external" href="https://www.agner.org/optimize/#manuals">Agner
+Fog's site</a>.</li>
+</ol>
+<table border="1" class="docutils">
+<colgroup>
+<col width="23%" />
+<col width="14%" />
+<col width="22%" />
+<col width="12%" />
+<col width="29%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">instruction</th>
+<th class="head">micro-ops</th>
+<th class="head">port allocation</th>
+<th class="head">latency</th>
+<th class="head">reciprocal throughput</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5"><em>compiler version</em></td>
+</tr>
+<tr><td>3 x vextracti128</td>
+<td>1</td>
+<td>p5</td>
+<td>3</td>
+<td>1</td>
+</tr>
+<tr><td>2 x vpmovzxbw</td>
+<td>1</td>
+<td>p5</td>
+<td>3</td>
+<td>1</td>
+</tr>
+<tr><td>4 x vpmovzxwd</td>
+<td>1</td>
+<td>p5</td>
+<td>3</td>
+<td>1</td>
+</tr>
+<tr><td>4 x vpaddd</td>
+<td>1</td>
+<td>p015</td>
+<td>1</td>
+<td>0.33</td>
+</tr>
+<tr><td colspan="5"><em>our approach</em></td>
+</tr>
+<tr><td>3 x vpand</td>
+<td>1</td>
+<td>p015</td>
+<td>1</td>
+<td>0.33</td>
+</tr>
+<tr><td>3 x vpsrlid</td>
+<td>1</td>
+<td>p05</td>
+<td>1</td>
+<td>0.5</td>
+</tr>
+<tr><td>4 x vpaddd</td>
+<td>1</td>
+<td>p015</td>
+<td>1</td>
+<td>0.33</td>
+</tr>
+</tbody>
+</table>
+<p>First of all, most instructions emitted by compiler have latency 3 cycles. But
+latency could be compensated (especially in unrolled loops). Worse is that
+all instructions except <tt class="docutils literal">VPADD</tt> are dispatched on the same execution port #5.
+So, it's likely that there will be congestion on the port.</p>
+<p>Instructions used by our approach can be dispatched to different ports (and thus
+executed in parallel); moreover, all have latency just 1 cycle.</p>
+</div>
+<div class="section" id="bit-accumulators-1">
+<span id="bit-intro"></span><h1>16-bit accumulators</h1>
+<p>Using 16-bit accumulators instead of 32-bit accumulators doubles capacity, so
+in AVX2 code we're updating 16 instead of 8 accumulators in a single iteration.
+But this approach limits <strong>the number of additions</strong> that can be performed without
+overflow to <tt class="docutils literal"><span class="pre">max(uint16_t)/max(uint8_t)</span> = 65535/255 = 257</tt>.</p>
+<p>The overcome this we need two nested loops. The outer loop keeps 32-bit
+accumulators, as the initial version does. The inner loop processes 256 * 8
+bytes, i.e. iterates 64 times.  When the inner loop completes, 16-bit
+accumulators are extended to 32-bit and the outer accumulators are updated.</p>
+<div class="section" id="straightforward-approach">
+<span id="bit-1"></span><h2>Straightforward approach</h2>
+<p>Below is a C++ implementation that directly use vectors of <tt class="docutils literal">uint16_t</tt>
+in the inner loop.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">avx2_16bit_sumbytes_variant2</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask_lobytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi16</span><span class="p">(</span><span class="mh">0x00ff</span><span class="p">);</span><span class="w">
+
+    </span><span class="n">__m256i</span><span class="w"> </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">();</span><span class="w">
+
+</span><span class="cp">#define SIZE (8 * 256)
+</span><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">SIZE</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="n">__m256i</span><span class="w"> </span><span class="n">accu_16bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">();</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">SIZE</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">j</span><span class="p">));</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">mask_lobytes</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_srli_epi16</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+            </span><span class="n">accu_16bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi16</span><span class="p">(</span><span class="n">accu_16bit</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+            </span><span class="n">accu_16bit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi16</span><span class="p">(</span><span class="n">accu_16bit</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_and_si256</span><span class="p">(</span><span class="n">accu_16bit</span><span class="p">,</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">(</span><span class="mh">0x0000ffff</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_srli_epi32</span><span class="p">(</span><span class="n">accu_16bit</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="cp">#undef SIZE
+</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="bit-halves">
+<span id="bit-2"></span><h2>8-bit halves</h2>
+<p>In this approach we also use 16-bit accumulators, but their lower and higher
+bytes are stored <strong>separately</strong> in distinct vectors. Thanks to that we use the
+full capacity of AVX2, i.e. we can perform 32 additions at time. In each
+iteration the input vector of bytes is added to the lower part of accumulator.
+Higher part is updated in the second step, getting carry from the previous step.
+Following scalar code shows the idea:</p>
+<pre class="code cpp literal-block">
+<span class="n">acc_lo</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">input</span><span class="p">;</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">carry_flag</span><span class="p">)</span><span class="w">
+    </span><span class="n">acc_hi</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span>
+</pre>
+<p>How to detect an overflow? In a scalar code it's simple, as we can read the
+carry flag and react accordingly (GCC provides nice wrappers for this, like
+<tt class="docutils literal">__builtin_add_overflow</tt>). But there is no such a thing like <em>vector of
+carry flags</em> in neither AVX2 or SSE.</p>
+<p>We can detect overflow with help of <strong>saturated addition</strong>. In saturated
+arithmetics, if an operation would cause overflow, then result is the
+maximum (or minimum) value the target type can hold. Thus, the saturated
+addition might be expressed as:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">satadd</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="c1">// this check is done *somehow* in the hardware
+</span><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="p">;</span><span class="w">
+    </span><span class="k">else</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="mi">255</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>We perform two operations:</p>
+<ol class="arabic simple">
+<li>normal addition (in wrap-around arithmetic);</li>
+<li>and saturated one.</li>
+</ol>
+<p>If results of both sums are <strong>not equal</strong>, it means there is the overflow.
+But since AVX2 has no &quot;not-equal&quot; relation (there is comparison for &quot;equal&quot;),
+we need to invert the logic. We initialize the higher part of accumulator to
+the highest possible value, i.e. the number of inner loop iterations. Then,
+we <strong>decrement</strong> the higher part with the &quot;no-overflow&quot; byte-mask.
+Following scalar code illustrates the idea.</p>
+<pre class="code cpp literal-block">
+<span class="n">acc_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="n">acc_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w">
+
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">satadd</span><span class="p">(</span><span class="n">acc_lo</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="n">acc_lo</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">input</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">acc_lo</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">tmp</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">acc_hi</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The actual implementation is shown below.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">sse_8bit_sumbytes</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">();</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">accu_8bit_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">();</span><span class="w">
+        </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">accu_8bit_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">16</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">256</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">16</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)(</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">j</span><span class="p">));</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">accu_8bit_lo</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_adds_epu8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">accu_8bit_lo</span><span class="p">);</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">not_carry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span><span class="w">
+
+            </span><span class="n">accu_8bit_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">t0</span><span class="p">;</span><span class="w">
+            </span><span class="n">accu_8bit_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">accu_8bit_hi</span><span class="p">,</span><span class="w"> </span><span class="n">not_carry</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">sum_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sad_epu8</span><span class="p">(</span><span class="n">accu_8bit_lo</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">());</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">sum_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_slli_epi32</span><span class="p">(</span><span class="n">_mm_sad_epu8</span><span class="p">(</span><span class="n">accu_8bit_hi</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">()),</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">sum_lo</span><span class="p">);</span><span class="w">
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">sum_hi</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="avx2-specific-instruction-vpsadbw">
+<span id="sadbw"></span><h1>AVX2-specific instruction VPSADBW</h1>
+<p>AVX2 defines instruction <tt class="docutils literal">VPSADBW</tt> (<tt class="docutils literal">_mm256_sad_epu8</tt>) that calculates <strong>Sum
+Of Absolute Differences</strong> (SAD) of unsigned bytes. Single SAD function works on
+eight-element subvectors (64-bit slices), and stores the results on
+corresponding 64-bit elements of the result vector; in case of AVX2 the
+<tt class="docutils literal">VPSADB</tt> yields four numbers.</p>
+<p>Below is a sample C++ code that naively implements SAD function.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">SAD</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">a</span><span class="p">[],</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">b</span><span class="p">[])</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">reuslt</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>If one of argument vectors is full of zeros, then SAD calculates <strong>the sum of
+bytes</strong> from another argument &mdash; which exactly what we need. Moreover,
+since the instruction calculates 64-bit sums, bigger arrays can be processed
+without overflow.</p>
+<p>Below is the simplest, non-unrolled C++ code.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">avx2_sadbw_sumbytes</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">zero</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setzero_si256</span><span class="p">();</span><span class="w">
+    </span><span class="n">__m256i</span><span class="w"> </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">zero</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">32</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">v</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_loadu_si256</span><span class="p">((</span><span class="n">__m256i</span><span class="o">*</span><span class="p">)(</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_sad_epu8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">zero</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">accumulator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_add_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="n">t0</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w">
+           </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">_mm256_extract_epi32</span><span class="p">(</span><span class="n">accumulator</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Although the <tt class="docutils literal">VPSADBW</tt> instruction has latency of 3 cycles, it has low
+throughput of 1 cycle. In case of an unrolled procedure the latency is almost
+ridden of. The performance boost over the compiler code is almost <strong>6 times</strong>.</p>
+</div>
+<div class="section" id="experiments-1">
+<span id="experiments"></span><h1>Experiments</h1>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td><a class="reference internal" href="#introduction">plain loop</a></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td><a class="reference internal" href="#introduction">std::accumulate</a></td>
+</tr>
+<tr><td>SSE</td>
+<td>convert <tt class="docutils literal">uint8_t <span class="pre">-&gt;</span> uint16_t</tt> with <tt class="docutils literal">PMOVZXWD</tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td><a class="reference internal" href="#bit">32-bit accumulators</a></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td><a class="reference internal" href="#sadbw">PSADBW instruction</a></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>the above procedure unrolled four times</td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td><a class="reference internal" href="#bit-1">16-bit accumulators</a>, <tt class="docutils literal">uint16_t <span class="pre">-&gt;</span> uint32_t</tt> with <tt class="docutils literal">PMOVZXBW</tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td><a class="reference internal" href="#bit-1">16-bit accumulators</a>, <tt class="docutils literal">uint16_t <span class="pre">-&gt;</span> uint32_t</tt> with <tt class="docutils literal">PAND</tt>/<tt class="docutils literal">PSRLD</tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>the above procedure unrolled four times</td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td><a class="reference internal" href="#bit-2">8-bit accumulators</a></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td><a class="reference internal" href="#bit">32-bit accumulators</a></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td><a class="reference internal" href="#sadbw">VPSADBW instruction</a></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>the above procedure unrolled four times</td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td><a class="reference internal" href="#bit-1">16-bit accumulators</a>, <tt class="docutils literal">uint16_t <span class="pre">-&gt;</span> uint32_t</tt> with <tt class="docutils literal">VPAND</tt>/<tt class="docutils literal">VPSRLD</tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>the above procedure unrolled four times</td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td><a class="reference internal" href="#bit-2">8-bit accumulators</a></td>
+</tr>
+</tbody>
+</table>
+<p>The procedures were run three times and minimum values were noted.</p>
+<div class="section" id="skylake">
+<h2>Skylake</h2>
+<p>CPU: Intel(R) Core(TM) i7-6700 CPU &#64; 3.40GHz</p>
+<p>GCC: gcc (GCC) 7.3.0</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="8%" />
+<col width="8%" />
+<col width="8%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best</th>
+<th class="head">avg.</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">[cycles]</th>
+<th class="head">[cycles]</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">size 4096 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.294</td>
+<td>0.297</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.295</td>
+<td>0.297</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.440</td>
+<td>0.442</td>
+<td>0.67</td>
+<td><tt class="docutils literal"><span class="pre">█████▋</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.252</td>
+<td>0.254</td>
+<td>1.17</td>
+<td><tt class="docutils literal"><span class="pre">█████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.129</td>
+<td>0.132</td>
+<td>2.28</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.129</td>
+<td>0.132</td>
+<td>2.28</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.195</td>
+<td>0.197</td>
+<td>1.51</td>
+<td><tt class="docutils literal"><span class="pre">████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.169</td>
+<td>0.176</td>
+<td>1.74</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.109</td>
+<td>0.111</td>
+<td>2.70</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.125</td>
+<td>0.130</td>
+<td>2.35</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td>0.138</td>
+<td>0.140</td>
+<td>2.13</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td>0.075</td>
+<td>0.077</td>
+<td>3.92</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>0.051</td>
+<td>0.052</td>
+<td>5.76</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td>0.091</td>
+<td>0.093</td>
+<td>3.23</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>0.073</td>
+<td>0.075</td>
+<td>4.03</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td>0.080</td>
+<td>0.083</td>
+<td>3.67</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td colspan="5">size 16384 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.285</td>
+<td>0.286</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.285</td>
+<td>0.286</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.439</td>
+<td>0.440</td>
+<td>0.65</td>
+<td><tt class="docutils literal"><span class="pre">█████▍</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.251</td>
+<td>0.252</td>
+<td>1.14</td>
+<td><tt class="docutils literal"><span class="pre">█████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.126</td>
+<td>0.127</td>
+<td>2.26</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.126</td>
+<td>0.127</td>
+<td>2.26</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.191</td>
+<td>0.192</td>
+<td>1.49</td>
+<td><tt class="docutils literal"><span class="pre">████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.173</td>
+<td>0.181</td>
+<td>1.65</td>
+<td><tt class="docutils literal"><span class="pre">█████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.107</td>
+<td>0.108</td>
+<td>2.66</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.123</td>
+<td>0.126</td>
+<td>2.32</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td>0.134</td>
+<td>0.135</td>
+<td>2.13</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td>0.072</td>
+<td>0.072</td>
+<td>3.96</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>0.048</td>
+<td>0.049</td>
+<td>5.94</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td>0.089</td>
+<td>0.090</td>
+<td>3.20</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>0.070</td>
+<td>0.070</td>
+<td>4.07</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td>0.076</td>
+<td>0.077</td>
+<td>3.75</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td colspan="5">size 32768 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.284</td>
+<td>0.285</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.284</td>
+<td>0.284</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████▍</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.439</td>
+<td>0.440</td>
+<td>0.65</td>
+<td><tt class="docutils literal"><span class="pre">█████▍</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.251</td>
+<td>0.252</td>
+<td>1.13</td>
+<td><tt class="docutils literal"><span class="pre">█████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.126</td>
+<td>0.127</td>
+<td>2.25</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.126</td>
+<td>0.127</td>
+<td>2.25</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.191</td>
+<td>0.192</td>
+<td>1.49</td>
+<td><tt class="docutils literal"><span class="pre">████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.169</td>
+<td>0.173</td>
+<td>1.68</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.109</td>
+<td>0.109</td>
+<td>2.61</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.124</td>
+<td>0.127</td>
+<td>2.29</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td>0.134</td>
+<td>0.135</td>
+<td>2.12</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td>0.072</td>
+<td>0.073</td>
+<td>3.94</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>0.048</td>
+<td>0.049</td>
+<td>5.92</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td>0.089</td>
+<td>0.090</td>
+<td>3.19</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>0.071</td>
+<td>0.072</td>
+<td>4.00</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td>0.076</td>
+<td>0.077</td>
+<td>3.74</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▍</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylakex">
+<h2>SkylakeX</h2>
+<p>CPU: Intel(R) Xeon(R) W-2104 CPU &#64; 3.20GHz</p>
+<p>GCC: gcc (Ubuntu 8.1.0-5ubuntu1~16.04) 8.1.0</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="28%" />
+<col width="8%" />
+<col width="8%" />
+<col width="8%" />
+<col width="47%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best</th>
+<th class="head">avg.</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">[cycles]</th>
+<th class="head">[cycles]</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">size 4096 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.278</td>
+<td>0.385</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.278</td>
+<td>0.281</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.431</td>
+<td>0.434</td>
+<td>0.65</td>
+<td><tt class="docutils literal"><span class="pre">████▊</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.216</td>
+<td>0.248</td>
+<td>1.29</td>
+<td><tt class="docutils literal"><span class="pre">█████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.092</td>
+<td>0.095</td>
+<td>3.02</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.092</td>
+<td>0.120</td>
+<td>3.02</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.188</td>
+<td>0.191</td>
+<td>1.48</td>
+<td><tt class="docutils literal"><span class="pre">██████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.134</td>
+<td>0.138</td>
+<td>2.07</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.120</td>
+<td>0.121</td>
+<td>2.32</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.133</td>
+<td>0.140</td>
+<td>2.09</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▍</span></tt></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td>0.123</td>
+<td>0.125</td>
+<td>2.26</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td>0.060</td>
+<td>0.063</td>
+<td>4.63</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>0.041</td>
+<td>0.043</td>
+<td>6.78</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td>0.076</td>
+<td>0.078</td>
+<td>3.66</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>0.064</td>
+<td>0.065</td>
+<td>4.34</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td>0.070</td>
+<td>0.072</td>
+<td>3.97</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td colspan="5">size 16384 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.280</td>
+<td>0.282</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.280</td>
+<td>0.281</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.435</td>
+<td>0.437</td>
+<td>0.64</td>
+<td><tt class="docutils literal"><span class="pre">████▋</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.218</td>
+<td>0.249</td>
+<td>1.28</td>
+<td><tt class="docutils literal"><span class="pre">█████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.093</td>
+<td>0.094</td>
+<td>3.01</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.093</td>
+<td>0.125</td>
+<td>3.01</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.188</td>
+<td>0.190</td>
+<td>1.49</td>
+<td><tt class="docutils literal"><span class="pre">██████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.134</td>
+<td>0.135</td>
+<td>2.09</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.124</td>
+<td>0.125</td>
+<td>2.26</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.142</td>
+<td>0.145</td>
+<td>1.97</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td>0.124</td>
+<td>0.125</td>
+<td>2.26</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▋</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td>0.062</td>
+<td>0.063</td>
+<td>4.52</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>0.044</td>
+<td>0.044</td>
+<td>6.36</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td>0.079</td>
+<td>0.080</td>
+<td>3.54</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>0.066</td>
+<td>0.067</td>
+<td>4.24</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td>0.070</td>
+<td>0.071</td>
+<td>4.00</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td colspan="5">size 32768 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.281</td>
+<td>0.282</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.281</td>
+<td>0.281</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████▎</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.436</td>
+<td>0.437</td>
+<td>0.64</td>
+<td><tt class="docutils literal"><span class="pre">████▊</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.219</td>
+<td>0.250</td>
+<td>1.28</td>
+<td><tt class="docutils literal"><span class="pre">█████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.095</td>
+<td>0.097</td>
+<td>2.96</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.096</td>
+<td>0.125</td>
+<td>2.93</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.189</td>
+<td>0.191</td>
+<td>1.49</td>
+<td><tt class="docutils literal"><span class="pre">██████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.134</td>
+<td>0.137</td>
+<td>2.10</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.125</td>
+<td>0.125</td>
+<td>2.25</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.146</td>
+<td>0.149</td>
+<td>1.92</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (v2)</td>
+<td>0.125</td>
+<td>0.126</td>
+<td>2.25</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▌</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw)</td>
+<td>0.062</td>
+<td>0.063</td>
+<td>4.53</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>AVX2 (sadbw, unrolled)</td>
+<td>0.045</td>
+<td>0.045</td>
+<td>6.24</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2)</td>
+<td>0.079</td>
+<td>0.080</td>
+<td>3.56</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>AVX2 (16bit accu, v2, unrolled)</td>
+<td>0.067</td>
+<td>0.068</td>
+<td>4.19</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████▉</span></tt></td>
+</tr>
+<tr><td>AVX2 (8bit accu)</td>
+<td>0.071</td>
+<td>0.072</td>
+<td>3.96</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▏</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="westmere">
+<h2>Westmere</h2>
+<p>CPU: Intel(R) Core(TM) i5 CPU M 540 &#64; 2.53GHz</p>
+<p>GCC: gcc (Debian 7.3.0-16) 7.3.0</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="27%" />
+<col width="9%" />
+<col width="9%" />
+<col width="8%" />
+<col width="48%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best</th>
+<th class="head">avg.</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">[cycles]</th>
+<th class="head">[cycles]</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="5">size 4096 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.370</td>
+<td>0.475</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.371</td>
+<td>0.374</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.320</td>
+<td>0.323</td>
+<td>1.16</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.311</td>
+<td>0.311</td>
+<td>1.19</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.142</td>
+<td>0.143</td>
+<td>2.61</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.141</td>
+<td>0.143</td>
+<td>2.62</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.204</td>
+<td>0.207</td>
+<td>1.81</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.170</td>
+<td>0.174</td>
+<td>2.18</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.115</td>
+<td>0.117</td>
+<td>3.22</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.149</td>
+<td>0.151</td>
+<td>2.48</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████▌</span></tt></td>
+</tr>
+<tr><td colspan="5">size 16384 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.375</td>
+<td>0.376</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.375</td>
+<td>0.377</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.325</td>
+<td>0.327</td>
+<td>1.15</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.309</td>
+<td>0.318</td>
+<td>1.21</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████▊</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.152</td>
+<td>0.153</td>
+<td>2.47</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.152</td>
+<td>0.153</td>
+<td>2.47</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.214</td>
+<td>0.215</td>
+<td>1.75</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.176</td>
+<td>0.177</td>
+<td>2.13</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.126</td>
+<td>0.127</td>
+<td>2.98</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.159</td>
+<td>0.159</td>
+<td>2.36</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td colspan="5">size 32768 items</td>
+</tr>
+<tr><td>scalar</td>
+<td>0.375</td>
+<td>0.377</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>scalar (C++)</td>
+<td>0.375</td>
+<td>0.377</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>0.326</td>
+<td>0.328</td>
+<td>1.15</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>0.292</td>
+<td>0.293</td>
+<td>1.28</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw)</td>
+<td>0.153</td>
+<td>0.154</td>
+<td>2.45</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (sadbw, unrolled)</td>
+<td>0.153</td>
+<td>0.154</td>
+<td>2.45</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu)</td>
+<td>0.215</td>
+<td>0.217</td>
+<td>1.74</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2)</td>
+<td>0.180</td>
+<td>0.181</td>
+<td>2.08</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (16bit accu, v2, unrolled)</td>
+<td>0.140</td>
+<td>0.140</td>
+<td>2.68</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (8bit accu)</td>
+<td>0.163</td>
+<td>0.164</td>
+<td>2.30</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████▊</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="conclusions">
+<h1>Conclusions</h1>
+<ul class="simple">
+<li>On Skylake and SkylakeX architectures <a class="reference internal" href="#sadbw">SADBW method</a> is unbeatable, it's
+5-6 times faster than compiled code.</li>
+<li>On Westmere we can be even faster than the SADB method (but not too much).
+Anyways, we're faster 2-3 times than compiled code.</li>
+<li>It's worth to note that GCC compiles plain C and C++ procedures into
+the same code. It is another proof that C++ templates are not that bad
+(of course in term of performance).</li>
+</ul>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<p>There is also <a class="reference external" href="2018-11-18-sse-sumbytes-part2.html">second part</a>, dealing with signed bytes</p>
+</div>
+<div class="section" id="acknowledgements">
+<h1>Acknowledgements</h1>
+<p>Big thanks to <a class="reference external" href="http://lemire.me/">Daniel Lemire</a> who provides access to Skylake/SkylakeX machines,
+where I can run benchmarks.</p>
+</div>
+<div class="section" id="source-code">
+<span id="sources"></span><h1>Source code</h1>
+<p>Source code is available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/sse-sumbytes/uint8_t">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-10-24-sse-sumbytes.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:40 GMT -->
+</html>

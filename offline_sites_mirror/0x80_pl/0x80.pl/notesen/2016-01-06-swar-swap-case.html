@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-01-06-swar-swap-case.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Speeding up letter case conversion</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="speeding-up-letter-case-conversion">
+<h1 class="title">Speeding up letter case conversion</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-01-06</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#base-version" id="toc-entry-2">Base version</a></li>
+<li><a class="reference internal" href="#improvement-swar-approach" id="toc-entry-3">Improvement &mdash; SWAR approach</a><ul>
+<li><a class="reference internal" href="#algorithm" id="toc-entry-4">Algorithm</a></li>
+<li><a class="reference internal" href="#trivia" id="toc-entry-5">Trivia</a></li>
+<li><a class="reference internal" href="#generating-mask" id="toc-entry-6">Generating mask</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-7">Experiments</a></li>
+<li><a class="reference internal" href="#summary" id="toc-entry-8">Summary</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>The aim of this text is to show how simple procedure which change case
+of letters could be rewritten to SWAR version gaining significant boost.
+In the article method &quot;to lower case&quot; is explored, however the opposite
+conversion is very easy to derive.</p>
+<p>To be honest I have no idea if changing latter case is crucial task in
+any problem. My knowledge and experiences suggest that the answer is
+&quot;no&quot;, but who knows.</p>
+</div>
+<div class="section" id="base-version">
+<h1>Base version</h1>
+<p>The basic version of the procedure reads one character (a byte) and then
+classifies it. If the character is an upper case ASCII letter then fast
+conversion could be used; if the character is an extended ASCII then
+the system procedure <tt class="docutils literal">tolower</tt> is called.</p>
+<p><strong>Note</strong>: lower and uppercase letters in ASCII encoding differs only in
+single, 5th bit.</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">to_lower_inplace</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'A'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">s</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="sc">'Z'</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+            </span><span class="n">s</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">5</span><span class="p">);</span><span class="w">
+
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="o">&gt;</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="n">j</span><span class="p">])</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'\x7f'</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+            </span><span class="n">s</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tolower</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="n">j</span><span class="p">]);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="improvement-swar-approach">
+<h1>Improvement &mdash; SWAR approach</h1>
+<p>In SWAR approach a fast-path could be used if all character within a
+chunk are not from extended ASCII set. Then all character are classified
+if are uppercase or not, resulting in a mask having set certain bits.
+The last step is to xor the mask with the input chunk to selective
+flip the bit in upper-case letters.</p>
+<div class="section" id="algorithm">
+<h2>Algorithm</h2>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w">     </span><span class="nf">is_ascii</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">chars</span><span class="p">);</span><span class="w">
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="nf">to_lower_ascii_mask</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">chars</span><span class="p">);</span><span class="w">
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="nf">to_lower_ascii</span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">chars</span><span class="p">);</span><span class="w">
+
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="nf">to_lower_inplace_swar</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="p">;</span><span class="w">
+
+    </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">k</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">,</span><span class="w"> </span><span class="n">s</span><span class="o">+=</span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+            </span><span class="kt">uint64_t</span><span class="o">*</span><span class="w"> </span><span class="n">chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="kt">uint64_t</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">s</span><span class="p">);</span><span class="w">
+
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">is_ascii</span><span class="p">(</span><span class="o">*</span><span class="n">chunk</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+                </span><span class="o">*</span><span class="n">chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">to_lower_ascii</span><span class="p">(</span><span class="o">*</span><span class="n">chunk</span><span class="p">);</span><span class="w"> </span><span class="c1">// [***]
+</span><span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">to_lower_inplace</span><span class="p">(</span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">k</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">to_lower_inplace</span><span class="p">(</span><span class="n">s</span><span class="p">,</span><span class="w"> </span><span class="n">k</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="trivia">
+<h2>Trivia</h2>
+<p>The first step (<tt class="docutils literal">is_ascii</tt>) and the last step (<tt class="docutils literal">to_lower_ascii</tt>) of
+the algorithm are simple. Is ASCII tests only if highest bits and
+to lower swaps 5th bit:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define packed_byte(b) ((uint64_t(b) &amp; 0xff) * 0x0101010101010101u)
+</span><span class="w">
+</span><span class="kt">bool</span><span class="w"> </span><span class="nf">is_ascii</span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">chars</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">chars</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">))</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="nf">to_lower_ascii</span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">chars</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="c1">// MSB in mask could be set
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">to_lower_ascii_mask</span><span class="p">(</span><span class="n">chars</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w"> </span><span class="c1">// change case (toggle 5th bit)
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">chars</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">mask</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="generating-mask">
+<h2>Generating mask</h2>
+<p>Vectorization of comparison <tt class="docutils literal">s[j] &gt;= 'A' &amp;&amp; s[j] &lt;= 'Z'</tt> is the most
+interesting part. The key is a vector compare for relation &quot;greater than&quot;,
+i.e. <tt class="docutils literal">x &gt; constant</tt>; <tt class="docutils literal">x = <span class="pre">0..127</span></tt>. The expression have to be
+rewritten:</p>
+<pre class="literal-block">
+s[j] &gt;= 'A' &amp;&amp; !(s[j] &gt;= 'Z' - 1)
+</pre>
+<p>When we add a byte of value <tt class="docutils literal">128 - constant</tt>, then for <tt class="docutils literal">x</tt> greater
+than constant result would be <tt class="docutils literal">128 + something</tt>; otherwise the result
+would be less than 128. In other words, the result of comparison is
+saved in <strong>the highest bit</strong> of a byte; lower bits contain garbage
+that have to be cleared later.</p>
+<p>A comparison is expressed by single addition. Thus the full,
+rewritten expression requires: 2 additions, 1 negation, and
+2 bit-ands:</p>
+<pre class="literal-block">
+A = s[j..j+8] + packed_byte(128 - 'A');
+Z = s[j..j+8] + packed_byte(128 - 'Z' - 1);
+
+result = (A &amp; ~Z) &amp; packed_byte(0x80);
+</pre>
+<p>An observation: it's not possible that x is less than 'A' (<tt class="docutils literal">A</tt>
+is false) and at the same time greater than 'Z' (<tt class="docutils literal">Z</tt> is true).
+Thanks to that the last expression could be simplified to:</p>
+<pre class="literal-block">
+result = (A ^ Z) &amp; packed_byte(0x80);
+</pre>
+<p>Final version requires:</p>
+<ul class="simple">
+<li>2 additions,</li>
+<li>1 bit-xor,</li>
+<li>1 bit-and.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<p>The sample program is available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/changecase_swar">github</a>.</p>
+<p>The test program loads given file to a 100 MiB memory region and
+then run the selected procedure: a scalar one, or improved. Two files were
+examined:</p>
+<ul class="simple">
+<li><tt class="docutils literal">386INTEL.txt</tt> &mdash; plain text; English documentation from
+Intel for their 80386 CPU;</li>
+<li><tt class="docutils literal">sutra_surangama.tex</tt> &mdash; TeX file, encoding is ISO-8859-2; Polish
+translation of <a class="reference external" href="http://mahajana.net/teksty/sutra_surangama/index.html">Sutra Surangama</a>, a Buddhist text.</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="29%" />
+<col width="15%" />
+<col width="23%" />
+<col width="21%" />
+<col width="12%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">file</th>
+<th class="head">size [B]</th>
+<th class="head">scalar time [s]</th>
+<th class="head">SWAR time [s]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>386INTEL.txt</td>
+<td>878'279</td>
+<td>0.1801</td>
+<td>0.0573</td>
+<td>3.13</td>
+</tr>
+<tr><td>sutra_surangama.tex</td>
+<td>665'859</td>
+<td>0.2179</td>
+<td>0.1720</td>
+<td>1.27</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="summary">
+<h1>Summary</h1>
+<ul class="simple">
+<li>Speedup strongly depends on processed text. For English texts speedup
+is impressive, as SWAR path is used in most cases. However, for Polish
+text containing many national characters, the fast path isn't used
+very often.</li>
+<li>In line marked with <tt class="docutils literal">***</tt>, a chunk is always written back, even
+if is not modified. Experiments have shown that additional branch
+slows things down.</li>
+<li>Since the algorithm require branching in each iteration, SSE
+wouldn't help in my opinion.</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-01-06-swar-swap-case.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

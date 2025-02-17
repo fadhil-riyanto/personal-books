@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/filltri.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:22 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Wypełnianie trójkątów i czworokątów wypukłych</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="wypelnianie-trojkatow-i-czworokatow-wypuklych">
+<h1 class="title">Wypełnianie trójkątów i czworokątów wypukłych</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">5.06.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">5.03.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#wypelnianie-trapezu" id="toc-entry-2">Wypełnianie trapezu</a></li>
+<li><a class="reference internal" href="#wypelnianie-trojkatow" id="toc-entry-3">Wypełnianie trójkątów</a></li>
+<li><a class="reference internal" href="#wypelnianie-czworokatow" id="toc-entry-4">Wypełnianie czworokątów</a><ul>
+<li><a class="reference internal" href="#przypadek-1" id="toc-entry-5">Przypadek 1.</a></li>
+<li><a class="reference internal" href="#przypadek-2" id="toc-entry-6">Przypadek 2.</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#przykladowy-program" id="toc-entry-7">Przykładowy program</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Podstawową &bdquo;jednostką&rdquo; wypełnienia jest linia pozioma (ang.
+<em>scanline</em>). Jej granice, tj. początek i koniec wyznaczają jednoznacznie
+punkty przecięcia poziomej linii (o współrzędnej <span class="math"><i>y</i></span>) z <strong>dwiema</strong>
+krawędziami wielokąta. W przypadku wielokąta niewypukłego tych przecięć
+mogłoby być więcej &mdash; co nie znaczy że nie może być ich dokładnie dwa,
+ale stwierdzenie tego w ogólnym przypadku jest trudne.  (Proponuję
+zapoznać się również z artykułem o <a class="reference external" href="fillpolygon.html">wypełnianiu wielokątów</a>).</p>
+<p>Aby wypełnić trójkąt albo wypukły czworokąt należy podzielić figurę
+na trapezy o podstawach równoległych do osi OX &mdash; wypełnianie
+trapezów/trójkątów spełniających ten warunek jest bardzo proste.</p>
+<p>Podział na trapezy wymaga zrzutowania wierzchołków (wzdłuż scanlinów) na
+naprzeciwległe krawędzie tak jak pokazano to na rysunkach niżej.
+Ponieważ współrzędna <span class="math"><i>y</i></span> jest znana, obliczenie współrzędnej
+<span class="math"><i>x</i></span> punktu sprowadza się do rozwiązania równania liniowego:</p>
+<p><span class="cmath"><i>t</i> = (<i>y</i> &minus; <i>y</i><sub>1</sub>)/(<i>y</i><sub>2</sub> &minus; <i>y</i>1); <i>x</i> = <i>x</i><sub>1</sub> + <i>t</i> &sdot; (<i>x</i><sub>2</sub> &minus; <i>x</i>1)</span></p>
+</div>
+<div class="section" id="wypelnianie-trapezu">
+<h1>Wypełnianie trapezu</h1>
+<img alt="trapez" class="align-center" src="img/filltri/segment.png" />
+<p>Ponieważ krawędzie <strong>trapezu</strong> są odcinkami nie ma potrzeby liczyć
+bezpośrednio przecięcia. Wystarczy obliczyć przyrosty współrzędnej
+<span class="math"><i>x</i></span> przy zmianie <span class="math"><i>y</i></span> o <span class="math">1</span>.</p>
+<p><span class="cmath"><i>dx</i><sub>L</sub> = (<i>x</i><sub>3</sub> &minus; <i>x</i><sub>1</sub>)/<i>dy</i></span>
+<span class="cmath"><i>dx</i><sub>R</sub> = (<i>x</i><sub>4</sub> &minus; <i>x</i><sub>2</sub>)/<i>dy</i></span>
+<span class="cmath"><i>dy</i> = <i>y</i><sub>2</sub> &minus; <i>y</i><sub>1</sub></span></p>
+<p>a następnie przy każdej zmianie współrzędnej <span class="math"><i>y</i></span> uaktualniać
+współrzędne <span class="math"><i>x</i><sub>L</sub></span> i <span class="math"><i>x</i><sub>R</sub></span> zgodnie z zależnościami:</p>
+<p><span class="cmath"><i>x</i><sub>L</sub> = <i>x</i><sub>1</sub> + <i>y</i> &sdot; <i>dx</i><sub>L</sub></span>
+<span class="cmath"><i>x</i><sub>R</sub> = <i>x</i><sub>2</sub> + <i>y</i> &sdot; <i>dx</i><sub>R</sub></span>
+<span class="cmath"><i>y</i> = <i>y</i><sub>1</sub>&hellip;<i>y</i><sub>2</sub></span></p>
+<p>Dzięki temu wypełnienie trapezu jest bardzo proste, oto przykładowa
+funkcja:</p>
+<pre class="literal-block">
+void fill_segment(int x1, int x2, int x3, int x4, int y1, int y2) {
+        float dy  = y2-y1;
+        float dxl = float(x3-x1)/dy;
+        float dxl = float(x4-x2)/dy;
+
+        float xl  = x1;
+        float xr  = x2;
+        for (int y=y1; y&lt;y2; y++) {
+                line_h(xl, xr, y);
+                xl += dxl;
+                yl += dxr;
+        }
+}
+</pre>
+<p>Ponieważ może zdarzyć się tak, że <tt class="docutils literal">xl &gt; xr</tt> więc funkcja
+<tt class="docutils literal">line_h</tt> musiałaby uwzględniać i takie przypadki: w najlepszym
+razie poprzez zamianę kolejność x-ów, w najgorszym stawiać piksele z
+lewej do prawej,  bądź z prawej do lewej. Można tego uniknąć i już na
+wstępie określić która ze współrzędnych jest &bdquo;bardziej na lewo&rdquo;:</p>
+<ul class="simple">
+<li><tt class="docutils literal">x1 != x2</tt> &mdash; w tym przypadku decyduje oczywiście zależność <tt class="docutils literal">x1 &gt; x2</tt>,</li>
+<li><tt class="docutils literal">x1 == x2</tt> &mdash; natomiast w tym zależność <tt class="docutils literal">dxl &gt; dxr</tt>.</li>
+</ul>
+<pre class="literal-block">
+if (((x1 != x2) &amp;&amp; (x1 &gt; x2)) || (x1 == x2) &amp;&amp; (dxl &gt; dxr)) {
+        swap(dxl, dxr);
+        swap( xl,  xr);
+}
+</pre>
+</div>
+<div class="section" id="wypelnianie-trojkatow">
+<h1>Wypełnianie trójkątów</h1>
+<img alt="podział trójkąta" class="align-center" src="img/filltri/tri.png" />
+<p>Najpierw należy posortować wierzchołki wg rosnącego <span class="math"><i>y</i></span>;
+sortowanie najlepiej przeprowadzić metodą bąbelkową, trzeba
+ledwie trzech porównań:</p>
+<pre class="literal-block">
+if (P0.y &lt; P1.y) swap(P0, P1);
+if (P0.y &lt; P2.y) swap(P0, P2);
+if (P1.y &lt; P2.y) swap(P1, P2);
+</pre>
+<p>W efekcie otrzymujemy posortowane wierzchołki w kolejności
+<span class="math">P<sub>0</sub>, P<sub>1</sub>, P<sub>3</sub></span>, gdzie <span class="math">P<sub>0</sub>.<i>y</i> = min</span>.
+Następnie wierzchołek 1 rzutowany jest na krawędź 0-2, otrzymujemy
+nowy punkt <span class="math">P<sub>11</sub></span>.</p>
+<p>Ostatnim etapem jest wypełnienie dwóch obszarów (rosnący <span class="math"><i>y</i></span>):</p>
+<ul class="simple">
+<li>trójkąta <span class="math">P<sub>0</sub> &minus; P<sub>1</sub> &minus; P<sub>11</sub></span></li>
+<li>trójkąta <span class="math">P<sub>1</sub> &minus; P<sub>11</sub> &minus; P<sub>2</sub></span></li>
+</ul>
+</div>
+<div class="section" id="wypelnianie-czworokatow">
+<h1>Wypełnianie czworokątów</h1>
+<p>Tutaj nie można już wprost posortować wierzchołków względem
+współrzędnej <span class="math"><i>y</i></span>, ale należy znaleźć dwa skrajne wierzchołki:
+o minimalnej i maksymalnej współrzędnej <span class="math"><i>y</i></span>.</p>
+<p>Jeśli wierzchołki dane są jako lista <span class="math">P<sub>0</sub>, P<sub>1</sub>, P<sub>2</sub>, P<sub>3</sub></span>,
+wskazać dwa indeksy (zakres 0-3) <span class="math">A</span> &mdash; najmniejsza wartość
+<span class="math"><i>y</i></span> oraz <span class="math">D</span> &mdash; największa.  Zostają dwa
+wierzchołki &mdash; ich indeksy niech będą <span class="math">B</span> oraz <span class="math">C</span>.</p>
+<p>Do rozpatrzenia są dwa przypadki, gdy skrajne wierzchołki
+<span class="math">P<sub>A</sub></span> i <span class="math">P<sub>D</sub></span> należą do jednej krawędzi (1),
+czy też nie (2).</p>
+<div class="section" id="przypadek-1">
+<h2>Przypadek 1.</h2>
+<p>Tak jest wtedy, gdy <span class="math">|A &minus; D| = 0</span> lub <span class="math">|A &minus; D| = 3</span>.
+Należy znaleźć wierzchołek, który jest połączony z dolnym punktem
+<span class="math">P<sub>A</sub></span> &mdash; oznaczmy go <span class="math">P<sub>B</sub></span> (<span class="math">P<sub>C</sub></span> jest
+połączony krawędzią z <span class="math">P<sub>D</sub></span>, górnym punktem).  Ponieważ
+liczba kombinacji wartości <span class="math">A</span> i <span class="math">D</span> wynosi w tym
+przypadku 8, można bez problemu stablicować wybór B i C.</p>
+<p>Następnie wyznaczane są rzuty <span class="math">P<sub>B</sub></span> i <span class="math">P<sub>C</sub></span> na krawędź
+<span class="math">P<sub>A</sub>P<sub>D</sub></span>: wynikiem są dwa punkty <span class="math">P<sub>B1</sub></span> i
+<span class="math">P<sub>C1</sub></span>.</p>
+<p>Ostatnim etapem jest wypełnienie trzech obszarów (rosnący <span class="math"><i>y</i></span>):</p>
+<ul class="simple">
+<li>trójkąt <span class="math">P<sub>A</sub> &minus; P<sub>B</sub> &minus; P<sub>B1</sub></span></li>
+<li>trapez  <span class="math">P<sub>B</sub> &minus; P<sub>B1</sub> &minus; P<sub>C</sub> &minus; P<sub>C1</sub></span></li>
+<li>trójkąt <span class="math">P<sub>C</sub> &minus; P<sub>C1</sub> &minus; P<sub>D</sub></span></li>
+</ul>
+</div>
+<div class="section" id="przypadek-2">
+<h2>Przypadek 2.</h2>
+<img alt="podział czworokąta - przypadek 2." class="align-center" src="img/filltri/quad.png" />
+<p>Tutaj w prostszy sposób określane są indeksy <span class="math">B</span> i <span class="math">C</span>.
+Punkt <span class="math">P<sub>B</sub></span>, to ten który ma mniejszą współrzędną <span class="math"><i>y</i></span>,
+a indeksy <span class="math">B</span> i <span class="math">C</span> określa zależność
+<span class="math">(A &plusmn; 1) mod 4</span>.</p>
+<p>Teraz wyznaczane są rzuty:</p>
+<ul class="simple">
+<li>punktu <span class="math">P<sub>B</sub></span> na krawędź <span class="math">P<sub>A</sub>P<sub>C</sub></span> (<span class="math">P<sub>B1</sub></span>)</li>
+<li>punktu <span class="math">P<sub>C</sub></span> na krawędź <span class="math">P<sub>B</sub>P<sub>D</sub></span> (<span class="math">P<sub>C1</sub></span>)</li>
+</ul>
+<p>Ostatnim etapem jest wypełnienie trzech obszarów (rosnący <span class="math"><i>y</i></span>):</p>
+<ul class="simple">
+<li>trójkąt <span class="math">P<sub>A</sub> &minus; P<sub>B</sub> &minus; P<sub>B1</sub></span></li>
+<li>trapez  <span class="math">P<sub>B</sub> &minus; P<sub>B1</sub> &minus; P<sub>C</sub> &minus; P<sub>C1</sub></span></li>
+<li>trójkąt <span class="math">P<sub>C</sub> &minus; P<sub>C1</sub> &minus; P<sub>D</sub></span></li>
+</ul>
+</div>
+</div>
+<div class="section" id="przykladowy-program">
+<h1>Przykładowy program</h1>
+<p>Przykładowy program w Pythonie (wymaga biblioteki PIL):</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/fill_tri_quad-demo.py">fill_tri_quad-demo.py</a></li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/filltri.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:25 GMT -->
+</html>

@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/pixconv.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:04 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Konwersje pikseli RGB</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="konwersje-pikseli-rgb">
+<h1 class="title">Konwersje pikseli RGB</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">31.08.2001</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">2.06.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#tablicowanie" id="toc-entry-2">Tablicowanie</a></li>
+<li><a class="reference internal" href="#zmniejszanie-glebi-kolorow" id="toc-entry-3">Zmniejszanie głębi kolorów</a><ul>
+<li><a class="reference internal" href="#konwersja-24-32bpp-na-15-16bpp-mmx" id="toc-entry-4">Konwersja 24/32bpp na 15/16bpp &mdash; MMX</a></li>
+<li><a class="reference internal" href="#konwersja-32bpp-na-15bpp-x86" id="toc-entry-5">Konwersja 32bpp na 15bpp &mdash; x86</a></li>
+<li><a class="reference internal" href="#konwersja-32bpp-na-16bpp-x86" id="toc-entry-6">Konwersja 32bpp na 16bpp &mdash; x86</a></li>
+<li><a class="reference internal" href="#konwersja-16bpp-na-15bpp-x86" id="toc-entry-7">Konwersja 16bpp na 15bpp &mdash; x86</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#zwiekszanie-glebi-kolorow" id="toc-entry-8">Zwiększanie głębi kolorów</a><ul>
+<li><a class="reference internal" href="#konwersja-15bpp-na-32bpp-x86" id="toc-entry-9">Konwersja 15bpp na 32bpp &mdash; x86</a></li>
+<li><a class="reference internal" href="#konwersja-15bpp-na-32bpp-mmx" id="toc-entry-10">Konwersja 15bpp na 32bpp &mdash; MMX</a></li>
+<li><a class="reference internal" href="#konwersja-16bpp-na-32bpp-x86-tablicowanie" id="toc-entry-11">Konwersja 16bpp na 32bpp &mdash; x86 &mdash; tablicowanie</a></li>
+<li><a class="reference internal" href="#konwersja-16bpp-na-32bpp-x86" id="toc-entry-12">Konwersja 16bpp na 32bpp &mdash; x86</a></li>
+<li><a class="reference internal" href="#konwersja-16bpp-na-32bpp-mmx" id="toc-entry-13">Konwersja 16bpp na 32bpp &mdash; MMX</a></li>
+<li><a class="reference internal" href="#konwersja-15bpp-na-16bpp" id="toc-entry-14">Konwersja 15bpp na 16bpp</a><ul>
+<li><a class="reference internal" href="#kod-x86" id="toc-entry-15">kod x86</a></li>
+<li><a class="reference internal" href="#kod-x86-wariant-2" id="toc-entry-16">kod x86 &mdash; wariant 2.</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#porownanie-metod-konwersji-15bpp-16bpp-na-32bpp" id="toc-entry-17">Porównanie metod konwersji 15bpp/16bpp na 32bpp</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Obecnie większość bibliotek graficznych wewnętrznie używa obrazów 32bpp
+(<em>BPP</em> &mdash; Bits Per Pixel), dopiero podczas wyświetlania są one
+konwertowane do odpowiedniego formatu, zależnego od sprzętu (trybu karty
+graficznej).</p>
+<p>Poniżej przedstawiono formaty rozważanych pikseli.</p>
+<img alt="format piksela 16bpp" class="align-center" src="img/pixel_15bpp.png" />
+<img alt="format piksela 17bpp" class="align-center" src="img/pixel_16bpp.png" />
+<img alt="format piksela 24bpp" class="align-center" src="img/pixel_24bpp.png" />
+<p>Oto struktury opisujące piksele w języku C:</p>
+<pre class="literal-block">
+typedef unsigned char        byte; //  8 bitów
+typedef unsigned short int   word; // 16 bitów
+typedef unsigned int        dword; // 16 bitów
+
+typedef struct {
+          word b: 5;
+          word g: 5;
+          word r: 5;
+          word _: 1; // nieużywany
+        } pixel15bpp;
+
+typedef struct {
+          word b: 5;
+          word g: 6;
+          word r: 5;
+        } pixel16bpp;
+
+typedef struct {
+          byte b,g,r;
+        } pixel24bpp;
+
+typedef struct {
+          byte b,g,r;
+          byte _;   // nieużywany
+        } pixel24bpp;
+</pre>
+<p>Nadmienię tylko, że piksele 24bpp nie są stosowane &mdash; po prostu nie
+sprawdziły się. Oszczędność jednego bajtu nie rekompensowała skomplikowania
+kodu i opóźnień związanych z brakiem wyrównania.</p>
+</div>
+<div class="section" id="tablicowanie">
+<h1>Tablicowanie</h1>
+<p>Jest to chyba jedna z najlepszych metod do implementacji na x86. Polega na
+prekalkulowaniu wartości pikseli. Bynajmniej nie tworzone są tablice dla
+wszystkich pikseli &mdash; proszę wyobrazić sobie rozmiar takiej tablicy dla
+24bpp &mdash; całe 16MB i te problemy z cache.</p>
+<p>Piksel źródłowy jest dzielony na bajty, tak więc dla pikseli 24/32bpp
+potrzebne będą trzy, a dla pikseli 15/16bpp dwie tablice 256-elementowe.</p>
+<p>Ograniczę się tylko do konwersji 16bpp/32bpp, inne konwersje
+Czytelnik z łatwością sam napisze.</p>
+<pre class="literal-block">
+dword pix16to32bpp_lookup[2][256]; // rozmiar 256*4*2 = 2kB
+ word pix32to16bpp_lookup[3][256]; // rozmiar 256*2*3 = 1.5kB
+
+void fill_pix16to32bpp()
+{
+ for (int i=0; i&lt;256; i++)
+        {
+         //                   |gggbbbbb| -- młodszy bajt piksela 16bpp
+         // |00000000|000ggg00|bbbbb000| -- rozkład bitów w pikselu 32bpp
+
+         dword blu  = i &amp; 0x1f;
+         dword grn1 = i &amp; 0x1e;
+         pix16to32bpp_lookup[0][i] = (blu &lt;&lt; 3) | (grn1 &lt;&lt; 5);
+
+         //                   |rrrrrggg| -- starszy bajt piksela 16bpp
+         // |rrrrr000|ggg00000|00000000|
+
+         dword red  = i &amp; 0xf8;
+         dword grn2 = i &amp; 0x07;
+         pix16to32bpp_lookup[1][i] = (red &lt;&lt; 16) | (grn2 &lt;&lt; 13);
+        }
+}
+
+void fill_pix32to16bpp()
+{
+ for (int i=0; i&lt;256; i++)
+        {
+         word blu  = i &gt;&gt; 3;
+         word grn  = i &gt;&gt; 2;
+         word red  = i &gt;&gt; 3;
+
+         pix32to16bpp_lookup[0][i] = blu;
+         pix32to16bpp_lookup[1][i] = grn &lt;&lt; 5;
+         pix32to16bpp_lookup[2][i] = red &lt;&lt; 11;
+        }
+}
+
+pixel32bpp pix16to32bpp(pixel16bpp SRC)
+{
+  word src = *(word*)&amp;SRC;
+ dword res = pix16to32bpp_lookup[0][src &amp; 0xff] |
+             pix16to32bpp_lookup[1][src &gt;&gt; 8];
+
+ return *(pixel32bpp*)&amp;res;
+}
+
+pixel16bpp pix32to316pp(pixel32bpp SRC)
+{
+ dword src = *(dword)&amp;SRC;
+  word res = pix32to16bpp_lookup[0][(src &gt;&gt; 0)  &amp; 0xff] |
+             pix32to16bpp_lookup[1][(src &gt;&gt; 8)  &amp; 0xff] |
+             pix32to16bpp_lookup[2][(src &gt;&gt; 16) &amp; 0xff];
+
+ return *(pixel16bpp*)&amp;res;
+}
+</pre>
+</div>
+<div class="section" id="zmniejszanie-glebi-kolorow">
+<h1>Zmniejszanie głębi kolorów</h1>
+<p>Podczas takich konwersji część bitów piksela źródłowego jest tracona, są to
+najmłodsze bity każdej ze składowych; oto przykład w C.</p>
+<pre class="literal-block">
+pixel16bpp convert32_to_16bpp(pixel32bpp src)
+{
+ pixel16bpp dst;
+
+ dst.r = src.r &gt;&gt; 3; // 8-5
+ dst.g = src.g &gt;&gt; 2; // 8-6
+ dst.b = src.b &gt;&gt; 3; // 8-5
+
+ return p;
+}
+</pre>
+<div class="section" id="konwersja-24-32bpp-na-15-16bpp-mmx">
+<h2>Konwersja 24/32bpp na 15/16bpp &mdash; MMX</h2>
+<p>Pokażę funkcję dla konwersji 32bpp na 16bpp, konwersja na 15bpp będzie wymagać
+nieznacznych zmian w kodzie. Użycie rozkazu <tt class="docutils literal">pmaddwd</tt> wyeliminowało co
+najmniej dwa przesłania, jedno przesunięcie bitowe i operację logiczną
+<em>or</em>.</p>
+<pre class="literal-block">
+; wto 29 paź 2002 16:43:22 CET
+segment .data
+
+mask_rg dd 0x001f001f, 0x001f001f
+mask_b  dd 0x00001f00, 0x00001f00
+shift   dd 0x00800001, 0x00800001 ; 1, 1&lt;&lt;11, 1, 1&lt;&lt;11
+
+segment .text
+
+; esi -&gt; wskaźnik na obraz 32bpp
+conv_32bpp_to_16bpp:
+
+        movq    mm0, [esi]      ; mm0 = |0000 0000|rrrr rrrr|gggg gggg|bbbb bbbb|...
+        psrld   mm0, 3          ; mm0 = |0000 0000|000r rrrr|rrrg gggg|gggb bbbb|...
+        movq    mm1, mm0
+
+        pand    mm0, [mask_rb]  ; mm0 = |0000 0000|000r rrrr|0000 0000|000b bbbb|...
+        pand    mm1, [mask_g]   ; mm1 = |0000 0000|0000 0000|000g gggg|g000 0000|...
+
+        pmaddwd mm0, [shift]    ; mm0 =                     |0000 0000|000b bbbb|
+                                ;                           |rrrr r000|0000 0000| +
+        psrld   mm1, 2          ; mm1 = |0000 0000|0000 0000|0000 0ggg|ggg0 0000|...
+
+        por     mm0, mm1        ; mm0 = |0000 0000|0000 0000|rrrr rggg|gggb bbbb|...
+
+                                ; mm0 = |pix1| 0 |pix0| 0 |
+        ret
+</pre>
+</div>
+<div class="section" id="konwersja-32bpp-na-15bpp-x86">
+<h2>Konwersja 32bpp na 15bpp &mdash; x86</h2>
+<pre class="literal-block">
+; wejście: eax - piksel 32bpp
+; wyjście:  ax - piksel 15bpp
+
+                  ; eax = |xxxx xxxx|rrrr rrrr|gggg gggg|bbbb bbbb|
+and eax, 00f8f8f8 ; eax = |0000 0000|rrrr r000|gggg g000|bbbb b000|
+shr eax, 3        ; eax = |0000 0000|000r rrrr|000g gggg|000b bbbb|
+shl al , 3        ; eax = |0000 0000|000r rrrr|000g gggg|bbbb b000|
+shl ax , 3        ; eax = |0000 0000|000r rrrr|gggg gbbb|bb00 0000|
+shr eax, 6        ; eax = |0000 0000|0000 0000|0rrr rrgg|gggb bbbb|
+</pre>
+</div>
+<div class="section" id="konwersja-32bpp-na-16bpp-x86">
+<h2>Konwersja 32bpp na 16bpp &mdash; x86</h2>
+<pre class="literal-block">
+; wejście: eax - piksel 32bpp
+; wyjście:  ax - piksel 16bpp
+
+                  ; eax = |xxxx xxxx|rrrr rrrr|gggg gggg|bbbb bbbb|
+and eax, 00f8fcf8 ; eax = |xxxx xxxx|rrrr r000|gggg gg00|bbbb b000|
+shr  ah, 2        ; eax = |xxxx xxxx|rrrr r000|00gg gggg|bbbb b000|
+shr eax, 3        ; eax = |xxxx xxxx|000r rrrr|0000 0ggg|gggb bbbb|
+shl  ax, 5        ; eax = |xxxx xxxx|000r rrrr|gggg ggbb|bbb0 0000|
+shr eax, 5        ; eax = |xxxx xxxx|0000 0000|grrr rggg|gggb bbbb|
+</pre>
+</div>
+<div class="section" id="konwersja-16bpp-na-15bpp-x86">
+<h2>Konwersja 16bpp na 15bpp &mdash; x86</h2>
+<pre class="literal-block">
+; wejście: ax - piksel 16bpp
+; wyjście: ax - piksel 15bpp
+; niszczy: bl
+
+                  ; ax = |rrrr rggg|gggb bbbb|
+mov bl, al
+and bl, 00011111b
+and al, 11011111b ; ax = |rrrr rggg|gg0b bbbb|
+add al, bl        ; ax = |rrrr rggg|ggbb bbb0|
+shr ax, 1
+</pre>
+</div>
+</div>
+<div class="section" id="zwiekszanie-glebi-kolorow">
+<h1>Zwiększanie głębi kolorów</h1>
+<p>Podczas konwersji brakuje części najmłodszych bitów, są one wypełniane
+zerami; oto przykład w C.</p>
+<pre class="literal-block">
+pixel32bpp convert(pixel15bpp src)
+{
+ pixel32bpp dst = {src.r &lt;&lt; 3, src.g &lt;&lt; 3, src.b &lt;&lt; 3, 0};
+
+ return dst;
+}
+</pre>
+<div class="section" id="konwersja-15bpp-na-32bpp-x86">
+<h2>Konwersja 15bpp na 32bpp &mdash; x86</h2>
+<pre class="literal-block">
+; wejście: ax  - piksel 15bpp
+; wyjście: eax - piksel 32bpp
+
+            ; eax = |xxxx xxxx|xxxx xxxx|0rrr rrgg|gggb bbbb|
+shr eax, 6  ; eax = |xxxx xxxx|xx0r rrrr|gggg gbbb|bb00 0000|
+shr  ax, 3  ; eax = |xxxx xxxx|xx0r rrrr|000g gggg|bbbb b000|
+shr  al, 3  ; eax = |xxxx xxxx|xx0r rrrr|000g gggg|000b bbbb|
+shl eax, 3  ; eax = |xxxx xxxx|rrrr r000|gg0g g000|bbbb b000|
+</pre>
+</div>
+<div class="section" id="konwersja-15bpp-na-32bpp-mmx">
+<h2>Konwersja 15bpp na 32bpp &mdash; MMX</h2>
+<pre class="literal-block">
+segment .data
+
+mask_rb dw 0b0111110000011111, 0x7c1f, 0x7c1f, 0x7c1f
+mask_g  dw 0b0000001111100000, 0x03e0, 0x03e0, 0x03e0
+shifts  dw 0b0000001000001000, 0x0208, 0x0208, 0x0208 ; 1&lt;&lt;9 | 1&lt;&lt;3
+
+mask_rb32bpp dd 0x00f800f8, 0x00f800f8
+
+segment .text
+
+; wejście:
+;       esi -&gt; wskaźnik na 2 piksele 15bpp
+; wyjście:
+;       mm0 = 2 piksele 32bpp
+; niszczy:
+;       mm1, mm2, mm3, mm4
+
+conv_15bpp_to_32bpp:
+        pxor      mm1, mm1
+        movq      mm0, [esi]       ; mm0 = | 0  | 0  |pix1|pix0|
+        punpcklwd mm0, mm1         ; mm0 = | 0  |pix1| 0  |pix0|
+        movq      mm1, mm0
+
+        pand      mm0, [mask_rb]   ; mm0 = |00000000 00000000|0rrrrr00 000bbbbb|..
+        pand      mm1, [mask_g]    ; mm1 = |00000000 00000000|000000gg ggg00000|..
+        pmaddwd   mm0, [shift]     ; mm0 = |00000000 000000rr|rrr00000 bbbbb000| +
+                                   ;       |00000000 rrrrr000|00bbbbb0 00000000| =
+                                   ;       |00000000 rrrrrxxx|xxxxxxx0 bbbbb000|..
+
+        pslld     mm1, 6           ; mm1 = |00000000 00000000|ggggg000 00000000|
+        pand      mm0, [mask_rb32] ; mm0 = |00000000 rrrrr000|00000000 bbbbb000|
+        por       mm0, mm1
+        ret
+</pre>
+</div>
+<div class="section" id="konwersja-16bpp-na-32bpp-x86-tablicowanie">
+<h2>Konwersja 16bpp na 32bpp &mdash; x86 &mdash; tablicowanie</h2>
+<p>Zamiast &bdquo;suchego&rdquo; kodu w C pokażę praktyczną realizację tablicowania
+w asemblerze.</p>
+<p>W jeden pętli przetwarzane będą po dwa piksele, przede wszystkim po to by
+zminimalizować liczbę odwołań do pamięci.</p>
+<pre class="literal-block">
+segment .data
+
+lookup_lo times 256 dd 0 ; tablice są wypełniane &quot;gdzieś tam&quot;
+lookup_hi times 256 dd 0
+
+; esi -&gt; wskaźnik na 2 wejściowe piksele 16bpp
+; edi -&gt; wskaźnik na 2 wyjściowe piksele 32bpp
+
+conv_16bpp_to_32bpp:
+        mov eax, [esi]   ; ładowane są 2 piksele
+
+        movzx ecx, al    ; młodsze
+        movzx edx, ah    ; i starsze słowo pierwszego piksela
+
+        bswap eax
+        movzx ebx, ah,   ; młodsze
+        and   eax, 0xff  ; i starsze słowo drugiego piksela
+
+        mov   ebx, [lookup_lo + ebx*4]
+        mov   ecx, [lookup_lo + ecx*4]
+
+        or    ebx, [lookup_hi + edx*4]
+        or    ecx, [lookup_hi + eax*4]
+
+        mov   [edi+0], ebx
+        mov   [edi+8], ecx
+        ret
+</pre>
+</div>
+<div class="section" id="konwersja-16bpp-na-32bpp-x86">
+<h2>Konwersja 16bpp na 32bpp &mdash; x86</h2>
+<pre class="literal-block">
+; wejście: ax  - piksel 16bpp
+; wyjście: eax - piksel 32bpp
+
+           ; eax = |xxxx xxxx|xxxx xxxx|rrrr rggg|gggb bbbb|
+shl eax, 5 ; eax = |xxxx xxxx|xxxr rrrr|gggg ggbb|bbb0 0000|
+shr  ax, 5 ; eax = |xxxx xxxx|xxxr rrrr|0000 0ggg|gggb bbbb|
+shr eax, 3 ; eax = |xxxx xxxx|rrrr r000|00gg gggg|bbbb b000|
+shl  ah, 2 ; eax = |xxxx xxxx|rrrr r000|gggg gg00|bbbb b000|
+</pre>
+</div>
+<div class="section" id="konwersja-16bpp-na-32bpp-mmx">
+<h2>Konwersja 16bpp na 32bpp &mdash; MMX</h2>
+<pre class="literal-block">
+; czw 24 paź 2002 18:59:18 CEST
+segment .data
+
+mask_r db 0b1111100000000000, 0xf800, 0xf800, 0xf800
+mask_g db 0b0000011111100000, 0x07e0, 0x07e0, 0x07e0
+mask_b db 0b0000000000011111, 0x0x1e, 0x0x1e, 0x0x1e
+
+segment .text
+
+; esi -&gt; wskaźnik do obrazu 16bpp
+conv_16bpp_to_32bpp:
+        movq  mm0, [esi]    ; mm0 = |pix3|pix2|pix1|pix0|
+        movq  mm1, mm0
+        movq  mm2, mm0
+
+        pand  mm0, [mask_r] ; mm0 = |rrrrr000 00000000|...
+        pand  mm1, [mask_g] ; mm1 = |00000ggg ggg00000|...
+        pand  mm2, [mask_b] ; mm2 = |00000000 000bbbbb|...
+
+        psrlw mm0, 8        ; mm0 = |00000000 rrrrr000|...
+        psllw mm1, 5        ; mm1 = |gggggg00 00000000|...
+        psllw mm2, 3        ; mm2 = |00000000 bbbbb000|...
+
+        por   mm1, mm2      ; mm1 = |gggggg00 bbbbb000|...
+        movq  mm2, mm1
+
+        punpcklwd  mm1, mm0 ; mm1 = |00000000 rrrrr000|gggggg00 bbbbb000|...
+        punpckhwd  mm2, mm0 ; mm2 = |00000000 rrrrr000|gggggg00 bbbbb000|...
+        ret
+</pre>
+<p>Po optymalizacji.</p>
+<pre class="literal-block">
+; czw 24 paź 2002 19:19:35 CEST
+; pią 25 paź 2002 17:41:44 CEST
+segment .data
+
+mask_r dw 0b0000000011111000, 0x00f8, 0x00f8, 0x00f8
+mask_b dw 0b0000011111100000, 0x07e0, 0x07e0, 0x07e0
+mask_g dw 0b0000000011111000, 0x00f8, 0x00f8, 0x00f8
+
+segment .text
+
+conv_16bpp_to_32bpp:
+        movq      mm0, [esi]    ; 1
+        movq      mm3, [edi]    ; -
+        movq      mm1, mm0      ; 2
+        movq      mm2, mm0      ; -
+        movq      mm4, mm3      ; 3
+        movq      mm5, mm3      ; -
+
+        psrlw     mm0, 8        ; 4
+        pand      mm2, [mask_b] ; -
+        psllw     mm1, 5        ; 5
+        pand      mm0, [mask_r] ; -
+        psllw     mm2, 3        ; 6
+        pand      mm1, [mask_g] ; -
+
+        psrlw     mm3, 8        ; 7
+        por       mm1, mm2      ; -
+        psllw     mm4, 5        ; 8
+        pand      mm3, [mask_r] ; -
+        psllw     mm5, 3        ; 9
+        movq      mm2, mm1      ; -
+        punpcklwd mm1, mm0      ; 10
+        pand      mm4, [mask_g] ; -
+        punpckhwd mm2, mm0      ; 11
+        pand      mm5, [mask_b] ; -
+        por       mm4, mm5      ; 13
+        movq      mm5, mm4      ; 14
+        punpcklwd mm4, mm3      ; 15
+        punpckhwd mm5, mm3      ; 16 -- 16 cykli/8 pikseli (2 cykle/piksel)
+
+        ret
+</pre>
+</div>
+<div class="section" id="konwersja-15bpp-na-16bpp">
+<h2>Konwersja 15bpp na 16bpp</h2>
+<div class="section" id="kod-x86">
+<h3>kod x86</h3>
+<p>Kod jest łatwy do przerobienia na MMX/SSE.</p>
+<pre class="literal-block">
+; wejście: ax - piksel 15bpp
+; wyjście: ax - piksel 16bpp
+; niszczy: bx
+
+                      ; ax = |0rrr rrgg|gggb bbbb|
+mov bx, ax
+and ax, 7fe0h         ; ax = |0rrr rrgg|ggg0 0000|
+and bx, 001fh         ; bx = |0000 0000|000b bbbb|
+
+lea eax, [eax*2 + ebx]
+</pre>
+</div>
+<div class="section" id="kod-x86-wariant-2">
+<h3>kod x86 &mdash; wariant 2.</h3>
+<p>Ta wersja jest o wiele szybsza niż przedstawiony wyżej
+algorytm;  kod jest równie łatwy do przerobienia na MMX/SSE.</p>
+<pre class="literal-block">
+; wejście: ax - piksel 15bpp
+; wyjście: ax - piksel 16bpp
+; niszczy: bx
+
+                      ; ax = |0rrr rrgg|gggb bbbb|
+mov bx, ax
+and ax, 7fe0h         ; ax = |0rrr rrgg|ggg0 0000|
+add ax, bx            ; bx = |rrrr rggg|gg0b bbbb|
+</pre>
+</div>
+</div>
+<div class="section" id="porownanie-metod-konwersji-15bpp-16bpp-na-32bpp">
+<h2>Porównanie metod konwersji 15bpp/16bpp na 32bpp</h2>
+<p>Zobacz w <a class="reference external" href="../notesen/2008-06-01-sse-pix16to32bpp.html">osobnym artykule</a></p>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/pixconv.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:07 GMT -->
+</html>

@@ -1,0 +1,32 @@
+Wtórnikowy stabilizator napiêcia (stabilizator szeregowy)
+* "Uk³ady pr±du sta³ego.pdf", str. 36
+* Wojciech Mu³a 11.10.2005
+*
+* Uwy = Uz - Ube = Uz - 0.7V ~= 4.3V
+
+* stabilizator
+* - wej¶cie: 3 0
+* - wyj¶cie: 2 0
+*
+D	0 1	zener
+R	3 1	100
+Q	3 1 2	t1
+
+.model t1 npn
+.model zener D(Bv=5V)
+
+* zasilanie
+Vin	3 0	DC 10V
+
+* obci±¿enie
+Ro	2 10	100
+Io	10 0	1m
+
+* analiza
+.DC Io 0 100m 1m
+
+* wykresy: napiêcie wyj¶ciowe, napiêcie na diodzie, pr±d obci±¿enia
+* (nap. na rezystorze Ro)
+.plot DC V(2) V(1) V(2,10) 
+
+.end

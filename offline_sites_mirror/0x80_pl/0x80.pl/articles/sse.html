@@ -1,0 +1,495 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Streaming SIMD Extensions &mdash; przykłady zastosowań</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="streaming-simd-extensions-przyklady-zastosowan">
+<h1 class="title">Streaming SIMD Extensions &mdash; przykłady zastosowań</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">13.03.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">15.09.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#iloczyn-skalarny" id="toc-entry-2">Iloczyn skalarny</a></li>
+<li><a class="reference internal" href="#iloczyn-wektorowy" id="toc-entry-3">Iloczyn wektorowy</a></li>
+<li><a class="reference internal" href="#normalizacja-wektora" id="toc-entry-4">Normalizacja wektora</a></li>
+<li><a class="reference internal" href="#obrot-punktu-2d" id="toc-entry-5">Obrót punktu 2D</a></li>
+<li><a class="reference internal" href="#mnozenie-liczb-zespolonych" id="toc-entry-6">Mnożenie liczb zespolonych</a></li>
+<li><a class="reference internal" href="#mnozenie-macierzy-row-majority-przez-wektor" id="toc-entry-7">Mnożenie macierzy (row-majority) przez wektor</a></li>
+<li><a class="reference internal" href="#mnozenie-wektora-przez-macierz-column-majority" id="toc-entry-8">Mnożenie wektora przez macierz (column-majority)</a></li>
+<li><a class="reference internal" href="#transpozycja-macierzy" id="toc-entry-9">Transpozycja macierzy</a></li>
+<li><a class="reference internal" href="#mnozenie-macierzy-4x4" id="toc-entry-10">Mnożenie macierzy 4x4</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Po opis rozkazów odsyłam do dokumentacji procesora. Rozkazy
+<a class="reference external" href="http://pl.wikipedia.org/wiki/Streaming_SIMD_Extensions">SSE</a> umożliwiają obliczenia na
+liczbach zmiennoprzecinkowych pojedynczej precyzji (4 bajtowych).  Przy
+korzystaniu z SSE bardzo istotne jest wyrównanie danych &mdash; większość
+rozkazów domyślnie przyjmuje, że dane są na granicy 16 bajtów &mdash; gdy
+tak nie jest generowany jest wyjątek #GP.</p>
+<p>Procesory 32-bitowe posiadają osiem, natomiast 64-bitowe szesnaście
+rejestrów SSE, każdy o rozmiarze 128 bitów (4 x liczba
+zmiennoprzecinkowa).  Ich nazwy w asemblerze to: <tt class="docutils literal">xmm0</tt>, <tt class="docutils literal">xmm1</tt>, ...
+<tt class="docutils literal">xmm15</tt>.</p>
+<p><strong>Uwaga</strong>: w komentarzach &bdquo;?&rdquo; oznacza <em>nieważny</em>, używany jest do
+oznaczenia nieistotnych wartości w rejestrach SSE.</p>
+</div>
+<div class="section" id="iloczyn-skalarny">
+<h1>Iloczyn skalarny</h1>
+<p>Iloczyn skalarny (ang. <em>dot product</em>) dwóch wektorów 3D
+<span class="math">V<sub>1</sub> = [<i>x</i><sub>1</sub>, <i>y</i><sub>1</sub>, <i>y</i><sub>1</sub>]</span> i <span class="math">V<sub>2</sub> = [<i>x</i><sub>2</sub>, <i>y</i><sub>2</sub>, <i>y</i><sub>2</sub>]</span> dany
+jest wzorem:</p>
+<p><span class="cmath">DP = <i>x</i><sub>1</sub> &sdot; <i>x</i><sub>2</sub> + <i>y</i><sub>1</sub> &sdot; <i>y</i><sub>2</sub> + <i>z</i><sub>1</sub> &sdot; <i>z</i><sub>2</sub></span></p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-dotprod.c">sse-dotprod.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_dot</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">vec1</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">vec2</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">result</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+   </span><span class="s">&quot;movups (%0), %%xmm0                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// load vec1: |w1|z1|y1|x1|
+</span><span class="w">   </span><span class="s">&quot;movups (%1), %%xmm1                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// load vec2: |w2|z2|y2|x2|
+</span><span class="w">   </span><span class="s">&quot;                                       </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;mulps   %%xmm1, %%xmm0                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := |w1*w2|z1*z2|y1*y2|x1*x2|
+</span><span class="w">   </span><span class="s">&quot;movhlps %%xmm0, %%xmm1                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := |  .  |  .  |w1*w2|z1*z2|
+</span><span class="w">   </span><span class="s">&quot;addps   %%xmm0, %%xmm1                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := |  .  |  .  | w+y | z+x |
+</span><span class="w">   </span><span class="s">&quot;movaps  %%xmm1, %%xmm0                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// save xmm1
+</span><span class="w">   </span><span class="s">&quot;shufps  $0x01,  %%xmm1, %%xmm1         </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := |  .  |  .  |  .  | w+y |
+</span><span class="w">   </span><span class="s">&quot;addss   %%xmm1, %%xmm0                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0[0] := dot product
+</span><span class="w">   </span><span class="s">&quot;movss   %%xmm0, (%2)                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="o">:</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">vec1</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">vec2</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Żeby jednak w 100% wykorzystać moc obliczeniową, należy liczyć
+równocześnie 4 iloczyny skalarne.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-dotprod4.c">sse-dotprod4.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_dot4</span><span class="p">(</span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">v1x4</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">v2x4</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">results</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+   </span><span class="c1">// load 4 vectors from v1
+</span><span class="w">   </span><span class="s">&quot;movups    (%0), %%xmm0                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups  16(%0), %%xmm1                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups  32(%0), %%xmm2                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups  48(%0), %%xmm3                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+
+   </span><span class="c1">// load 4 vectors from v2
+</span><span class="w">   </span><span class="s">&quot;movups    (%1), %%xmm4                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups  16(%1), %%xmm5                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups  32(%1), %%xmm6                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups  48(%1), %%xmm7                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+
+   </span><span class="c1">// perfom parallel multiplications
+</span><span class="w">   </span><span class="s">&quot;mulps   %%xmm4, %%xmm0                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := |A3|A2|A1|A0|
+</span><span class="w">   </span><span class="s">&quot;mulps   %%xmm5, %%xmm1                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := |B3|B2|B1|B0|
+</span><span class="w">   </span><span class="s">&quot;mulps   %%xmm6, %%xmm2                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := |C3|C2|C1|C0|
+</span><span class="w">   </span><span class="s">&quot;mulps   %%xmm7, %%xmm3                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := |D3|D2|D1|D0|
+</span><span class="w">   </span><span class="c1">// (xmm4-xmm7 are free)
+</span><span class="w">
+   </span><span class="c1">// perfom additions
+</span><span class="w">   </span><span class="s">&quot;movaps   %%xmm0, %%xmm4                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;unpcklps %%xmm1, %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := |B1|A1|B0|A0|
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm1, %%xmm4                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := |B3|A3|B2|A2| (xmm1 is free)
+</span><span class="w">   </span><span class="s">&quot;movaps   %%xmm2, %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;unpcklps %%xmm3, %%xmm2                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := |D1|C1|D0|C0|
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm3, %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := |D3|C3|D2|C2| (xmm3 is free)
+</span><span class="w">   </span><span class="s">&quot;addps    %%xmm4, %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := | B13 | A13 | B02 | A02 | (xmm1 is free)
+</span><span class="w">   </span><span class="s">&quot;addps    %%xmm1, %%xmm2                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := | D13 | C13 | D02 | C02 | (xmm3 is free)
+</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm0, %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;shufps   $0b01000100, %%xmm2, %%xmm0   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := | D02 | C02 | B02 | A02 |
+</span><span class="w">   </span><span class="s">&quot;shufps   $0b11101110, %%xmm2, %%xmm1   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := | D13 | C13 | B13 | A13 |
+</span><span class="w">   </span><span class="s">&quot;addps    %%xmm1, %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := |D0123|C0123|B0123|A0123|
+</span><span class="w">   </span><span class="s">&quot;movups   %%xmm0, (%2)                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="o">:</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">v1x4</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">v2x4</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="w">
+   </span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="iloczyn-wektorowy">
+<h1>Iloczyn wektorowy</h1>
+<p>Wynikiem iloczynu wektorowego (ang. <em>cross product</em>) dwóch wektorów jest
+wektor prostopadły (normalny) do płaszczyzny na której znajdują się te
+wektory. Iloczyn wektorowy liczy się z wyznacznika:</p>
+<pre class="literal-block">
+|i j k|
+|a b c| = i(b*z-c*y) - j(a*z-c*x) + k(a*y-b*x)
+|x y z|
+
+        = [b*z - c*y, c*x - a*z, a*y - b*x] =
+
+        = [b*z, c*x, a*y] - [c*y, a*z, b*x]
+</pre>
+<p>gdzie <span class="math"><i>i</i></span>, <span class="math"><i>j</i></span>, <span class="math"><i>k</i></span> &mdash; wersory osi, w uładzie
+kartezjańskim <span class="math"><i>i</i> = [1, 0, 0]</span>, <span class="math"><i>j</i> = [0, 1, 0]</span>, oraz <span class="math"><i>k</i> = [0, 0, 1]</span>.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-crossprod.c">sse-crossprod.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_cross_prod</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">v1</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">v2</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">result</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+    </span><span class="c1">// load vectors                                 index -&gt; 0   1   2   3
+</span><span class="w">    </span><span class="s">&quot;movups (%0), %%xmm0                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := | a | b | c | . |
+</span><span class="w">    </span><span class="s">&quot;movups (%1), %%xmm1                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := | x | y | z | . |
+</span><span class="w">
+    </span><span class="c1">// clone
+</span><span class="w">    </span><span class="s">&quot;movaps %%xmm0, %%xmm2                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+    </span><span class="s">&quot;movaps %%xmm1, %%xmm3                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+
+    </span><span class="c1">// shuffle
+</span><span class="w">    </span><span class="s">&quot;shufps $0b00001001, %%xmm0, %%xmm0     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := | b | c | a | . |
+</span><span class="w">    </span><span class="s">&quot;shufps $0b00010010, %%xmm1, %%xmm1     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := | z | x | y | . |
+</span><span class="w">
+    </span><span class="s">&quot;shufps $0b00010010, %%xmm2, %%xmm2     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := | c | a | b | . |
+</span><span class="w">    </span><span class="s">&quot;shufps $0b00001001, %%xmm3, %%xmm3     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := | y | z | x | . |
+</span><span class="w">
+    </span><span class="c1">// multiply
+</span><span class="w">    </span><span class="s">&quot;mulps %%xmm1, %%xmm0                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := |b*z|c*x|a*y| . |
+</span><span class="w">    </span><span class="s">&quot;mulps %%xmm3, %%xmm2                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := |c*y|a*z|b*x| . |
+</span><span class="w">
+    </span><span class="c1">// and finally subtract
+</span><span class="w">    </span><span class="s">&quot;subps %%xmm2, %%xmm0                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := |b*z - c*y|c*x - a*z|a*y - b*x| ... |
+</span><span class="w">    </span><span class="s">&quot;movups %%xmm0, (%2)                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+    </span><span class="o">:</span><span class="w">
+    </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">v1</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">v2</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="w">
+</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="normalizacja-wektora">
+<h1>Normalizacja wektora</h1>
+<p>Wynikiem normalizacja wektora n-wymiarowego jest wektor o długości
+<span class="math">1</span> i o takich samych <strong>cosinusach kierunkowych</strong> jak wektor
+wejściowy. Wzór jest następujący:</p>
+<p><span class="cmath">V' = V/|V|</span></p>
+<pre class="literal-block">
+; 11.03.2002
+;
+; edi -&gt; wektor wejściowy
+
+movups xmm0, [edi] ; załaduj wektor
+
+movaps xmm1, xmm0  ; xmm1 = |  0  |  z  |  y  |  x  |
+mulps  xmm1, xmm0  ; xmm1 = |  0  | z*z | y*y | x*x |
+
+movaps xmm2, xmm1
+movaps xmm3, xmm1
+
+shufps xmm2, xmm1, 0fdh ; xmm2 = |  0  |  0  |  0  | y^2 |
+shufps xmm3, xmm1, 0feh ; xmm3 = |  0  |  0  |  0  | z^2 |
+
+addps  xmm1, xmm2       ;
+addps  xmm1, xmm3       ; xmm1 = |  0  |  nu |  nu | x^2+y^2+z^2 |
+
+sqrtss xmm1             ; xmm1 = |  0  |  nu | nu | sqrt(x^2+y^2+z^2) |
+                        ;                                  len
+
+shufps xmm1, xmm1, 000h ; xmm1 = | len | len | len | len |
+
+divps  xmm0, xmm1       ; xmm0 = |  0  |z/len|y/len|x/len| -- wynik
+</pre>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/normvecSSE.asm">normvecSSE.asm</a></p>
+</div>
+<div class="section" id="obrot-punktu-2d">
+<h1>Obrót punktu 2D</h1>
+<p>Obrót punktu o kąt <em>fi</em> wokół środka układu współrzędnych dany jest wzorem:</p>
+<p><span class="cmath"><i>x</i>' = <i>x</i>cos(<i>fi</i>) &minus; <i>y</i>sin(<i>fi</i>)</span>
+<span class="cmath"><i>y</i>' = <i>x</i>sin(<i>fi</i>) + <i>y</i>cos(<i>fi</i>)</span></p>
+<pre class="literal-block">
+; 11.03.2002
+
+segment .data
+
+align 16
+sincos:
+        dd ? ; sinus(fi)
+        dd ? ; cosinus(fi)
+
+vector:
+        dd ? ; x
+        dd ? ; y
+
+negate:
+        dd 0
+        dd 0
+        dd 0x80000000
+        dd 0
+
+segment .text
+
+movlps   xmm0, [vector]   ; xmm0 = | ? | ? | y | x |
+movlps   xmm1, [sincos]   ; xmm1 = | ? | ? | c | s |
+
+unpcklps xmm0, xmm0       ; xmm0 = | y | y | x | x |
+shufps   xmm1, xmm1, 044h ; xmm1 = | c | s | c | s |
+xorps    xmm1, [negate]   ; xmm1 = | c |-s | c | s |
+
+mulps    xmm0, xmm1       ; xmm0 = | y*c  | -y*s | x*c | x*s |
+
+movaps   xmm1, xmm0
+shufps   xmm1, xmm1, 00eh ; xmm1 = |  nu  |  nu  |-y*s | y*c |
+
+addps    xmm0, xmm1       ; xmm0 = |  nu  |  nu  |xc-ys|xs+yc| -- wynik
+</pre>
+</div>
+<div class="section" id="mnozenie-liczb-zespolonych">
+<h1>Mnożenie liczb zespolonych</h1>
+<p>Wynikiem mnożenia liczb zespolonych <span class="math">(<i>a</i> + <i>ib</i>)</span> i <span class="math">(<i>c</i> + <i>id</i>)</span>
+jest liczba zespolona <span class="math">(<i>ac</i> &minus; <i>bd</i>) + <i>i</i>(<i>bc</i> + <i>ad</i>)</span>.</p>
+<pre class="literal-block">
+; 13-03-02
+; edi -&gt; (a+ib) (typ float[2])
+; esi -&gt; (c+id) (typ float[2])
+; edx -&gt; wynik
+
+segment .data
+
+__negate:
+          dd 0
+          dd 0
+          dd 0
+          dd 0x80000000
+
+segment .text
+
+movlps xmm0, [edi]        ; xmm0 = | nu  | nu  |  b  |  a  |
+movlps xmm1, [esi]        ; xmm1 = | nu  | nu  |  d  |  c  |
+
+shufps   xmm0, xmm0, 044h ; xmm0 = |  b  |  a  |  b  |  a  |
+
+unpcklps xmm1, xmm1       ; xmm1 = |  d  |  d  |  c  |  c  |
+xorps    xmm1, [__negate] ; xmm1 = | -d  |  d  |  c  |  c  |
+
+mulps    xmm0, xmm1       ; xmm0 = | -bd |  ad |  bc |  ac |
+
+movaps   xmm1, xmm0
+shufps   xmm1, xmm1, 00bh ; xmm1 = |  nu |  nu |  ad | -bd |
+
+addps    xmm0, xmm1       ; xmm0 = |  nu |  nu |ad+bc|ac-bd|
+
+movlps  [edx], xmm0
+</pre>
+</div>
+<div class="section" id="mnozenie-macierzy-row-majority-przez-wektor">
+<h1>Mnożenie macierzy (row-majority) przez wektor</h1>
+<p>Mnożenie macierzy 4x4 przez wektor 4x1:</p>
+<pre class="literal-block">
+[a0, a1, a2, a3]   [x]   [a0*x + a1*y + a*z + a3]
+[b0, b1, b2, b3]   [y]   [b0*x + b1*y + b*z + b3]
+[              ] * [ ] = [                      ]
+[c0, c1, c2, c3]   [z]   [c0*x + c1*y + c*z + c3]
+[d0, d1, d2, d3]   [w]   [d0*x + d1*y + d*z + d3]
+</pre>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-vecmat-mult.c">sse-matvec-mult.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_matvec_mult</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">mat</span><span class="p">[</span><span class="mi">4</span><span class="o">*</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">vec</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">result</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+   </span><span class="c1">// load vector
+</span><span class="w">   </span><span class="s">&quot;movups (%1), %%xmm4                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := [x, y, w, z] = V
+</span><span class="w">
+   </span><span class="c1">// load matrix
+</span><span class="w">   </span><span class="s">&quot;movups 0x00(%0), %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [a0, a1, a2, a3] = A
+</span><span class="w">   </span><span class="s">&quot;movups 0x10(%0), %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := [b0, b1, b2, b3] = B
+</span><span class="w">   </span><span class="s">&quot;movups 0x20(%0), %%xmm2                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := [c0, c1, c2, c3] = C
+</span><span class="w">   </span><span class="s">&quot;movups 0x30(%0), %%xmm3                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := [d0, d1, d2, d3] = D
+</span><span class="w">
+   </span><span class="c1">// multiply all rows by vector
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm4, %%xmm0                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := A*V
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm4, %%xmm1                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := B*V
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm4, %%xmm2                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := C*V
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm4, %%xmm3                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := D*V
+</span><span class="w">
+   </span><span class="c1">// finally calc dot products
+</span><span class="w">   </span><span class="s">&quot;movaps   %%xmm0, %%xmm4                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// save A
+</span><span class="w">   </span><span class="s">&quot;unpcklps %%xmm1, %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [a0, b0, a1, b1]
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm1, %%xmm4                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := [a2, b2, a3, b3] (xmm1 is free)
+</span><span class="w">   </span><span class="s">&quot;                                       </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm2, %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// save C
+</span><span class="w">   </span><span class="s">&quot;unpcklps %%xmm3, %%xmm2                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := [c0, d0, c1, d1]
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm3, %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := [c2, d2, c3, d3] (xmm3 is free)
+</span><span class="w">   </span><span class="s">&quot;                                       </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;addps    %%xmm4, %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [a0+a2, b0+b2, a1+a3, b1+b3] (xmm4 is free)
+</span><span class="w">   </span><span class="s">&quot;addps    %%xmm2, %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := [c0+c2, bd+d2, c1+c3, d1+d3] (xmm2 is free)
+</span><span class="w">   </span><span class="s">&quot;                                       </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm0, %%xmm4                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;shufps $0b01000100, %%xmm1, %%xmm0     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [a02, b02, c02, d02 ]
+</span><span class="w">   </span><span class="s">&quot;shufps $0b11101110, %%xmm1, %%xmm4     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := [a13, b13, c13, d13 ]
+</span><span class="w">   </span><span class="s">&quot;                                       </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;addps    %%xmm4, %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [a0123, b0123, c0123, d0123]
+</span><span class="w">   </span><span class="s">&quot;movups   %%xmm0, (%2)                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;0:                                     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="o">:</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">vec</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;memory&quot;</span><span class="w">
+</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="mnozenie-wektora-przez-macierz-column-majority">
+<h1>Mnożenie wektora przez macierz (column-majority)</h1>
+<p>Mnożenie wektora 1x4 przez macierz 4x4:</p>
+<pre class="literal-block">
+               [a0, a1, a2, a3]   [x*a0 + y*b0 + z*c0 + w*d0]
+               [b0, b1, b2, b3]   [x*a1 + y*b1 + z*c1 + w*d1]
+[x, y, z, w] * [              ] = [                         ]
+               [c0, c1, c2, c3]   [x*a2 + y*b2 + z*c2 + w*d2]
+               [d0, d1, d2, d3]   [x*a3 + y*b3 + z*c3 + w*d3]
+</pre>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-vecmat-mult.c">sse-vecmat-mult.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_vecmat_mult</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">mat</span><span class="p">[</span><span class="mi">4</span><span class="o">*</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">vec</span><span class="p">[</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">result</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+   </span><span class="c1">// load vector
+</span><span class="w">   </span><span class="s">&quot;movups (%1), %%xmm4                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := [x, y, z, w] = V
+</span><span class="w">   </span><span class="s">&quot;movaps %%xmm4, %%xmm5                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movaps %%xmm4, %%xmm6                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movaps %%xmm4, %%xmm7                  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+
+   </span><span class="c1">// load matrix
+</span><span class="w">   </span><span class="s">&quot;movups 0x00(%0), %%xmm0                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [a0, a1, a2, a3] = A
+</span><span class="w">   </span><span class="s">&quot;movups 0x10(%0), %%xmm1                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := [b0, b1, b2, b3] = B
+</span><span class="w">   </span><span class="s">&quot;movups 0x20(%0), %%xmm2                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := [c0, c1, c2, c3] = C
+</span><span class="w">   </span><span class="s">&quot;movups 0x30(%0), %%xmm3                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := [d0, d1, d2, d3] = D
+</span><span class="w">
+   </span><span class="c1">// populate coords in vectors
+</span><span class="w">   </span><span class="s">&quot;shufps $0b00000000, %%xmm4, %%xmm4     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := [x, x, x, x]
+</span><span class="w">   </span><span class="s">&quot;shufps $0b01010101, %%xmm5, %%xmm5     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm5 := [y, y, y, y]
+</span><span class="w">   </span><span class="s">&quot;shufps $0b10101010, %%xmm6, %%xmm6     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm6 := [z, z, z, z]
+</span><span class="w">   </span><span class="s">&quot;shufps $0b11111111, %%xmm7, %%xmm7     </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm7 := [w, w, w, w]
+</span><span class="w">
+   </span><span class="c1">// multiply all rows by vector
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm4, %%xmm0                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := [x*a0, x*a1, x*a2, x*a3]
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm5, %%xmm1                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := [y*b0, y*b1, y*b2, y*b3]
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm6, %%xmm2                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := [z*c0, z*c1, z*c2, z*c3]
+</span><span class="w">   </span><span class="s">&quot;mulps %%xmm7, %%xmm3                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := [w*d0, w*d1, w*d2, w*d3]
+</span><span class="w">
+   </span><span class="c1">// finally calc dot products
+</span><span class="w">   </span><span class="s">&quot;addps %%xmm1, %%xmm0                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;addps %%xmm3, %%xmm2                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;addps %%xmm2, %%xmm0                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+
+   </span><span class="c1">// save result
+</span><span class="w">   </span><span class="s">&quot;movups %%xmm0, (%2)                    </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="o">:</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">vec</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;memory&quot;</span><span class="w">
+</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="transpozycja-macierzy">
+<h1>Transpozycja macierzy</h1>
+<p>Transpozycja macierzy to &mdash; z technicznego punktu widzenia &mdash; zamiana
+wierszy z wektorami, tj.:</p>
+<pre class="literal-block">
+[a0 a1 a2 a3]   [a0 b0 c0 d0]
+[b0 b1 b2 b3] &gt; [a1 b1 c1 d1]
+[d0 d1 d2 d3] &gt; [a2 b2 c2 d2]
+[c1 c1 c2 c3]   [a3 b3 c3 d3]
+
+     M               M^T
+</pre>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-transpose.c">sse-transpose.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_transpose</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">mat</span><span class="p">[</span><span class="mi">4</span><span class="o">*</span><span class="mi">4</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+                                </span><span class="c1">//         0  1  2  3 &lt;- index
+</span><span class="w">   </span><span class="s">&quot;movups 0x00(%0), %%xmm0 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := a0 a1 a2 a3
+</span><span class="w">   </span><span class="s">&quot;movups 0x10(%0), %%xmm1 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := b0 b1 b2 b3
+</span><span class="w">   </span><span class="s">&quot;movups 0x20(%0), %%xmm2 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := c0 c1 c2 c3
+</span><span class="w">   </span><span class="s">&quot;movups 0x30(%0), %%xmm3 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := d0 d1 d2 d3
+</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm0, %%xmm4 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;unpcklps %%xmm2, %%xmm0 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := a0 c0 a1 c1
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm2, %%xmm4 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := a2 c2 a3 c3
+</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm1, %%xmm2 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;unpcklps %%xmm3, %%xmm1 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := b0 d0 b1 d1
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm3, %%xmm2 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm2 := b2 d2 b3 d3
+</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm0, %%xmm3 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;unpcklps %%xmm1, %%xmm0 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm0 := a0 b0 c0 d0
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm1, %%xmm3 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm3 := a1 b1 c1 d1
+</span><span class="w">
+   </span><span class="s">&quot;movaps   %%xmm4, %%xmm1 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;unpcklps %%xmm2, %%xmm1 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm1 := a2 b2 c2 d2
+</span><span class="w">   </span><span class="s">&quot;unpckhps %%xmm2, %%xmm4 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := a3 b3 c3 d3
+</span><span class="w">
+   </span><span class="s">&quot;movups %%xmm0, 0x00(%0) </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups %%xmm3, 0x10(%0) </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups %%xmm1, 0x20(%0) </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="s">&quot;movups %%xmm4, 0x30(%0) </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;=r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat</span><span class="p">)</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;0&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat</span><span class="p">)</span><span class="w">
+   </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;memory&quot;</span><span class="w">
+</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="mnozenie-macierzy-4x4">
+<h1>Mnożenie macierzy 4x4</h1>
+<p>Poniższa procedura jest szybsza o ok. 2,5 raza od procedury napisanej
+w języku C i skompilowanej przez GCC z opcjami <cite>-O2 -ffast-math</cite>.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse-matmult.c">sse-matmult.c</a>:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_matmat_mult</span><span class="p">(</span><span class="kt">float</span><span class="w"> </span><span class="n">mat1</span><span class="p">[</span><span class="mi">4</span><span class="o">*</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">mat2</span><span class="p">[</span><span class="mi">4</span><span class="o">*</span><span class="mi">4</span><span class="p">],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">mat3</span><span class="p">[</span><span class="mi">4</span><span class="o">*</span><span class="mi">4</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+    </span><span class="c1">// load all rows from M2, i.e. Ba, Bb, Bc an Bd
+</span><span class="w">    </span><span class="s">&quot;movups 0x00(%1), %%xmm4                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm4 := Ba
+</span><span class="w">    </span><span class="s">&quot;movups 0x10(%1), %%xmm5                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm5 := Bb
+</span><span class="w">    </span><span class="s">&quot;movups 0x20(%1), %%xmm6                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm6 := Bc
+</span><span class="w">    </span><span class="s">&quot;movups 0x30(%1), %%xmm7                </span><span class="se">\n</span><span class="s">&quot;</span><span class="w"> </span><span class="c1">// xmm7 := Bd
+</span><span class="w">
+</span><span class="cp">#define BLOCK(offset) \
+    </span><span class="cm">/* load n-th row from matrix M1, for example Aa, and clone it */</span><span class="cp"> \
+    &quot;movups &quot;#offset&quot;(%0), %%xmm0           \n&quot; </span><span class="cm">/* xmm0 := Aa */</span><span class="cp"> \
+    &quot;movaps %%xmm0, %%xmm1                  \n&quot; \
+    &quot;movaps %%xmm0, %%xmm2                  \n&quot; \
+    &quot;movaps %%xmm0, %%xmm3                  \n&quot; \
+    </span><span class="cm">/* populate each element */</span><span class="cp"> \
+    &quot;shufps $0b00000000, %%xmm0, %%xmm0     \n&quot; </span><span class="cm">/* xmm0 := [Aa0, Aa0, Aa0, Aa0] */</span><span class="cp"> \
+    &quot;shufps $0b01010101, %%xmm1, %%xmm1     \n&quot; </span><span class="cm">/* xmm1 := [Aa1, Aa1, Aa1, Aa1] */</span><span class="cp"> \
+    &quot;shufps $0b10101010, %%xmm2, %%xmm2     \n&quot; </span><span class="cm">/* xmm2 := [Aa2, Aa2, Aa2, Aa2] */</span><span class="cp"> \
+    &quot;shufps $0b11111111, %%xmm3, %%xmm3     \n&quot; </span><span class="cm">/* xmm3 := [Aa3, Aa3, Aa3, Aa3] */</span><span class="cp"> \
+    </span><span class="cm">/* and mul by all M2 rows */</span><span class="cp"> \
+    &quot;mulps %%xmm4, %%xmm0                   \n&quot; </span><span class="cm">/* xmm0 := [Aa0*Ba0, Aa0*Ba1, Aa0*Ba2, Aa0*Ba3] */</span><span class="cp"> \
+    &quot;mulps %%xmm5, %%xmm1                   \n&quot; \
+    &quot;mulps %%xmm6, %%xmm2                   \n&quot; \
+    &quot;mulps %%xmm7, %%xmm3                   \n&quot; \
+    </span><span class="cm">/* finally calculate n-th row of resultant matrix */</span><span class="cp"> \
+    &quot;addps %%xmm1, %%xmm0                   \n&quot; \
+    &quot;addps %%xmm3, %%xmm2                   \n&quot; \
+    &quot;addps %%xmm2, %%xmm0                   \n&quot; \
+    &quot;movups %%xmm0, &quot;#offset&quot;(%2)           \n&quot;
+</span><span class="w">
+    </span><span class="n">BLOCK</span><span class="p">(</span><span class="mh">0x00</span><span class="p">)</span><span class="w">
+    </span><span class="n">BLOCK</span><span class="p">(</span><span class="mh">0x10</span><span class="p">)</span><span class="w">
+    </span><span class="n">BLOCK</span><span class="p">(</span><span class="mh">0x20</span><span class="p">)</span><span class="w">
+    </span><span class="n">BLOCK</span><span class="p">(</span><span class="mh">0x30</span><span class="p">)</span><span class="w">
+    </span><span class="o">:</span><span class="w">
+    </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat1</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat2</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;r&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">mat3</span><span class="p">)</span><span class="w">
+</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

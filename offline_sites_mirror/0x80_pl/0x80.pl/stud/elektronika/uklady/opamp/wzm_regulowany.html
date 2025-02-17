@@ -1,0 +1,29 @@
+Wzmacniacz o wzmocnieniu od -1 do +1 zbudowany na bazie wzmacniacza sumacyjnego
+* Wojciech Mu³a, 16.10.2005
+
+* uk³ad:
+* - wej¶cie: 1 0
+* - wyj¶cie: 3 0
+
+X	5 4 3	opamp
+R1	1 4	100k
+R2	4 3	100k
+
+* R3 i R4 -- potencjometr
+* R3+R4 = R1+R2
+R3	1 5	 20k
+R4	5 0	180k
+
+
+* sygna³e wej¶ciowy
+Vin	1 0	1V
+
+* analiza 
+.DC Vin 0V 1V 10mV
+
+* wykresy: wej¶cie, wyj¶cie
+.print DC V(1) V(3)
+
+.include opamp.model
+
+.end

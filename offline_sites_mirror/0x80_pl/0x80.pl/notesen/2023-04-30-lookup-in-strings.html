@@ -1,0 +1,2885 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2023-04-30-lookup-in-strings.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Modern perfect hashing for strings</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="modern-perfect-hashing-for-strings">
+<h1 class="title">Modern perfect hashing for strings</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2023-04-30</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2023-04-02 (grammar corrections)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a><ul>
+<li><a class="reference internal" href="#pext-recap" id="toc-entry-2">PEXT recap</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#constructing-perfect-hashing-function" id="toc-entry-3">Constructing perfect hashing function</a><ul>
+<li><a class="reference internal" href="#open-addressing" id="toc-entry-4">Open addressing</a><ul>
+<li><a class="reference internal" href="#hash-functions" id="toc-entry-5">Hash functions</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#splitting-by-input-length" id="toc-entry-6">Splitting by input length</a></li>
+<li><a class="reference internal" href="#using-the-minimum-number-of-bits" id="toc-entry-7">Using the minimum number of bits</a><ul>
+<li><a class="reference internal" href="#variable-length-set-of-words" id="toc-entry-8">Variable-length set of words</a></li>
+<li><a class="reference internal" href="#finding-mask" id="toc-entry-9">Finding mask</a></li>
+<li><a class="reference internal" href="#loads" id="toc-entry-10">Loads</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#compile-time-switches" id="toc-entry-11">Compile-time switches</a></li>
+<li><a class="reference internal" href="#experiments" id="toc-entry-12">Experiments</a><ul>
+<li><a class="reference internal" href="#input-sets" id="toc-entry-13">Input sets</a></li>
+<li><a class="reference internal" href="#input-data" id="toc-entry-14">Input data</a></li>
+<li><a class="reference internal" href="#tested-procedures" id="toc-entry-15">Tested procedures</a></li>
+<li><a class="reference internal" href="#skylake-timings" id="toc-entry-16">Skylake timings</a></li>
+<li><a class="reference internal" href="#summary" id="toc-entry-17">Summary</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sources" id="toc-entry-18">Sources</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Looking up in a static set of strings is a common problem we encounter
+when parsing any textual formats. Such sets are often keywords of a programming
+language or protocol.</p>
+<p><a class="reference external" href="2022-01-29-http-verb-parse.html">Parsing HTTP verbs</a> appeared to be the fastest when we use a compile-time
+<a class="reference external" href="http://en.wikipedia.org/wiki/trie">trie</a>: a series of nested switch statements. I could not believe that
+a <a class="reference external" href="http://en.wikipedia.org/wiki/perfect_hash_function">perfect hash function</a> is not better, and that led to a novel hashing
+approach that is based on the instruction <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PEXT.html">PEXT</a> (Parallel Bits Extract).</p>
+<p>Briefly, when constructing a perfect hash function, we are looking for the
+smallest set of input bytes that can be then the input for some function
+combines them into a single value. The instruction <tt class="docutils literal">PEXT</tt> allows to quickly
+construct any n-bit subword from a 64-bit word; the latency of the instruction is
+3 CPU cycles on the current processors. This allows us to extend the schema for
+looking for <strong>the smallest subset of bits</strong>. This n-bit word is then the input
+for a function that translates the word into the desired value.</p>
+<p>Instead of something like:</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">hash</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="kt">uint64</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// read bytes at indices a, b, c</span><span class="w">
+    </span><span class="c1">// and push forward</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="nx">hash_bytes</span><span class="p">(</span><span class="nx">s</span><span class="p">[</span><span class="nx">a</span><span class="p">],</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">b</span><span class="p">],</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">c</span><span class="p">])</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>We have:</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">hash</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="kt">uint64</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// read bytes at indices d and e, and form a temp value</span><span class="w">
+    </span><span class="kt">uint64</span><span class="w"> </span><span class="nx">tmp</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">(</span><span class="nb">uint64</span><span class="p">(</span><span class="nx">s</span><span class="p">[</span><span class="nx">d</span><span class="p">])</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nb">uint64</span><span class="p">(</span><span class="nx">s</span><span class="p">[</span><span class="nx">e</span><span class="p">])</span><span class="w">
+
+    </span><span class="c1">// from the temp value (bytes d and e) extract crucial bits</span><span class="w">
+    </span><span class="kt">uint64</span><span class="w"> </span><span class="nx">val</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">PEXT</span><span class="p">(</span><span class="nx">tmp</span><span class="p">,</span><span class="w"> </span><span class="nx">precomputed_mask</span><span class="p">)</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="nx">hash_uint64</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Please note that depending on the strings set, the number of bytes
+read in both schemas can vary. It is not the rule that a bit-level
+hash function would touch fewer bytes than a byte-level hash function.</p>
+<p>Apart from the above hashing schema, this text describes also
+constructing a compile-time hash table and compile-time switch.</p>
+<p>All source codes are available.</p>
+<div class="section" id="pext-recap">
+<h2>PEXT recap</h2>
+<p>The instruction <tt class="docutils literal">PEXT</tt> gets two arguments: the input word and
+the input mask. Bits from the input word for which the input
+mask is 1 are copied to the output. For example:</p>
+<pre class="literal-block">
+word:   0010101011010111
+mask:   0011100100100010
+masked: __101__0__0___1_
+PEXT:   __________101001
+</pre>
+</div>
+</div>
+<div class="section" id="constructing-perfect-hashing-function">
+<h1>Constructing perfect hashing function</h1>
+<p>Short recap:</p>
+<ul class="simple">
+<li>A <strong>collision</strong> of hashes occurs when a hash function yields
+the same value for two different keys.</li>
+<li>A <strong>perfect hash function</strong> is a hash function that does not yield any
+collisions for the given set of keys.</li>
+<li>A <strong>minimal perfect hash function</strong> (MPH) is a perfect hash function that
+maps the keys into the range from 0 to N-1, where N is the number of keys.</li>
+</ul>
+<p>While minimal hash functions are hard to find, perfect hash functions
+are quite easy to compute. We will describe two methods:</p>
+<ul class="simple">
+<li>using open addressing,</li>
+<li>using the minimum number of bits.</li>
+</ul>
+<div class="section" id="open-addressing">
+<span id="hash"></span><h2>Open addressing</h2>
+<p>When we build a generic hash table implementation, collisions are unavoidable.
+The most common solution to this problem is using some kind of container (a
+linked list or balanced tree) to keep all objects sharing the same hash value.</p>
+<p>A less common strategy is <strong>open addressing</strong>. We store values directly in
+the table. If there is a collision &mdash; that is, the given index is already
+allocated &mdash; we try another index. There are several approaches to pick
+a new index; it simply may be the next index (called <em>linear probing</em>),
+but there are of course more sophisticated procedures (quadratic probing,
+double hashing, etc.).</p>
+<p>In our case, where we have a static set of strings, we use the simplest
+solution. Our goal is to find the minimum size of table (<strong>N</strong>) in which the
+number of collisions (<strong>k</strong>) is also the least possible, preferably without
+collisions.</p>
+<p>Input parameters are: 1) a set of strings and 2) hash function; to avoid
+calling the hash function over and over, we cache the hash value for each
+string.</p>
+<p>The main procedure is responsible for settings the maximum number of
+collisions; it starts from 1 and increases it until we succeeded.  The
+number of collisions depends on the quality of hash function, but often it
+is just 2 or 3 collisions. The <a class="reference external" href="http://en.wikipedia.org/wiki/Go_(programming_language)">Go</a>
+implementation of procedure is shown below.</p>
+<p>Then, for some range of table sizes, we check the actual number of
+collisions, and we report the minimum table size.</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">computerHashParameters</span><span class="p">(</span><span class="nx">keywords</span><span class="w"> </span><span class="p">[]</span><span class="nx">Keyword</span><span class="p">,</span><span class="w"> </span><span class="nx">hash</span><span class="w"> </span><span class="kd">func</span><span class="p">([]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="kt">uint64</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">size</span><span class="w"> </span><span class="kt">int</span><span class="p">,</span><span class="w"> </span><span class="nx">collisions</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">hashes</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">([]</span><span class="kt">uint64</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">keywords</span><span class="p">))</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">keywords</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nx">hashes</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">hash</span><span class="p">(</span><span class="nx">keywords</span><span class="p">[</span><span class="nx">i</span><span class="p">].</span><span class="nx">word</span><span class="p">)</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="nx">collisions</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nx">size</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">hashtableaux</span><span class="p">(</span><span class="nx">hashes</span><span class="p">,</span><span class="w"> </span><span class="nx">collisions</span><span class="p">)</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="nx">size</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Printf</span><span class="p">(</span><span class="s">&quot;size = %5d, maxcollisions = %d\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">size</span><span class="p">,</span><span class="w"> </span><span class="nx">collisions</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="nx">collisions</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Below is the implementation of a helper function. It checks the table size
+starting from the size of input set, up to its tenfold; the multiply of 10
+appeared to be a quite good upper bound.</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">hashtableaux</span><span class="p">(</span><span class="nx">hashes</span><span class="w"> </span><span class="p">[]</span><span class="kt">uint64</span><span class="p">,</span><span class="w"> </span><span class="nx">maxcollisions</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">n</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">hashes</span><span class="p">)</span><span class="w">
+    </span><span class="kd">const</span><span class="w"> </span><span class="nx">sizeOverhead</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">10</span><span class="w">
+
+</span><span class="nx">outer</span><span class="p">:</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">N</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">n</span><span class="p">;</span><span class="w"> </span><span class="nx">N</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nx">sizeOverhead</span><span class="o">*</span><span class="nx">n</span><span class="p">;</span><span class="w"> </span><span class="nx">N</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nx">table</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">uint64</span><span class="p">]</span><span class="kt">int</span><span class="p">)</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">h</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">hashes</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nx">idx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">h</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="nb">uint64</span><span class="p">(</span><span class="nx">N</span><span class="p">)</span><span class="w">
+            </span><span class="nx">table</span><span class="p">[</span><span class="nx">idx</span><span class="p">]</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="nx">table</span><span class="p">[</span><span class="nx">idx</span><span class="p">]</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="nx">maxcollisions</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">continue</span><span class="w"> </span><span class="nx">outer</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="nx">N</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Now, having the parameters <strong>N</strong> and <strong>k</strong>, we can finally write a procedure
+for lookup.  The following C++ procedure lookups for one of Go keywords.</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">lookup_go_hash1</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">hash1</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">38</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+    </span><span class="k">static</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="mi">76</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="s">&quot;chan&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 836 (0x344)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;case&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 800 (0x320)
+</span><span class="w">        </span><span class="s">&quot;for&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 648 (0x288)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;continue&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1600 (0x640)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;defer&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1070 (0x42e)
+</span><span class="w">        </span><span class="s">&quot;func&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 804 (0x324)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;package&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1491 (0x5d3)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;else&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 808 (0x328)
+</span><span class="w">        </span><span class="s">&quot;go&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 428 (0x1ac)
+</span><span class="w">        </span><span class="s">&quot;const&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1075 (0x433)
+</span><span class="w">        </span><span class="s">&quot;range&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1075 (0x433)
+</span><span class="w">        </span><span class="s">&quot;var&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 696 (0x2b8)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;return&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1344 (0x540)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;map&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 663 (0x297)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;select&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1386 (0x56a)
+</span><span class="w">        </span><span class="s">&quot;struct&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1386 (0x56a)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;goto&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 856 (0x358)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;switch&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1314 (0x522)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;fallthrough&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 2266 (0x8da)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;default&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1512 (0x5e8)
+</span><span class="w">        </span><span class="s">&quot;interface&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1854 (0x73e)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;type&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 868 (0x364)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;if&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 414 (0x19e)
+</span><span class="w">        </span><span class="s">&quot;import&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1326 (0x52e)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w">
+        </span><span class="s">&quot;break&quot;</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1025 (0x401)
+</span><span class="w">        </span><span class="s">&quot;&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">};</span><span class="w">
+    </span><span class="k">static</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">values</span><span class="p">[</span><span class="mi">76</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="c1">// 836 (0x344)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="c1">// 800 (0x320)
+</span><span class="w">        </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="c1">// 648 (0x288)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1600 (0x640)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1070 (0x42e)
+</span><span class="w">        </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="c1">// 804 (0x324)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">17</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1491 (0x5d3)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="c1">// 808 (0x328)
+</span><span class="w">        </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="c1">// 428 (0x1ac)
+</span><span class="w">        </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1075 (0x433)
+</span><span class="w">        </span><span class="mi">18</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1075 (0x433)
+</span><span class="w">        </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="c1">// 696 (0x2b8)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">19</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1344 (0x540)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="c1">// 663 (0x297)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1386 (0x56a)
+</span><span class="w">        </span><span class="mi">21</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1386 (0x56a)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="c1">// 856 (0x358)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">22</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1314 (0x522)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="c1">// 2266 (0x8da)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1512 (0x5e8)
+</span><span class="w">        </span><span class="mi">15</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1854 (0x73e)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">23</span><span class="p">,</span><span class="w"> </span><span class="c1">// 868 (0x364)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="c1">// 414 (0x19e)
+</span><span class="w">        </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1326 (0x52e)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+        </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="c1">// 1025 (0x401)
+</span><span class="w">        </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="n">idx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">values</span><span class="p">[</span><span class="n">idx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">];</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>First we have a call to <tt class="docutils literal">hash1</tt> on the input string. Its result is
+taken modulo 38 &mdash; that is the value <strong>N</strong> found by the above algorithm.
+Likewise, the magic constant 2 is parameter <strong>k</strong>, and it is the number
+of collisions we have to handle.</p>
+<p>The lookup procedure contains two auxiliary tables of size <tt class="docutils literal">N * k = 76</tt>: one
+for strings and another for values; the not-found-value was set to -1. (Note that
+we can have a single array of structures, however it's hard to tell what's
+better for typically small arrays.) After getting the index <tt class="docutils literal">idx</tt> we just run
+two times the following check:</p>
+<pre class="code cpp literal-block">
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="n">idx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">values</span><span class="p">[</span><span class="n">idx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Please note that all parameters for hash table are known in compile time, thus
+a compiler can rid of division and apply additional optimizations.</p>
+<p>Below is the assembly code of the procedure, compiled for Skylake
+architecture with GCC 12.2.0.</p>
+<pre class="literal-block">
+&lt;lookup_go_hash1(std::basic_string_view&lt;char, std::char_traits&lt;char&gt; &gt;)&gt;:
+    push   %r14
+    push   %r13
+    mov    %rsi,%r13
+    push   %r12
+    push   %rbp
+    mov    %rdi,%rbp
+    push   %rbx
+
+    movsbq (%rsi),%rax                  // f := first char
+    movsbq -0x1(%rdi,%rsi,1),%rcx       // l := last char
+    add    %rax,%rcx                    // their sum
+    imul   %rdi,%rcx                    // (f + l) * s.size()
+
+    movabs $0xd79435e50d79435f,%rax     //
+    mul    %rcx                         //
+    shr    $0x5,%rdx                    //
+    imul   $0x26,%rdx,%rax              //
+    sub    %rax,%rcx                    //
+    mov    %rcx,%rdx                    //
+    lea    (%rcx,%rcx,1),%r12           //
+    shl    $0x5,%rdx                    // rdx = ((f + l) * s.size()) % 38
+
+    // The for loop. GCC split the loop -- it quickly compares lengths
+    // of lookup[idx] + i with s.size (rbp) and only if they are equal
+    // jumps to bytes comparison.
+    lea    0x267b47(%rip),%rax          // rax = lookup address
+    lea    (%rdx,%rax,1),%rbx           // rbx = size
+    lea    0x2(%r12),%r14
+    mov    0x8(%rbx),%rdi
+    cmp    (%rbx),%rbp                  // jump to full compare only if lengths are equal
+    je     &lt;lookup_go_hash1(std::basic_string_view&lt;char, std::char_traits&lt;char&gt; &gt;)+0x78&gt;
+    inc    %r12
+    add    $0x10,%rbx
+    cmp    %r14,%r12
+    jne    &lt;lookup_go_hash1(std::basic_string_view&lt;char, std::char_traits&lt;char&gt; &gt;)+0x52&gt;
+    pop    %rbx
+    pop    %rbp
+    pop    %r12
+    pop    %r13
+    mov    $0xffffffff,%eax
+    pop    %r14
+    ret
+    nopl   (%rax)
+
+    // check if bytes are equal
+    test   %rbp,%rbp
+    je     &lt;lookup_go_hash1(std::basic_string_view&lt;char, std::char_traits&lt;char&gt; &gt;)+0x8c&gt;
+    mov    %rbp,%rdx
+    mov    %r13,%rsi
+    call   &lt;memcmp&#64;plt&gt;
+    test   %eax,%eax
+    jne    &lt;lookup_go_hash1(std::basic_string_view&lt;char, std::char_traits&lt;char&gt; &gt;)+0x5b&gt;
+    pop    %rbx
+    pop    %rbp
+    lea    0x1f56bb(%rip),%rax        # &lt;lookup_go_hash1(std::basic_string_view&lt;char, std::char_traits&lt;char&gt; &gt;)::values&gt;
+    mov    (%rax,%r12,4),%eax
+    pop    %r12
+    pop    %r13
+    pop    %r14
+    ret
+</pre>
+<div class="section" id="hash-functions">
+<span id="hashfn"></span><h3>Hash functions</h3>
+<p>Following hash functions were tested:</p>
+<ul class="simple">
+<li><tt class="docutils literal">hash1</tt> &mdash; sum of the first and last char multiplied by the string length;</li>
+<li><tt class="docutils literal">hash2</tt> &mdash; sum of the first and last char bit-xor'ed with the string length;</li>
+<li><tt class="docutils literal">hash3</tt> &mdash; first, second and last characters combined with the string
+length: <tt class="docutils literal">((f &lt;&lt; 8) | s) + l + (n * 0x111)</tt>;</li>
+<li><tt class="docutils literal">hash_sum0</tt> &mdash; sum of all bytes;</li>
+<li><tt class="docutils literal">hash_sumN</tt> &mdash; sum of all bytes plus the string length;</li>
+<li><tt class="docutils literal">hash_djb2</tt> &mdash; <a class="reference external" href="http://www.cse.yorku.ca/~oz/hash.html">Berenstein's hash</a>;</li>
+<li><tt class="docutils literal">hash_sdb</tt> &mdash; <a class="reference external" href="http://www.cse.yorku.ca/~oz/hash.html">sdbm hash</a>.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="splitting-by-input-length">
+<h2>Splitting by input length</h2>
+<p>I observed that the string length is a decent discriminator:
+<a class="reference external" href="2010-04-03-stl-map-of-strings.html">STL: map with string as key &mdash; access speedup</a>.
+In most cases we obtain the length of strings in constant time; for instance
+this C++ function simplifies to a few CPU instructions.</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;cstdint&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;string_view&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="kt">uint64_t</span><span class="w"> </span><span class="nf">len</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+   </span><span class="k">return</span><span class="w"> </span><span class="n">s</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<pre class="code bash literal-block">
+$<span class="w"> </span>g++<span class="w"> </span>-O2<span class="w"> </span>-S<span class="w"> </span>test.cpp<span class="w">
+</span>$<span class="w"> </span>cat<span class="w"> </span>test.s<span class="w">
+    </span>...<span class="w">
+    </span>movq<span class="w">    </span>%rdi,<span class="w"> </span>%rax<span class="w">
+    </span>ret<span class="w">
+    </span>...
+</pre>
+<p>Taking this into account, we first split the set of strings
+into the subsets of strings having the same length. These
+subsets are usually small. We can fine-tune looking up
+in these subsets independently. One common optimization
+that is present in sample code is using plain if-ladder
+of compares when a subset is small (has at most two or
+three elements).</p>
+<p>Additionally, working with same-length strings enables
+more low-level optimizations:</p>
+<ul class="simple">
+<li>The length of string is usually known in the compile-time.</li>
+<li>Thus, bound checks can be eliminated.</li>
+<li>Equality of two strings from a subset is simple <tt class="docutils literal">memcmp</tt>,
+and this procedure may be further inlined and optimized by
+a compiler.</li>
+</ul>
+</div>
+<div class="section" id="using-the-minimum-number-of-bits">
+<span id="pext"></span><h2>Using the minimum number of bits</h2>
+<blockquote>
+<strong>Note</strong>: this method was inspired by the hashing procedure
+found in <a class="reference external" href="https://www.gnu.org/software/gperf/">GNU gperf</a>.</blockquote>
+<p>The presented method requires input string to have the same lengths.
+We guaranteed that property by pre-classifying the input string by its
+length, as described in the previous section.</p>
+<p><tt class="docutils literal">gperf</tt> uses the following observation: not all input characters
+contribute to uniqueness of set. In most cases we may discard many
+input characters and such modified set still holds unique items.</p>
+<p>For instance, five-letter Go keywords are <tt class="docutils literal">break</tt>, <tt class="docutils literal">const</tt>, <tt class="docutils literal">defer</tt>,
+and <tt class="docutils literal">range</tt>. The last character is sufficient to distinguish
+them:</p>
+<pre class="literal-block">
+break =&gt; ____k
+const =&gt; ____t
+defer =&gt; ____r
+range =&gt; ____e
+</pre>
+<p>In the case of six-letter keywords, we need two characters, as shown
+below. The letter 't' repeats at the last position, but the second
+character makes this set unique.</p>
+<pre class="literal-block">
+import =&gt; ___o_t
+return =&gt; ___u_n
+select =&gt; ___e_t
+struct =&gt; ___u_t
+switch =&gt; ___t_h
+</pre>
+<p>The major problem is that we need to combine somehow these unique characters
+into a unique and <strong>relatively small</strong> value. <tt class="docutils literal">gperf</tt> adds the characters
+after passing them through an auxiliary lookup table. Like: <tt class="docutils literal">lookup[s[0]] +
+lookup[s[5]]</tt>.</p>
+<p>Similarly to discarding individual bytes, we may discard individual <strong>bits</strong>,
+ending up with a bitmask that can be used to extract <em>significant</em> bits. To do
+this, we use a very fast instruction <tt class="docutils literal">PEXT</tt>.</p>
+<p>Before we dig into details, let us re-examine the examples. For five-letter
+Go keywords we have:</p>
+<pre class="literal-block">
+01100010.01110010.01100101.01100001.01101011 =&gt; ________.________.________.________.______11
+01100011.01101111.01101110.01110011.01110100 =&gt; ________.________.________.________.______00
+01100100.01100101.01100110.01100101.01110010 =&gt; ________.________.________.________.______10
+01110010.01100001.01101110.01100111.01100101 =&gt; ________.________.________.________.______01
+</pre>
+<p>And for six-letter ones:</p>
+<pre class="literal-block">
+01101001.01101101.01110000.01101111.01110010.01110100 =&gt; ________.________.________.___0____._______0._____1__
+01110010.01100101.01110100.01110101.01110010.01101110 =&gt; ________.________.________.___1____._______0._____1__
+01110011.01100101.01101100.01100101.01100011.01110100 =&gt; ________.________.________.___0____._______1._____1__
+01110011.01110100.01110010.01110101.01100011.01110100 =&gt; ________.________.________.___1____._______1._____1__
+01110011.01110111.01101001.01110100.01100011.01101000 =&gt; ________.________.________.___1____._______1._____0__
+</pre>
+<p>Thus, in the first case we need just 2 bits, and in the second bits
+only 3 bits. The 2-bit subset contains all possible values (<tt class="docutils literal">00</tt>, <tt class="docutils literal">01</tt>,
+<tt class="docutils literal">11</tt>, <tt class="docutils literal">10</tt>), while 3-bit subset is not full (<tt class="docutils literal">001</tt>, <tt class="docutils literal">101</tt>, <tt class="docutils literal">011</tt>,
+<tt class="docutils literal">111</tt>, <tt class="docutils literal">110</tt>).</p>
+<p>A skeleton of C++ procedure that uses this approach is:</p>
+<pre class="code cpp literal-block">
+<span class="p">...</span><span class="w">
+</span><span class="cm">/* 1 */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">word</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">load_bytes</span><span class="p">(</span><span class="n">s</span><span class="p">);</span><span class="w">
+</span><span class="cm">/* 2 */</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">idx</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_pext_u64</span><span class="p">(</span><span class="n">word</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span><span class="w">
+</span><span class="cm">/* 3 */</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">memcmp</span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span><span class="w"> </span><span class="n">s</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">value</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+</span><span class="p">...</span>
+</pre>
+<p>Once we know which bits are significant, we need to find which bytes
+have to be loaded (1); a byte is the minimum amount of data we can
+transfer. As we can see, for five-letter keywords it is sufficient to load
+just one byte. But for six-letter keywords we need three bytes &mdash; in
+practise it is still a single load, but done on an 32-bit entity.</p>
+<p>Then, we extract the bits using the instruction <tt class="docutils literal">PEXT</tt> (2) &mdash; these bits
+form an <strong>n-bit index</strong>.</p>
+<p>We need an auxiliary table(s) of size <span class="math">2<sup><i>n</i></sup></span>, having exactly the same
+meaning as in <a class="reference internal" href="#hash">hashing</a>. We compare the input string with keyword (3)
+and if they equal, we return the associated value.</p>
+<p>This is a snippet from procedure for looking up the Go keywords:</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">lookup_go_pext</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">.</span><span class="n">size</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// ...
+</span><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="mi">5</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">static</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="mi">4</span><span class="p">][</span><span class="mi">5</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'b'</span><span class="p">,</span><span class="w"> </span><span class="sc">'r'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">,</span><span class="w"> </span><span class="sc">'a'</span><span class="p">,</span><span class="w"> </span><span class="sc">'k'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'r'</span><span class="p">,</span><span class="w"> </span><span class="sc">'a'</span><span class="p">,</span><span class="w"> </span><span class="sc">'n'</span><span class="p">,</span><span class="w"> </span><span class="sc">'g'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'d'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">,</span><span class="w"> </span><span class="sc">'f'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">,</span><span class="w"> </span><span class="sc">'r'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'c'</span><span class="p">,</span><span class="w"> </span><span class="sc">'o'</span><span class="p">,</span><span class="w"> </span><span class="sc">'n'</span><span class="p">,</span><span class="w"> </span><span class="sc">'s'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">},</span><span class="w">
+            </span><span class="p">};</span><span class="w">
+            </span><span class="k">static</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">value</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="mi">0</span><span class="p">,</span><span class="w">
+                </span><span class="mi">18</span><span class="p">,</span><span class="w">
+                </span><span class="mi">6</span><span class="p">,</span><span class="w">
+                </span><span class="mi">3</span><span class="p">,</span><span class="w">
+            </span><span class="p">};</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">w2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">s</span><span class="p">[</span><span class="mi">4</span><span class="p">];</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_pext_u64</span><span class="p">(</span><span class="n">w2</span><span class="p">,</span><span class="w"> </span><span class="mh">0x14</span><span class="p">);</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">memcmp</span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span><span class="w"> </span><span class="n">s</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">value</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">6</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">static</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="mi">8</span><span class="p">][</span><span class="mi">6</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="p">{},</span><span class="w"> </span><span class="c1">// no match
+</span><span class="w">                </span><span class="p">{</span><span class="sc">'s'</span><span class="p">,</span><span class="w"> </span><span class="sc">'w'</span><span class="p">,</span><span class="w"> </span><span class="sc">'i'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">,</span><span class="w"> </span><span class="sc">'c'</span><span class="p">,</span><span class="w"> </span><span class="sc">'h'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{},</span><span class="w"> </span><span class="c1">// no match
+</span><span class="w">                </span><span class="p">{</span><span class="sc">'r'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">,</span><span class="w"> </span><span class="sc">'u'</span><span class="p">,</span><span class="w"> </span><span class="sc">'r'</span><span class="p">,</span><span class="w"> </span><span class="sc">'n'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'s'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">,</span><span class="w"> </span><span class="sc">'l'</span><span class="p">,</span><span class="w"> </span><span class="sc">'e'</span><span class="p">,</span><span class="w"> </span><span class="sc">'c'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'s'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">,</span><span class="w"> </span><span class="sc">'r'</span><span class="p">,</span><span class="w"> </span><span class="sc">'u'</span><span class="p">,</span><span class="w"> </span><span class="sc">'c'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{</span><span class="sc">'i'</span><span class="p">,</span><span class="w"> </span><span class="sc">'m'</span><span class="p">,</span><span class="w"> </span><span class="sc">'p'</span><span class="p">,</span><span class="w"> </span><span class="sc">'o'</span><span class="p">,</span><span class="w"> </span><span class="sc">'r'</span><span class="p">,</span><span class="w"> </span><span class="sc">'t'</span><span class="p">},</span><span class="w">
+                </span><span class="p">{},</span><span class="w"> </span><span class="c1">// no match
+</span><span class="w">            </span><span class="p">};</span><span class="w">
+            </span><span class="k">static</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">value</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+                </span><span class="mi">22</span><span class="p">,</span><span class="w">
+                </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+                </span><span class="mi">19</span><span class="p">,</span><span class="w">
+                </span><span class="mi">20</span><span class="p">,</span><span class="w">
+                </span><span class="mi">21</span><span class="p">,</span><span class="w">
+                </span><span class="mi">14</span><span class="p">,</span><span class="w">
+                </span><span class="mi">-1</span><span class="p">,</span><span class="w">
+            </span><span class="p">};</span><span class="w">
+            </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">w3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+            </span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">w3</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">s</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span><span class="w"> </span><span class="mi">4</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_pext_u64</span><span class="p">(</span><span class="n">w3</span><span class="p">,</span><span class="w"> </span><span class="mh">0x10101000</span><span class="p">);</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">memcmp</span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span><span class="w"> </span><span class="n">s</span><span class="p">.</span><span class="n">data</span><span class="p">(),</span><span class="w"> </span><span class="k">sizeof</span><span class="p">(</span><span class="n">lookup</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">value</span><span class="p">[</span><span class="n">idx</span><span class="p">];</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="c1">// ...
+</span><span class="w">    </span><span class="p">}</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="variable-length-set-of-words">
+<h3>Variable-length set of words</h3>
+<p>Having strings of the same length is not a strict requirement.
+We always can complete the past-end characters with some
+easy-to-compute values. The following values were tested during
+writing this text:</p>
+<ul class="simple">
+<li>zero (0x00),</li>
+<li>the first character,</li>
+<li>the last character,</li>
+<li>the input length,</li>
+<li>the first/last character combined with the input length.</li>
+</ul>
+<p>Depending on the chosen method and string set, the outcome differs.
+Including length and one of chars <em>seems</em> to help. However, pre-classifying
+inputs by their length appeared to be easier and faster, thus this topic is
+not covered here.</p>
+</div>
+<div class="section" id="finding-mask">
+<h3>Finding mask</h3>
+<p>Finding the mask is surprisingly straightforward. We start with a full mask,
+and iterate over all bits. For each bit we unset it, and then we check if the
+set of masked bytes is still unique. If it's true, we keep that bit unset,
+otherwise revert the change.</p>
+<p>Below are shown two procedures that compute the mask.</p>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">computeMask</span><span class="p">(</span><span class="nx">words</span><span class="w"> </span><span class="p">[]</span><span class="nx">Keyword</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">mask</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">max</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">0</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">w</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">words</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="nx">n</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">w</span><span class="p">.</span><span class="nx">word</span><span class="p">);</span><span class="w"> </span><span class="nx">n</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="nx">max</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">n</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="nx">mask</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nx">max</span><span class="p">)</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">mask</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nx">mask</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mh">0xff</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">checksamesize</span><span class="p">(</span><span class="nx">words</span><span class="p">,</span><span class="w"> </span><span class="nx">mask</span><span class="p">)</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nx">err</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;set of words is not unique&quot;</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">byteIdx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="nx">byteIdx</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nx">max</span><span class="p">;</span><span class="w"> </span><span class="nx">byteIdx</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="nx">bitIdx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="nx">bitIdx</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w"> </span><span class="nx">bitIdx</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nx">old</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">mask</span><span class="p">[</span><span class="nx">byteIdx</span><span class="p">]</span><span class="w">
+            </span><span class="nx">mask</span><span class="p">[</span><span class="nx">byteIdx</span><span class="p">]</span><span class="w"> </span><span class="o">&amp;=</span><span class="w"> </span><span class="p">^(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="nx">bitIdx</span><span class="p">)</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">checksamesize</span><span class="p">(</span><span class="nx">words</span><span class="p">,</span><span class="w"> </span><span class="nx">mask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nx">mask</span><span class="p">[</span><span class="nx">byteIdx</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">old</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kd">func</span><span class="w"> </span><span class="nx">checksamesize</span><span class="p">(</span><span class="nx">words</span><span class="w"> </span><span class="p">[]</span><span class="nx">Keyword</span><span class="p">,</span><span class="w"> </span><span class="nx">mask</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nx">M</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">(</span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kd">struct</span><span class="p">{})</span><span class="w">
+    </span><span class="nx">word</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">make</span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">mask</span><span class="p">))</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">words</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="nx">j</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">mask</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nx">word</span><span class="p">[</span><span class="nx">j</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">words</span><span class="p">[</span><span class="nx">i</span><span class="p">].</span><span class="nx">word</span><span class="p">[</span><span class="nx">j</span><span class="p">]</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="nx">mask</span><span class="p">[</span><span class="nx">j</span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="nx">s</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nb">string</span><span class="p">(</span><span class="nx">word</span><span class="p">)</span><span class="w">
+        </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">M</span><span class="p">[</span><span class="nx">s</span><span class="p">]</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="nx">M</span><span class="p">[</span><span class="nx">s</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kd">struct</span><span class="p">{}{}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="loads">
+<h3>Loads</h3>
+<p>As it was shown in examples above, often a single load is sufficient, as the
+significant bits fit in a 8-, 16-, 32-, or 64-bit word.</p>
+<p>However, sometimes more loads are needed. In the generic case we concatenate
+results of individual loads, forming a 32- or 64-bit word. Below is an example
+of such code, where we combine 8-bit and 16-bit input words into a single 32-bit
+word, which is the final argument to <tt class="docutils literal">PEXT</tt>. Note that the we need only to
+concatenate values in runtime, the mask for <tt class="docutils literal">PEXT</tt> is know in the
+compile-time.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">w1</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">w2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">w2</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">
+</span><span class="n">w1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">w2</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">w3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">s</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">
+</span><span class="n">w1</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="p">(</span><span class="n">w3</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">16</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_pext_u64</span><span class="p">(</span><span class="n">w1</span><span class="p">,</span><span class="w"> </span><span class="mh">0x1e1104</span><span class="p">);</span>
+</pre>
+<p>Another possibility is when we have exactly two loads and their masks do
+not collide, their bit-and result is zero. Then we can merge these two
+words; sample code for such case is shown below.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint16_t</span><span class="w"> </span><span class="n">w7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="n">memcpy</span><span class="p">(</span><span class="o">&amp;</span><span class="n">w7</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="n">s</span><span class="p">[</span><span class="mi">10</span><span class="p">],</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">w8</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">s</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">w9</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">uint16_t</span><span class="p">(</span><span class="n">w7</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x410</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="kt">uint16_t</span><span class="p">(</span><span class="n">w8</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x4</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_pext_u64</span><span class="p">(</span><span class="n">w9</span><span class="p">,</span><span class="w"> </span><span class="mh">0x414</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="compile-time-switches">
+<span id="split"></span><h1>Compile-time switches</h1>
+<p>To complete the image, we present a better alternative to compile-time trie
+expansion. As the first step, the method splits input by the length. Then we
+compute switch expression for same-lengths strings; each subset is processed
+separately.</p>
+<p>Like in the trie approach, we use a single character to select further
+processing. But since we deal with subset of strings having the same sizes,
+we can pick a character at <strong>any index</strong>. We select an index that splits
+the subset into the greatest number of smaller subsets, ideally into
+single-element subsets (singletons). The process is repeated recursively,
+we need only to remember which indices were already used.</p>
+<p>For example, the six-letter keywords of <a class="reference external" href="http://en.wikipedia.org/wiki/Java_(programming language)">Java</a>, can be fully classified by the second character.
+Five-letter keywords are classified by the last character, but for
+one case (the letter 't') more tests are needed.</p>
+<p>Below is shown the corresponding fragment of lookup procedure.</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">lookup_java_split</span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">string_view</span><span class="w"> </span><span class="n">s</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">.</span><span class="n">size</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// ...
+</span><span class="w">        </span><span class="k">case</span><span class="w"> </span><span class="mi">5</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'w'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x77
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;throw&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'k'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x6b
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;break&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'t'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x74
+</span><span class="w">                    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">case</span><span class="w"> </span><span class="sc">'s'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x73
+</span><span class="w">                            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;short&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="mi">23</span><span class="p">;</span><span class="w">
+                            </span><span class="p">}</span><span class="w">
+                        </span><span class="p">}</span><span class="w">
+                        </span><span class="k">break</span><span class="p">;</span><span class="w">
+                        </span><span class="k">case</span><span class="w"> </span><span class="sc">'f'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x66
+</span><span class="w">                            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;float&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="mi">36</span><span class="p">;</span><span class="w">
+                            </span><span class="p">}</span><span class="w">
+                        </span><span class="p">}</span><span class="w">
+                        </span><span class="k">break</span><span class="p">;</span><span class="w">
+                        </span><span class="k">case</span><span class="w"> </span><span class="sc">'c'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x63
+</span><span class="w">                            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;const&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="mi">39</span><span class="p">;</span><span class="w">
+                            </span><span class="p">}</span><span class="w">
+                        </span><span class="p">}</span><span class="w">
+                        </span><span class="k">break</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'h'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x68
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;catch&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">25</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'l'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x6c
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;final&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">26</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'r'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x72
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;super&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">33</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'e'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x65
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;while&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">34</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'s'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x73
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;class&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">35</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">6</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'h'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x68
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;throws&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">9</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'o'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x6f
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;double&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">11</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'m'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x6d
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;import&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">12</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'u'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x75
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;public&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">13</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'e'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x65
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;return&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">18</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'t'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x74
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;static&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">28</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'a'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x61
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;native&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">37</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="sc">'w'</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 0x77
+</span><span class="w">                    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">s</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;switch&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="mi">38</span><span class="p">;</span><span class="w">
+                    </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+        </span><span class="c1">// ...
+</span><span class="w">    </span><span class="p">}</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<div class="section" id="input-sets">
+<h2>Input sets</h2>
+<p>The input sets contains mostly keywords from programming languages.</p>
+<table border="1" class="docutils">
+<caption>Input sets</caption>
+<colgroup>
+<col width="33%" />
+<col width="33%" />
+<col width="33%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">name</th>
+<th class="head">number of words</th>
+<th class="head">notes</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal"><span class="pre">ada-pred</span></tt></td>
+<td>54</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">ada-res</span></tt></td>
+<td>63</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">ada</tt></td>
+<td>63</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">adadefs</tt></td>
+<td>54</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">c</tt></td>
+<td>32</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">countries</tt></td>
+<td>192</td>
+<td>English names of countries</td>
+</tr>
+<tr><td><tt class="docutils literal">cplusplus</tt></td>
+<td>106</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">cpp</tt></td>
+<td>47</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">go</tt></td>
+<td>25</td>
+<td>&nbsp;</td>
+</tr>
+<tr><td><tt class="docutils literal">gpc</tt></td>
+<td>35</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">irc</tt></td>
+<td>45</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">java</tt></td>
+<td>47</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">jscript</tt></td>
+<td>53</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">modula</tt></td>
+<td>53</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">modula2</tt></td>
+<td>40</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">modula3</tt></td>
+<td>53</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">pascal</tt></td>
+<td>36</td>
+<td>gperf tests</td>
+</tr>
+<tr><td><tt class="docutils literal">sneller</tt></td>
+<td>240</td>
+<td>SQL keywords and some functions from <a class="reference external" href="https://github.com/SnellerInc/sneller">Sneller</a></td>
+</tr>
+<tr><td><tt class="docutils literal">snellerbuiltin</tt></td>
+<td>119</td>
+<td>builtin functions from Sneller</td>
+</tr>
+<tr><td><tt class="docutils literal">states</tt></td>
+<td>50</td>
+<td>USA state names</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="input-data">
+<h2>Input data</h2>
+<p>The input words were repeated in random order to produce approx 1MB block of
+text, not counting the new line character.</p>
+<p>Keywords were mutated by changing a single letter (at random position) into
+a random character or digit. Chances that keyword is added intact were
+set to: 0%, 25%, 50% and 75%. This is what we call &quot;valid words density&quot;.</p>
+</div>
+<div class="section" id="tested-procedures">
+<h2>Tested procedures</h2>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">comments</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">pext</tt></td>
+<td><a class="reference internal" href="#pext">PEXT-based, bit-level function</a></td>
+</tr>
+<tr><td><tt class="docutils literal">split</tt></td>
+<td><a class="reference internal" href="#split">Compile-time switches</a></td>
+</tr>
+<tr><td><tt class="docutils literal">hash1</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash1</a> function</td>
+</tr>
+<tr><td><tt class="docutils literal">hash2</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash2</a> function</td>
+</tr>
+<tr><td><tt class="docutils literal">hash3</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash3</a> function</td>
+</tr>
+<tr><td><tt class="docutils literal">hash_sum0</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash_sum0</a> function</td>
+</tr>
+<tr><td><tt class="docutils literal">hash_sumN</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash_sumN</a> function</td>
+</tr>
+<tr><td><tt class="docutils literal">hash_djb2</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash_djb2</a> function</td>
+</tr>
+<tr><td><tt class="docutils literal">hash_sdb</tt></td>
+<td><a class="reference internal" href="#hash">Compile-time hash table</a> with <a class="reference internal" href="#hashfn">hash_sdb</a> function</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-timings">
+<h2>Skylake timings</h2>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field"><th class="field-name">CPU:</th><td class="field-body">Intel(R) Core(TM) i7-6700 CPU &#64; 3.40GHz</td>
+</tr>
+<tr class="field"><th class="field-name">Compiler:</th><td class="field-body">g++-9 (Ubuntu 9.3.0-10ubuntu2~16.04) 9.3.0</td>
+</tr>
+</tbody>
+</table>
+<p>The numbers are given in CPU cycles.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="12%" />
+<col width="11%" />
+<col width="12%" />
+<col width="11%" />
+<col width="12%" />
+<col width="11%" />
+<col width="12%" />
+<col width="11%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">&nbsp;</th>
+<th class="head" colspan="8">valid words density</th>
+</tr>
+<tr><th class="head">procedure</th>
+<th class="head">0%</th>
+<th class="head">speed-up</th>
+<th class="head">25%</th>
+<th class="head">speed-up</th>
+<th class="head">50%</th>
+<th class="head">speed-up</th>
+<th class="head">75%</th>
+<th class="head">speed-up</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="9">dataset <tt class="docutils literal">ada</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>33.20</strong></td>
+<td>1.000</td>
+<td><strong>41.47</strong></td>
+<td>1.000</td>
+<td><strong>45.67</strong></td>
+<td>1.000</td>
+<td><strong>39.57</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>61.81</td>
+<td>0.537</td>
+<td>67.50</td>
+<td>0.614</td>
+<td>67.69</td>
+<td>0.675</td>
+<td>65.62</td>
+<td>0.603</td>
+</tr>
+<tr><td>hash1</td>
+<td>75.38</td>
+<td>0.440</td>
+<td>77.63</td>
+<td>0.534</td>
+<td>73.33</td>
+<td>0.623</td>
+<td>64.66</td>
+<td>0.612</td>
+</tr>
+<tr><td>hash2</td>
+<td>72.78</td>
+<td>0.456</td>
+<td>76.73</td>
+<td>0.540</td>
+<td>72.23</td>
+<td>0.632</td>
+<td>64.01</td>
+<td>0.618</td>
+</tr>
+<tr><td>hash3</td>
+<td>55.63</td>
+<td>0.597</td>
+<td>67.57</td>
+<td>0.614</td>
+<td>68.79</td>
+<td>0.664</td>
+<td>63.79</td>
+<td>0.620</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>47.63</td>
+<td>0.697</td>
+<td>60.64</td>
+<td>0.684</td>
+<td>69.10</td>
+<td>0.661</td>
+<td>69.96</td>
+<td>0.566</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>50.68</td>
+<td>0.655</td>
+<td>61.91</td>
+<td>0.670</td>
+<td>70.02</td>
+<td>0.652</td>
+<td>68.14</td>
+<td>0.581</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>39.91</td>
+<td>0.832</td>
+<td>50.90</td>
+<td>0.815</td>
+<td>61.03</td>
+<td>0.748</td>
+<td>56.61</td>
+<td>0.699</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>41.22</td>
+<td>0.805</td>
+<td>51.66</td>
+<td>0.803</td>
+<td>60.32</td>
+<td>0.757</td>
+<td>55.12</td>
+<td>0.718</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal"><span class="pre">ada-pred</span></tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>37.41</strong></td>
+<td>1.000</td>
+<td><strong>45.55</strong></td>
+<td>1.000</td>
+<td><strong>46.60</strong></td>
+<td>1.000</td>
+<td><strong>41.09</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>63.65</td>
+<td>0.588</td>
+<td>68.54</td>
+<td>0.665</td>
+<td>66.71</td>
+<td>0.699</td>
+<td>62.59</td>
+<td>0.657</td>
+</tr>
+<tr><td>hash1</td>
+<td>87.09</td>
+<td>0.430</td>
+<td>88.23</td>
+<td>0.516</td>
+<td>84.02</td>
+<td>0.555</td>
+<td>70.16</td>
+<td>0.586</td>
+</tr>
+<tr><td>hash2</td>
+<td>88.20</td>
+<td>0.424</td>
+<td>89.78</td>
+<td>0.507</td>
+<td>79.61</td>
+<td>0.585</td>
+<td>70.49</td>
+<td>0.583</td>
+</tr>
+<tr><td>hash3</td>
+<td>64.07</td>
+<td>0.584</td>
+<td>64.80</td>
+<td>0.703</td>
+<td>60.81</td>
+<td>0.766</td>
+<td>49.78</td>
+<td>0.825</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>49.99</td>
+<td>0.748</td>
+<td>62.74</td>
+<td>0.726</td>
+<td>70.37</td>
+<td>0.662</td>
+<td>71.98</td>
+<td>0.571</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>52.95</td>
+<td>0.706</td>
+<td>64.19</td>
+<td>0.710</td>
+<td>75.90</td>
+<td>0.614</td>
+<td>74.72</td>
+<td>0.550</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>49.55</td>
+<td>0.755</td>
+<td>61.30</td>
+<td>0.743</td>
+<td>72.63</td>
+<td>0.642</td>
+<td>66.59</td>
+<td>0.617</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>46.79</td>
+<td>0.800</td>
+<td>58.65</td>
+<td>0.777</td>
+<td>66.92</td>
+<td>0.696</td>
+<td>64.21</td>
+<td>0.640</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal"><span class="pre">ada-res</span></tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>33.28</strong></td>
+<td>1.000</td>
+<td><strong>41.21</strong></td>
+<td>1.000</td>
+<td><strong>45.13</strong></td>
+<td>1.000</td>
+<td><strong>39.77</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>65.65</td>
+<td>0.507</td>
+<td>71.41</td>
+<td>0.577</td>
+<td>67.72</td>
+<td>0.666</td>
+<td>69.91</td>
+<td>0.569</td>
+</tr>
+<tr><td>hash1</td>
+<td>74.25</td>
+<td>0.448</td>
+<td>76.05</td>
+<td>0.542</td>
+<td>73.33</td>
+<td>0.615</td>
+<td>62.88</td>
+<td>0.632</td>
+</tr>
+<tr><td>hash2</td>
+<td>73.24</td>
+<td>0.454</td>
+<td>78.54</td>
+<td>0.525</td>
+<td>72.33</td>
+<td>0.624</td>
+<td>65.06</td>
+<td>0.611</td>
+</tr>
+<tr><td>hash3</td>
+<td>54.56</td>
+<td>0.610</td>
+<td>66.09</td>
+<td>0.623</td>
+<td>69.05</td>
+<td>0.654</td>
+<td>62.02</td>
+<td>0.641</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>47.62</td>
+<td>0.699</td>
+<td>58.82</td>
+<td>0.700</td>
+<td>72.94</td>
+<td>0.619</td>
+<td>68.58</td>
+<td>0.580</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>50.34</td>
+<td>0.661</td>
+<td>63.12</td>
+<td>0.653</td>
+<td>70.00</td>
+<td>0.645</td>
+<td>65.14</td>
+<td>0.610</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>40.05</td>
+<td>0.831</td>
+<td>51.05</td>
+<td>0.807</td>
+<td>61.46</td>
+<td>0.734</td>
+<td>56.13</td>
+<td>0.709</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>41.53</td>
+<td>0.801</td>
+<td>52.13</td>
+<td>0.790</td>
+<td>60.56</td>
+<td>0.745</td>
+<td>56.34</td>
+<td>0.706</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">adadefs</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>37.85</strong></td>
+<td>1.000</td>
+<td><strong>45.68</strong></td>
+<td>1.000</td>
+<td><strong>46.70</strong></td>
+<td>1.000</td>
+<td><strong>41.30</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>62.59</td>
+<td>0.605</td>
+<td>67.59</td>
+<td>0.676</td>
+<td>67.50</td>
+<td>0.692</td>
+<td>63.26</td>
+<td>0.653</td>
+</tr>
+<tr><td>hash1</td>
+<td>90.23</td>
+<td>0.419</td>
+<td>91.55</td>
+<td>0.499</td>
+<td>82.56</td>
+<td>0.566</td>
+<td>72.14</td>
+<td>0.573</td>
+</tr>
+<tr><td>hash2</td>
+<td>85.91</td>
+<td>0.441</td>
+<td>86.50</td>
+<td>0.528</td>
+<td>82.34</td>
+<td>0.567</td>
+<td>67.33</td>
+<td>0.613</td>
+</tr>
+<tr><td>hash3</td>
+<td>66.51</td>
+<td>0.569</td>
+<td>67.66</td>
+<td>0.675</td>
+<td>58.06</td>
+<td>0.804</td>
+<td>52.81</td>
+<td>0.782</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>48.92</td>
+<td>0.774</td>
+<td>60.24</td>
+<td>0.758</td>
+<td>74.57</td>
+<td>0.626</td>
+<td>68.25</td>
+<td>0.605</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>53.62</td>
+<td>0.706</td>
+<td>66.31</td>
+<td>0.689</td>
+<td>73.98</td>
+<td>0.631</td>
+<td>78.04</td>
+<td>0.529</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>50.43</td>
+<td>0.750</td>
+<td>62.91</td>
+<td>0.726</td>
+<td>72.20</td>
+<td>0.647</td>
+<td>64.81</td>
+<td>0.637</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>45.90</td>
+<td>0.824</td>
+<td>58.03</td>
+<td>0.787</td>
+<td>69.26</td>
+<td>0.674</td>
+<td>62.68</td>
+<td>0.659</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">c</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>31.99</strong></td>
+<td>1.000</td>
+<td><strong>40.50</strong></td>
+<td>1.000</td>
+<td><strong>44.03</strong></td>
+<td>1.000</td>
+<td><strong>38.06</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>50.58</td>
+<td>0.632</td>
+<td>55.28</td>
+<td>0.733</td>
+<td>58.78</td>
+<td>0.749</td>
+<td>53.15</td>
+<td>0.716</td>
+</tr>
+<tr><td>hash1</td>
+<td>61.26</td>
+<td>0.522</td>
+<td>62.69</td>
+<td>0.646</td>
+<td>58.98</td>
+<td>0.746</td>
+<td>49.40</td>
+<td>0.770</td>
+</tr>
+<tr><td>hash2</td>
+<td>61.59</td>
+<td>0.519</td>
+<td>62.57</td>
+<td>0.647</td>
+<td>53.50</td>
+<td>0.823</td>
+<td>48.16</td>
+<td>0.790</td>
+</tr>
+<tr><td>hash3</td>
+<td>51.56</td>
+<td>0.620</td>
+<td>58.94</td>
+<td>0.687</td>
+<td>56.15</td>
+<td>0.784</td>
+<td>45.65</td>
+<td>0.834</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>50.07</td>
+<td>0.639</td>
+<td>62.08</td>
+<td>0.652</td>
+<td>69.28</td>
+<td>0.635</td>
+<td>67.87</td>
+<td>0.561</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>45.62</td>
+<td>0.701</td>
+<td>58.30</td>
+<td>0.695</td>
+<td>66.23</td>
+<td>0.665</td>
+<td>61.98</td>
+<td>0.614</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>42.02</td>
+<td>0.761</td>
+<td>52.80</td>
+<td>0.767</td>
+<td>61.86</td>
+<td>0.712</td>
+<td>52.40</td>
+<td>0.726</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>40.45</td>
+<td>0.791</td>
+<td>51.62</td>
+<td>0.784</td>
+<td>58.87</td>
+<td>0.748</td>
+<td>55.34</td>
+<td>0.688</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">countries</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>36.51</strong></td>
+<td>1.000</td>
+<td><strong>45.13</strong></td>
+<td>1.000</td>
+<td><strong>47.62</strong></td>
+<td>1.000</td>
+<td><strong>41.73</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>97.77</td>
+<td>0.373</td>
+<td>103.25</td>
+<td>0.437</td>
+<td>102.72</td>
+<td>0.464</td>
+<td>94.96</td>
+<td>0.439</td>
+</tr>
+<tr><td>hash1</td>
+<td>132.88</td>
+<td>0.275</td>
+<td>129.03</td>
+<td>0.350</td>
+<td>116.18</td>
+<td>0.410</td>
+<td>100.02</td>
+<td>0.417</td>
+</tr>
+<tr><td>hash2</td>
+<td>129.50</td>
+<td>0.282</td>
+<td>126.89</td>
+<td>0.356</td>
+<td>118.28</td>
+<td>0.403</td>
+<td>99.82</td>
+<td>0.418</td>
+</tr>
+<tr><td>hash3</td>
+<td>92.53</td>
+<td>0.395</td>
+<td>97.42</td>
+<td>0.463</td>
+<td>88.54</td>
+<td>0.538</td>
+<td>79.79</td>
+<td>0.523</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>62.07</td>
+<td>0.588</td>
+<td>78.25</td>
+<td>0.577</td>
+<td>86.10</td>
+<td>0.553</td>
+<td>88.92</td>
+<td>0.469</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>63.41</td>
+<td>0.576</td>
+<td>80.48</td>
+<td>0.561</td>
+<td>84.76</td>
+<td>0.562</td>
+<td>89.56</td>
+<td>0.466</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>50.96</td>
+<td>0.716</td>
+<td>64.70</td>
+<td>0.698</td>
+<td>76.18</td>
+<td>0.625</td>
+<td>76.97</td>
+<td>0.542</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>63.47</td>
+<td>0.575</td>
+<td>74.61</td>
+<td>0.605</td>
+<td>87.23</td>
+<td>0.546</td>
+<td>86.02</td>
+<td>0.485</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">cplusplus</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>33.82</strong></td>
+<td>1.000</td>
+<td><strong>42.58</strong></td>
+<td>1.000</td>
+<td><strong>46.32</strong></td>
+<td>1.000</td>
+<td><strong>40.12</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>67.07</td>
+<td>0.504</td>
+<td>72.82</td>
+<td>0.585</td>
+<td>72.88</td>
+<td>0.636</td>
+<td>71.07</td>
+<td>0.565</td>
+</tr>
+<tr><td>hash1</td>
+<td>109.82</td>
+<td>0.308</td>
+<td>109.25</td>
+<td>0.390</td>
+<td>101.32</td>
+<td>0.457</td>
+<td>90.27</td>
+<td>0.444</td>
+</tr>
+<tr><td>hash2</td>
+<td>96.47</td>
+<td>0.351</td>
+<td>97.92</td>
+<td>0.435</td>
+<td>92.32</td>
+<td>0.502</td>
+<td>81.82</td>
+<td>0.490</td>
+</tr>
+<tr><td>hash3</td>
+<td>86.25</td>
+<td>0.392</td>
+<td>91.60</td>
+<td>0.465</td>
+<td>87.83</td>
+<td>0.527</td>
+<td>78.80</td>
+<td>0.509</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>51.95</td>
+<td>0.651</td>
+<td>66.86</td>
+<td>0.637</td>
+<td>76.79</td>
+<td>0.603</td>
+<td>80.85</td>
+<td>0.496</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>57.29</td>
+<td>0.590</td>
+<td>70.77</td>
+<td>0.602</td>
+<td>81.49</td>
+<td>0.568</td>
+<td>87.37</td>
+<td>0.459</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>44.25</td>
+<td>0.764</td>
+<td>56.91</td>
+<td>0.748</td>
+<td>67.76</td>
+<td>0.684</td>
+<td>59.27</td>
+<td>0.677</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>45.77</td>
+<td>0.739</td>
+<td>56.94</td>
+<td>0.748</td>
+<td>66.75</td>
+<td>0.694</td>
+<td>62.54</td>
+<td>0.642</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">cpp</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>31.13</strong></td>
+<td>1.000</td>
+<td><strong>39.15</strong></td>
+<td>1.000</td>
+<td><strong>43.77</strong></td>
+<td>1.000</td>
+<td><strong>37.27</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>60.01</td>
+<td>0.519</td>
+<td>64.33</td>
+<td>0.609</td>
+<td>61.03</td>
+<td>0.717</td>
+<td>61.17</td>
+<td>0.609</td>
+</tr>
+<tr><td>hash1</td>
+<td>79.09</td>
+<td>0.394</td>
+<td>80.43</td>
+<td>0.487</td>
+<td>79.58</td>
+<td>0.550</td>
+<td>64.79</td>
+<td>0.575</td>
+</tr>
+<tr><td>hash2</td>
+<td>77.41</td>
+<td>0.402</td>
+<td>79.82</td>
+<td>0.490</td>
+<td>71.89</td>
+<td>0.609</td>
+<td>64.33</td>
+<td>0.579</td>
+</tr>
+<tr><td>hash3</td>
+<td>52.87</td>
+<td>0.589</td>
+<td>58.08</td>
+<td>0.674</td>
+<td>54.88</td>
+<td>0.798</td>
+<td>45.60</td>
+<td>0.817</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>47.12</td>
+<td>0.661</td>
+<td>60.08</td>
+<td>0.652</td>
+<td>67.08</td>
+<td>0.653</td>
+<td>65.49</td>
+<td>0.569</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>48.65</td>
+<td>0.640</td>
+<td>62.08</td>
+<td>0.631</td>
+<td>68.92</td>
+<td>0.635</td>
+<td>67.31</td>
+<td>0.554</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>42.10</td>
+<td>0.740</td>
+<td>52.74</td>
+<td>0.742</td>
+<td>61.94</td>
+<td>0.707</td>
+<td>55.81</td>
+<td>0.668</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>40.41</td>
+<td>0.770</td>
+<td>50.86</td>
+<td>0.770</td>
+<td>58.90</td>
+<td>0.743</td>
+<td>55.69</td>
+<td>0.669</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">go</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>34.09</strong></td>
+<td>1.000</td>
+<td><strong>42.02</strong></td>
+<td>1.000</td>
+<td><strong>44.33</strong></td>
+<td>1.000</td>
+<td><strong>38.98</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>53.48</td>
+<td>0.638</td>
+<td>57.68</td>
+<td>0.729</td>
+<td>53.66</td>
+<td>0.826</td>
+<td>52.37</td>
+<td>0.744</td>
+</tr>
+<tr><td>hash1</td>
+<td>77.18</td>
+<td>0.442</td>
+<td>80.18</td>
+<td>0.524</td>
+<td>73.74</td>
+<td>0.601</td>
+<td>67.21</td>
+<td>0.580</td>
+</tr>
+<tr><td>hash2</td>
+<td>75.88</td>
+<td>0.449</td>
+<td>79.44</td>
+<td>0.529</td>
+<td>77.16</td>
+<td>0.575</td>
+<td>64.39</td>
+<td>0.605</td>
+</tr>
+<tr><td>hash3</td>
+<td>50.11</td>
+<td>0.680</td>
+<td>60.97</td>
+<td>0.689</td>
+<td>52.59</td>
+<td>0.843</td>
+<td>49.99</td>
+<td>0.780</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>45.55</td>
+<td>0.748</td>
+<td>55.76</td>
+<td>0.754</td>
+<td>64.22</td>
+<td>0.690</td>
+<td>59.05</td>
+<td>0.660</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>43.86</td>
+<td>0.777</td>
+<td>54.65</td>
+<td>0.769</td>
+<td>60.94</td>
+<td>0.728</td>
+<td>56.83</td>
+<td>0.686</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>44.85</td>
+<td>0.760</td>
+<td>56.65</td>
+<td>0.742</td>
+<td>65.52</td>
+<td>0.677</td>
+<td>55.36</td>
+<td>0.704</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>47.05</td>
+<td>0.725</td>
+<td>57.45</td>
+<td>0.731</td>
+<td>65.85</td>
+<td>0.673</td>
+<td>59.28</td>
+<td>0.658</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">gpc</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>31.63</strong></td>
+<td>1.000</td>
+<td><strong>39.37</strong></td>
+<td>1.000</td>
+<td><strong>43.57</strong></td>
+<td>1.000</td>
+<td><strong>37.99</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>54.04</td>
+<td>0.585</td>
+<td>58.34</td>
+<td>0.675</td>
+<td>60.28</td>
+<td>0.723</td>
+<td>55.08</td>
+<td>0.690</td>
+</tr>
+<tr><td>hash1</td>
+<td>67.64</td>
+<td>0.468</td>
+<td>77.23</td>
+<td>0.510</td>
+<td>77.72</td>
+<td>0.561</td>
+<td>67.73</td>
+<td>0.561</td>
+</tr>
+<tr><td>hash2</td>
+<td>56.41</td>
+<td>0.561</td>
+<td>61.56</td>
+<td>0.640</td>
+<td>55.65</td>
+<td>0.783</td>
+<td>49.95</td>
+<td>0.761</td>
+</tr>
+<tr><td>hash3</td>
+<td>36.41</td>
+<td>0.869</td>
+<td>51.94</td>
+<td>0.758</td>
+<td>53.33</td>
+<td>0.817</td>
+<td>44.76</td>
+<td>0.849</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>48.02</td>
+<td>0.659</td>
+<td>59.74</td>
+<td>0.659</td>
+<td>68.07</td>
+<td>0.640</td>
+<td>69.51</td>
+<td>0.547</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>48.15</td>
+<td>0.657</td>
+<td>59.59</td>
+<td>0.661</td>
+<td>67.78</td>
+<td>0.643</td>
+<td>64.33</td>
+<td>0.591</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>39.74</td>
+<td>0.796</td>
+<td>51.98</td>
+<td>0.757</td>
+<td>60.72</td>
+<td>0.718</td>
+<td>55.70</td>
+<td>0.682</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>45.31</td>
+<td>0.698</td>
+<td>56.10</td>
+<td>0.702</td>
+<td>62.26</td>
+<td>0.700</td>
+<td>56.72</td>
+<td>0.670</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">irc</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>30.92</strong></td>
+<td>1.000</td>
+<td><strong>39.45</strong></td>
+<td>1.000</td>
+<td><strong>43.61</strong></td>
+<td>1.000</td>
+<td><strong>35.90</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>61.98</td>
+<td>0.499</td>
+<td>66.63</td>
+<td>0.592</td>
+<td>67.25</td>
+<td>0.649</td>
+<td>63.39</td>
+<td>0.566</td>
+</tr>
+<tr><td>hash1</td>
+<td>91.91</td>
+<td>0.336</td>
+<td>91.33</td>
+<td>0.432</td>
+<td>84.69</td>
+<td>0.515</td>
+<td>75.90</td>
+<td>0.473</td>
+</tr>
+<tr><td>hash2</td>
+<td>73.70</td>
+<td>0.420</td>
+<td>76.54</td>
+<td>0.515</td>
+<td>75.02</td>
+<td>0.581</td>
+<td>61.11</td>
+<td>0.587</td>
+</tr>
+<tr><td>hash3</td>
+<td>49.63</td>
+<td>0.623</td>
+<td>58.92</td>
+<td>0.670</td>
+<td>50.82</td>
+<td>0.858</td>
+<td>46.29</td>
+<td>0.776</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>52.71</td>
+<td>0.587</td>
+<td>65.81</td>
+<td>0.600</td>
+<td>73.05</td>
+<td>0.597</td>
+<td>67.20</td>
+<td>0.534</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>57.54</td>
+<td>0.537</td>
+<td>71.23</td>
+<td>0.554</td>
+<td>75.28</td>
+<td>0.579</td>
+<td>70.94</td>
+<td>0.506</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>41.56</td>
+<td>0.744</td>
+<td>52.76</td>
+<td>0.748</td>
+<td>61.69</td>
+<td>0.707</td>
+<td>56.09</td>
+<td>0.640</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>41.20</td>
+<td>0.751</td>
+<td>52.06</td>
+<td>0.758</td>
+<td>62.05</td>
+<td>0.703</td>
+<td>56.49</td>
+<td>0.636</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">java</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>32.81</strong></td>
+<td>1.000</td>
+<td><strong>41.97</strong></td>
+<td>1.000</td>
+<td><strong>44.86</strong></td>
+<td>1.000</td>
+<td><strong>40.05</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>61.79</td>
+<td>0.531</td>
+<td>63.11</td>
+<td>0.665</td>
+<td>67.20</td>
+<td>0.668</td>
+<td>60.71</td>
+<td>0.660</td>
+</tr>
+<tr><td>hash1</td>
+<td>84.10</td>
+<td>0.390</td>
+<td>87.53</td>
+<td>0.479</td>
+<td>80.63</td>
+<td>0.556</td>
+<td>70.61</td>
+<td>0.567</td>
+</tr>
+<tr><td>hash2</td>
+<td>79.72</td>
+<td>0.412</td>
+<td>79.53</td>
+<td>0.528</td>
+<td>74.78</td>
+<td>0.600</td>
+<td>61.47</td>
+<td>0.652</td>
+</tr>
+<tr><td>hash3</td>
+<td>54.22</td>
+<td>0.605</td>
+<td>61.39</td>
+<td>0.684</td>
+<td>52.91</td>
+<td>0.848</td>
+<td>48.92</td>
+<td>0.819</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>50.32</td>
+<td>0.652</td>
+<td>64.39</td>
+<td>0.652</td>
+<td>73.70</td>
+<td>0.609</td>
+<td>79.53</td>
+<td>0.504</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>51.68</td>
+<td>0.635</td>
+<td>64.23</td>
+<td>0.654</td>
+<td>70.61</td>
+<td>0.635</td>
+<td>72.76</td>
+<td>0.550</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>43.18</td>
+<td>0.760</td>
+<td>55.42</td>
+<td>0.757</td>
+<td>64.60</td>
+<td>0.694</td>
+<td>57.78</td>
+<td>0.693</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>43.35</td>
+<td>0.757</td>
+<td>53.60</td>
+<td>0.783</td>
+<td>64.25</td>
+<td>0.698</td>
+<td>59.08</td>
+<td>0.678</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">jscript</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>32.62</strong></td>
+<td>1.000</td>
+<td><strong>41.07</strong></td>
+<td>1.000</td>
+<td><strong>45.48</strong></td>
+<td>1.000</td>
+<td><strong>39.26</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>55.46</td>
+<td>0.588</td>
+<td>60.59</td>
+<td>0.678</td>
+<td>63.60</td>
+<td>0.715</td>
+<td>57.62</td>
+<td>0.681</td>
+</tr>
+<tr><td>hash1</td>
+<td>76.26</td>
+<td>0.428</td>
+<td>78.06</td>
+<td>0.526</td>
+<td>76.60</td>
+<td>0.594</td>
+<td>63.68</td>
+<td>0.617</td>
+</tr>
+<tr><td>hash2</td>
+<td>74.21</td>
+<td>0.440</td>
+<td>75.27</td>
+<td>0.546</td>
+<td>67.39</td>
+<td>0.675</td>
+<td>60.76</td>
+<td>0.646</td>
+</tr>
+<tr><td>hash3</td>
+<td>53.13</td>
+<td>0.614</td>
+<td>60.49</td>
+<td>0.679</td>
+<td>57.44</td>
+<td>0.792</td>
+<td>49.12</td>
+<td>0.799</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>50.57</td>
+<td>0.645</td>
+<td>62.13</td>
+<td>0.661</td>
+<td>71.23</td>
+<td>0.639</td>
+<td>71.21</td>
+<td>0.551</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>53.58</td>
+<td>0.609</td>
+<td>64.87</td>
+<td>0.633</td>
+<td>76.94</td>
+<td>0.591</td>
+<td>76.87</td>
+<td>0.511</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>46.41</td>
+<td>0.703</td>
+<td>57.42</td>
+<td>0.715</td>
+<td>68.15</td>
+<td>0.667</td>
+<td>58.71</td>
+<td>0.669</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>44.39</td>
+<td>0.735</td>
+<td>54.69</td>
+<td>0.751</td>
+<td>63.35</td>
+<td>0.718</td>
+<td>59.26</td>
+<td>0.663</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">modula</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>32.74</strong></td>
+<td>1.000</td>
+<td><strong>40.76</strong></td>
+<td>1.000</td>
+<td><strong>45.30</strong></td>
+<td>1.000</td>
+<td><strong>39.60</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>60.07</td>
+<td>0.545</td>
+<td>64.43</td>
+<td>0.633</td>
+<td>63.79</td>
+<td>0.710</td>
+<td>61.26</td>
+<td>0.646</td>
+</tr>
+<tr><td>hash1</td>
+<td>69.22</td>
+<td>0.473</td>
+<td>71.27</td>
+<td>0.572</td>
+<td>66.81</td>
+<td>0.678</td>
+<td>58.11</td>
+<td>0.682</td>
+</tr>
+<tr><td>hash2</td>
+<td>71.44</td>
+<td>0.458</td>
+<td>76.04</td>
+<td>0.536</td>
+<td>71.22</td>
+<td>0.636</td>
+<td>62.85</td>
+<td>0.630</td>
+</tr>
+<tr><td>hash3</td>
+<td>43.89</td>
+<td>0.746</td>
+<td>56.34</td>
+<td>0.723</td>
+<td>51.91</td>
+<td>0.873</td>
+<td>45.92</td>
+<td>0.862</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>48.84</td>
+<td>0.670</td>
+<td>60.48</td>
+<td>0.674</td>
+<td>69.19</td>
+<td>0.655</td>
+<td>69.94</td>
+<td>0.566</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>50.78</td>
+<td>0.645</td>
+<td>61.46</td>
+<td>0.663</td>
+<td>70.09</td>
+<td>0.646</td>
+<td>70.17</td>
+<td>0.564</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>44.64</td>
+<td>0.733</td>
+<td>55.30</td>
+<td>0.737</td>
+<td>63.62</td>
+<td>0.712</td>
+<td>57.84</td>
+<td>0.685</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>42.33</td>
+<td>0.773</td>
+<td>52.38</td>
+<td>0.778</td>
+<td>61.94</td>
+<td>0.731</td>
+<td>56.49</td>
+<td>0.701</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">modula2</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>31.87</strong></td>
+<td>1.000</td>
+<td><strong>40.22</strong></td>
+<td>1.000</td>
+<td><strong>44.70</strong></td>
+<td>1.000</td>
+<td><strong>38.37</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>58.01</td>
+<td>0.549</td>
+<td>62.07</td>
+<td>0.648</td>
+<td>57.86</td>
+<td>0.773</td>
+<td>58.33</td>
+<td>0.658</td>
+</tr>
+<tr><td>hash1</td>
+<td>69.44</td>
+<td>0.459</td>
+<td>74.37</td>
+<td>0.541</td>
+<td>67.05</td>
+<td>0.667</td>
+<td>60.74</td>
+<td>0.632</td>
+</tr>
+<tr><td>hash2</td>
+<td>69.66</td>
+<td>0.458</td>
+<td>78.43</td>
+<td>0.513</td>
+<td>77.69</td>
+<td>0.575</td>
+<td>65.48</td>
+<td>0.586</td>
+</tr>
+<tr><td>hash3</td>
+<td>41.98</td>
+<td>0.759</td>
+<td>56.11</td>
+<td>0.717</td>
+<td>51.12</td>
+<td>0.874</td>
+<td>47.33</td>
+<td>0.811</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>45.71</td>
+<td>0.697</td>
+<td>57.02</td>
+<td>0.705</td>
+<td>71.58</td>
+<td>0.624</td>
+<td>64.89</td>
+<td>0.591</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>53.05</td>
+<td>0.601</td>
+<td>63.66</td>
+<td>0.632</td>
+<td>74.12</td>
+<td>0.603</td>
+<td>68.24</td>
+<td>0.562</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>45.22</td>
+<td>0.705</td>
+<td>55.33</td>
+<td>0.727</td>
+<td>63.21</td>
+<td>0.707</td>
+<td>59.78</td>
+<td>0.642</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>40.88</td>
+<td>0.780</td>
+<td>51.74</td>
+<td>0.777</td>
+<td>61.84</td>
+<td>0.723</td>
+<td>56.80</td>
+<td>0.676</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">modula3</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>32.15</strong></td>
+<td>1.000</td>
+<td><strong>40.28</strong></td>
+<td>1.000</td>
+<td><strong>45.30</strong></td>
+<td>1.000</td>
+<td><strong>39.02</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>56.67</td>
+<td>0.567</td>
+<td>61.46</td>
+<td>0.655</td>
+<td>63.68</td>
+<td>0.711</td>
+<td>58.65</td>
+<td>0.665</td>
+</tr>
+<tr><td>hash1</td>
+<td>70.24</td>
+<td>0.458</td>
+<td>73.43</td>
+<td>0.549</td>
+<td>70.79</td>
+<td>0.640</td>
+<td>60.96</td>
+<td>0.640</td>
+</tr>
+<tr><td>hash2</td>
+<td>71.59</td>
+<td>0.449</td>
+<td>76.39</td>
+<td>0.527</td>
+<td>69.77</td>
+<td>0.649</td>
+<td>63.72</td>
+<td>0.612</td>
+</tr>
+<tr><td>hash3</td>
+<td>43.70</td>
+<td>0.736</td>
+<td>56.68</td>
+<td>0.711</td>
+<td>55.22</td>
+<td>0.820</td>
+<td>46.28</td>
+<td>0.843</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>50.16</td>
+<td>0.641</td>
+<td>61.09</td>
+<td>0.659</td>
+<td>68.90</td>
+<td>0.657</td>
+<td>70.24</td>
+<td>0.556</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>50.20</td>
+<td>0.640</td>
+<td>61.30</td>
+<td>0.657</td>
+<td>69.35</td>
+<td>0.653</td>
+<td>69.73</td>
+<td>0.560</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>40.66</td>
+<td>0.791</td>
+<td>51.76</td>
+<td>0.778</td>
+<td>61.05</td>
+<td>0.742</td>
+<td>51.66</td>
+<td>0.755</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>40.96</td>
+<td>0.785</td>
+<td>51.04</td>
+<td>0.789</td>
+<td>59.26</td>
+<td>0.764</td>
+<td>56.20</td>
+<td>0.694</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">pascal</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>32.61</strong></td>
+<td>1.000</td>
+<td><strong>40.32</strong></td>
+<td>1.000</td>
+<td><strong>44.18</strong></td>
+<td>1.000</td>
+<td><strong>38.97</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>56.47</td>
+<td>0.578</td>
+<td>61.20</td>
+<td>0.659</td>
+<td>58.03</td>
+<td>0.761</td>
+<td>58.26</td>
+<td>0.669</td>
+</tr>
+<tr><td>hash1</td>
+<td>66.03</td>
+<td>0.494</td>
+<td>75.19</td>
+<td>0.536</td>
+<td>70.14</td>
+<td>0.630</td>
+<td>65.05</td>
+<td>0.599</td>
+</tr>
+<tr><td>hash2</td>
+<td>57.36</td>
+<td>0.569</td>
+<td>59.72</td>
+<td>0.675</td>
+<td>56.49</td>
+<td>0.782</td>
+<td>46.41</td>
+<td>0.840</td>
+</tr>
+<tr><td>hash3</td>
+<td>39.59</td>
+<td>0.824</td>
+<td>55.37</td>
+<td>0.728</td>
+<td>51.04</td>
+<td>0.865</td>
+<td>48.82</td>
+<td>0.798</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>42.79</td>
+<td>0.762</td>
+<td>52.50</td>
+<td>0.768</td>
+<td>59.01</td>
+<td>0.749</td>
+<td>54.74</td>
+<td>0.712</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>49.75</td>
+<td>0.656</td>
+<td>60.97</td>
+<td>0.661</td>
+<td>67.10</td>
+<td>0.658</td>
+<td>66.58</td>
+<td>0.585</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>45.78</td>
+<td>0.712</td>
+<td>56.05</td>
+<td>0.719</td>
+<td>63.83</td>
+<td>0.692</td>
+<td>56.62</td>
+<td>0.688</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>41.33</td>
+<td>0.789</td>
+<td>52.38</td>
+<td>0.770</td>
+<td>62.20</td>
+<td>0.710</td>
+<td>55.77</td>
+<td>0.699</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">sneller</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>36.32</strong></td>
+<td>1.000</td>
+<td><strong>45.18</strong></td>
+<td>1.000</td>
+<td><strong>48.15</strong></td>
+<td>1.000</td>
+<td><strong>41.59</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>84.98</td>
+<td>0.427</td>
+<td>91.96</td>
+<td>0.491</td>
+<td>91.27</td>
+<td>0.528</td>
+<td>85.14</td>
+<td>0.489</td>
+</tr>
+<tr><td>hash1</td>
+<td>111.37</td>
+<td>0.326</td>
+<td>109.84</td>
+<td>0.411</td>
+<td>101.95</td>
+<td>0.472</td>
+<td>87.03</td>
+<td>0.478</td>
+</tr>
+<tr><td>hash2</td>
+<td>107.71</td>
+<td>0.337</td>
+<td>108.25</td>
+<td>0.417</td>
+<td>99.64</td>
+<td>0.483</td>
+<td>84.69</td>
+<td>0.491</td>
+</tr>
+<tr><td>hash3</td>
+<td>85.25</td>
+<td>0.426</td>
+<td>91.38</td>
+<td>0.494</td>
+<td>86.67</td>
+<td>0.556</td>
+<td>76.52</td>
+<td>0.543</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>63.46</td>
+<td>0.572</td>
+<td>79.08</td>
+<td>0.571</td>
+<td>87.85</td>
+<td>0.548</td>
+<td>90.40</td>
+<td>0.460</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>68.17</td>
+<td>0.533</td>
+<td>81.57</td>
+<td>0.554</td>
+<td>90.65</td>
+<td>0.531</td>
+<td>92.30</td>
+<td>0.451</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>50.37</td>
+<td>0.721</td>
+<td>64.13</td>
+<td>0.705</td>
+<td>77.16</td>
+<td>0.624</td>
+<td>80.36</td>
+<td>0.518</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>67.26</td>
+<td>0.540</td>
+<td>80.46</td>
+<td>0.562</td>
+<td>92.01</td>
+<td>0.523</td>
+<td>94.85</td>
+<td>0.438</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">snellerbuiltin</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>39.24</strong></td>
+<td>1.000</td>
+<td><strong>47.75</strong></td>
+<td>1.000</td>
+<td><strong>49.16</strong></td>
+<td>1.000</td>
+<td><strong>43.15</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>67.34</td>
+<td>0.583</td>
+<td>72.82</td>
+<td>0.656</td>
+<td>70.72</td>
+<td>0.695</td>
+<td>70.04</td>
+<td>0.616</td>
+</tr>
+<tr><td>hash1</td>
+<td>118.59</td>
+<td>0.331</td>
+<td>116.16</td>
+<td>0.411</td>
+<td>109.08</td>
+<td>0.451</td>
+<td>89.63</td>
+<td>0.481</td>
+</tr>
+<tr><td>hash2</td>
+<td>123.17</td>
+<td>0.319</td>
+<td>120.14</td>
+<td>0.397</td>
+<td>105.14</td>
+<td>0.468</td>
+<td>90.62</td>
+<td>0.476</td>
+</tr>
+<tr><td>hash3</td>
+<td>105.75</td>
+<td>0.371</td>
+<td>109.16</td>
+<td>0.437</td>
+<td>102.81</td>
+<td>0.478</td>
+<td>87.78</td>
+<td>0.492</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>62.24</td>
+<td>0.630</td>
+<td>74.92</td>
+<td>0.637</td>
+<td>84.30</td>
+<td>0.583</td>
+<td>86.59</td>
+<td>0.498</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>59.27</td>
+<td>0.662</td>
+<td>70.96</td>
+<td>0.673</td>
+<td>82.69</td>
+<td>0.594</td>
+<td>81.20</td>
+<td>0.531</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>53.43</td>
+<td>0.734</td>
+<td>68.37</td>
+<td>0.698</td>
+<td>81.32</td>
+<td>0.604</td>
+<td>74.38</td>
+<td>0.580</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>59.08</td>
+<td>0.664</td>
+<td>72.51</td>
+<td>0.658</td>
+<td>83.62</td>
+<td>0.588</td>
+<td>86.05</td>
+<td>0.501</td>
+</tr>
+<tr><td colspan="9">dataset <tt class="docutils literal">states</tt></td>
+</tr>
+<tr><td>pext</td>
+<td><strong>37.22</strong></td>
+<td>1.000</td>
+<td><strong>45.84</strong></td>
+<td>1.000</td>
+<td><strong>47.53</strong></td>
+<td>1.000</td>
+<td><strong>41.11</strong></td>
+<td>1.000</td>
+</tr>
+<tr><td>split</td>
+<td>66.25</td>
+<td>0.562</td>
+<td>71.06</td>
+<td>0.645</td>
+<td>69.24</td>
+<td>0.686</td>
+<td>64.75</td>
+<td>0.635</td>
+</tr>
+<tr><td>hash1</td>
+<td>88.44</td>
+<td>0.421</td>
+<td>88.77</td>
+<td>0.516</td>
+<td>80.99</td>
+<td>0.587</td>
+<td>67.90</td>
+<td>0.605</td>
+</tr>
+<tr><td>hash2</td>
+<td>95.52</td>
+<td>0.390</td>
+<td>95.42</td>
+<td>0.480</td>
+<td>87.17</td>
+<td>0.545</td>
+<td>73.57</td>
+<td>0.559</td>
+</tr>
+<tr><td>hash3</td>
+<td>66.76</td>
+<td>0.557</td>
+<td>67.49</td>
+<td>0.679</td>
+<td>60.97</td>
+<td>0.779</td>
+<td>52.47</td>
+<td>0.784</td>
+</tr>
+<tr><td>hash_sum0</td>
+<td>48.00</td>
+<td>0.775</td>
+<td>62.88</td>
+<td>0.729</td>
+<td>69.39</td>
+<td>0.685</td>
+<td>64.14</td>
+<td>0.641</td>
+</tr>
+<tr><td>hash_sumN</td>
+<td>51.32</td>
+<td>0.725</td>
+<td>63.15</td>
+<td>0.726</td>
+<td>68.72</td>
+<td>0.692</td>
+<td>64.42</td>
+<td>0.638</td>
+</tr>
+<tr><td>hash_sdb</td>
+<td>45.26</td>
+<td>0.822</td>
+<td>59.31</td>
+<td>0.773</td>
+<td>71.25</td>
+<td>0.667</td>
+<td>60.47</td>
+<td>0.680</td>
+</tr>
+<tr><td>hash_djb2</td>
+<td>48.32</td>
+<td>0.770</td>
+<td>59.57</td>
+<td>0.770</td>
+<td>70.71</td>
+<td>0.672</td>
+<td>64.98</td>
+<td>0.633</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="summary">
+<h2>Summary</h2>
+<ul class="simple">
+<li>The PEXT-based hash is the fastest.</li>
+<li>Fast hashesh (<tt class="docutils literal">hash1</tt>, <tt class="docutils literal">hash2</tt>, <tt class="docutils literal">hash3</tt>) indeed do not touch all
+input bytes, but their quality is poor, and as a result, performance
+is not good.</li>
+<li>Surprisingly, summing all input bytes is comparable to more complex
+<tt class="docutils literal">djb2</tt> or <tt class="docutils literal">sdbm</tt> hashes.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="sources">
+<h1>Sources</h1>
+<p>All sources are available on Github: <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/lookup-in-string-set">https://github.com/WojciechMula/toys/tree/master/lookup-in-string-set</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2023-04-30-lookup-in-strings.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+</html>

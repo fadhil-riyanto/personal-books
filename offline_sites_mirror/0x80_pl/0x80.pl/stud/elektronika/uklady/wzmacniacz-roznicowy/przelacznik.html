@@ -1,0 +1,30 @@
+Idealny wzmacniacz ró¿nicowy jako prze³±cznik
+* "Wzmacniacz ró¿nicowy.pdf", str. 13
+* Wojciech Mu³a, 11.10.2005
+
+* wej¶cie nieodwracaj±ce: 0 2
+* wej¶cie odwracaj±ce:    0 4	
+* wyjscie odwracaj±ce:    0 3
+* wyj¶cie nieodwracaj±ce: 0 5
+
+
+* wzmacniacz
+Ie	1 0	10m
+Q1	3 2 1	t
+Q2	5 4 1	t
+Rc1	3 6	1k
+Rc2	5 6	1k
+Vcc	6 0	DC 10V
+
+.model t NPN
+
+* sygna³y wej¶ciowe
+*Vref	2 0	DC 6V
+Vref	2 0	DC 4.5V
+V	4 0	AC SIN(5.3V 1V 1k)
+
+.TRAN 0.02m 10m
+* wykres: Uref, Uwe, Uwy
+.plot tran v(2) v(4) v(3)
+
+.end

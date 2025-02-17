@@ -1,0 +1,574 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2022-01-17-validating-hex-parse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="authors" content="Geoff Langdale  Wojciech Muła" />
+<title>Parsing hex numbers with validation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="parsing-hex-numbers-with-validation">
+<h1 class="title">Parsing hex numbers with validation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Authors:</th>
+<td>Geoff Langdale
+<br />Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2022-01-17</td>
+</tr>
+<tr class="last-update field"><th class="docinfo-name">Last update:</th><td class="field-body">2022-01-29</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#algorithm-1" id="toc-entry-2">Algorithm #1</a></li>
+<li><a class="reference internal" href="#algorithm-2" id="toc-entry-3">Algorithm #2</a></li>
+<li><a class="reference internal" href="#algorithm-3-by-geoff-langdale" id="toc-entry-4">Algorithm #3 &mdash; by Geoff Langdale</a></li>
+<li><a class="reference internal" href="#comparison" id="toc-entry-5">Comparison</a></li>
+<li><a class="reference internal" href="#converting-nibbles-to-binary-value" id="toc-entry-6">Converting nibbles to binary value</a></li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-7">Sample code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>A non-validating parsing from hexadecimal string can be vectorized: <a class="reference external" href="2014-10-22-sse-convert-hex-to-ascii.html">Using SSE
+to convert from hexadecimal ASCII to number</a>. This text shows two validating
+and vectorized approaches.</p>
+<p>Parsing algorithms convert 16-byte inputs. They consists two major parts:</p>
+<ol class="arabic simple">
+<li>Validate and convert ASCII digits and letters into
+4-bit values (value [0..15]) stored on separate bytes.</li>
+<li>Merge the 4-bit words into a continues 64-bit word.</li>
+</ol>
+<p>Below are the valid ASCII hexadecimal digits:</p>
+<ul class="simple">
+<li><tt class="docutils literal">0</tt> ... <tt class="docutils literal">9</tt> &mdash; 0x30 ... 0x31,</li>
+<li><tt class="docutils literal">a</tt> ... <tt class="docutils literal">f</tt> &mdash; 0x61 ... 0x66,</li>
+<li><tt class="docutils literal">A</tt> ... <tt class="docutils literal">F</tt> &mdash; 0x41 ... 0x46.</li>
+</ul>
+<p>We can note that:</p>
+<ol class="arabic simple">
+<li>Valid characters have higher nibbles equal to 0x3, 0x4 or 0x6.</li>
+<li>Values of decimal digits equal to the lower nibble.</li>
+<li>Values of hex digits (above 9) equal to the lower nibble plus 9.</li>
+</ol>
+</div>
+<div class="section" id="algorithm-1">
+<h1>Algorithm #1</h1>
+<p>This algorithm is a straightforward application of the above observations.
+The following scalar code shows the steps we perform:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0f</span><span class="w">
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">ascii_09</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">ascii_af</span><span class="p">;</span><span class="w">
+
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">9</span><span class="p">)</span><span class="w">
+    </span><span class="n">ascii_09</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lo_nibble</span><span class="p">;</span><span class="w">
+</span><span class="k">else</span><span class="w">
+    </span><span class="cm">/* error */</span><span class="w">
+
+</span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="p">(</span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="mi">6</span><span class="p">))</span><span class="w">
+    </span><span class="n">ascii_af</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">9</span><span class="p">;</span><span class="w">
+</span><span class="k">else</span><span class="w">
+    </span><span class="cm">/* error */</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0x3</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">ascii_09</span><span class="p">;</span><span class="w">
+</span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0x4</span><span class="p">)</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="p">(</span><span class="n">hi_nibbles</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0x6</span><span class="p">))</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">ascii_af</span><span class="p">;</span><span class="w">
+</span><span class="k">else</span><span class="w">
+    </span><span class="cm">/* error */</span>
+</pre>
+<p>The vectorized algorithm #1.</p>
+<ol class="arabic" start="0">
+<li><p class="first">Sample input: &quot;0123456789aBcDeF&quot;:</p>
+<blockquote>
+<pre class="literal-block">
+[46|65|44|63|42|61|39|38|37|36|35|34|33|32|31|30] -- input
+ F  e  D  c  B  a  9  8  7  6  5  4  3  2  1   0
+</pre>
+</blockquote>
+</li>
+<li><p class="first">Isolate the lower nibbles:</p>
+<pre class="literal-block">
+[06|05|04|03|02|01|09|08|07|06|05|04|03|02|01|00] -- lo_nibbles
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Convert lower nibbles as they were decimal digits. If a nibble is not
+valid (above 9) set bit #7 to indicate error.  Set also bit #6 to store
+the character class (constant <tt class="docutils literal">digits</tt>).</p>
+<pre class="literal-block">
+[46|45|44|43|42|41|49|48|47|46|45|44|43|42|41|40] -- lo_ascii_09
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">error</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x80</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">digits</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mh">0x40</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">letters</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x20</span><span class="p">;</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">lookup1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mi">6</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="mi">7</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="mi">9</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* c */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* d */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* f */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">digits</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo_ascii_09</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lookup1</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Similarly, convert lower nibbles as they were hex letters. If a nibble is
+not valid (less than 1 or greater than 6) set bit #7 to indicate error.
+Set also bit #5 to store the character class (constant <tt class="docutils literal">letters</tt>).</p>
+<pre class="literal-block">
+[2f|2e|2d|2c|2b|2a|80|80|80|2f|2e|2d|2c|2b|2a|80] -- lo_ascii_af
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lookup2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w"> </span><span class="c1">// a
+</span><span class="w">    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="mi">11</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w"> </span><span class="c1">// b
+</span><span class="w">    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="mi">12</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w"> </span><span class="c1">// c
+</span><span class="w">    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="mi">13</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w"> </span><span class="c1">// d
+</span><span class="w">    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="mi">14</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w"> </span><span class="c1">// e
+</span><span class="w">    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="mi">15</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w"> </span><span class="c1">// f
+</span><span class="w">    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* c */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* d */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* f */</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">letters</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo_ascii_af</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lookup2</span><span class="p">,</span><span class="w"> </span><span class="n">lo_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Classify ASCII characters based on the higher nibbles. Split bytes into
+three classes: decimal digits, hex letters, invalid.</p>
+<pre class="literal-block">
+[20|20|20|20|20|20|40|40|40|40|40|40|40|40|40|40] -- input
+ F  e  D  c  B  a  9  8  7  6  5  4  3  2  1  0
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lookup3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 1 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 2 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 3 */</span><span class="w"> </span><span class="n">decimal</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 4 */</span><span class="w"> </span><span class="n">letter</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 5 */</span><span class="w"> </span><span class="n">letter</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 6 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 7 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 8 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 9 */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* a */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* b */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* c */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* d */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* e */</span><span class="w"> </span><span class="n">error</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* f */</span><span class="w"> </span><span class="n">error</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi_class</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lookup3</span><span class="p">,</span><span class="w"> </span><span class="n">hi_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Keep only the decimal digits using the classification from point #4.</p>
+<pre class="literal-block">
+[00|00|00|00|00|00|49|48|47|46|45|44|43|42|41|40] -- ascii_09
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">zero</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_si128</span><span class="p">();</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii_09_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">hi_class</span><span class="p">,</span><span class="w"> </span><span class="n">lo_ascii_09</span><span class="p">),</span><span class="w"> </span><span class="n">zero</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii_09</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">ascii_09_mask</span><span class="p">,</span><span class="w"> </span><span class="n">lo_ascii_09</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Likewise, keep only the hex: letters using the classification from point #4.</p>
+<pre class="literal-block">
+[2f|2e|2d|2c|2b|2a|00|00|00|00|00|00|00|00|00|00] -- ascii_af
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii_af_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">hi_class</span><span class="p">,</span><span class="w"> </span><span class="n">lo_ascii_af</span><span class="p">),</span><span class="w"> </span><span class="n">zero</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii_af</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">ascii_af_mask</span><span class="p">,</span><span class="w"> </span><span class="n">lo_ascii_af</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Check for errors: or together the converted characters and the classification.
+If the result vector has any 7th bit set, it means an error.</p>
+<pre class="literal-block">
+[2f|2e|2d|2c|2b|2a|49|48|47|46|45|44|43|42|41|40] -- res == err
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">ascii_09</span><span class="p">,</span><span class="w"> </span><span class="n">ascii_af</span><span class="p">)</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">hi_class</span><span class="p">,</span><span class="w"> </span><span class="n">res</span><span class="p">)</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">err1</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Keep only lower nibbles.</p>
+<pre class="literal-block">
+[0f|0e|0d|0c|0b|0a|09|08|07|06|05|04|03|02|01|00] -- result
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">res</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Reverse nibbles and join into a single 64-bit word &mdash; see <a class="reference internal" href="#nibble2bin">separate section</a>.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="algorithm-2">
+<h1>Algorithm #2</h1>
+<p>In this algorithm we change the validation rules. We use higher nibbles to
+fetch allowed ranges for lower nibbles. For decimal digits (higher nibble <tt class="docutils literal">0x3</tt>)
+the range is 0..9. For hex letters (hi nibble <tt class="docutils literal">0x40</tt> or <tt class="docutils literal">0x60</tt>) the
+range is 1..6.</p>
+<p>Once we validated that the lower nibbles are correct, we have to add 9 to hex
+letters and keep decimal digits intact. The following observation lets
+to obtain the 9 quite easily: for hex letters the upper bound (<tt class="docutils literal">hi</tt>
+hereafter) is 6, for digits it is 9. The expression <tt class="docutils literal">~hi &amp; 9</tt> yields
+9 for <tt class="docutils literal">hi=6</tt> and zero when <tt class="docutils literal">hi=9</tt>.</p>
+<p>This branchy algorithm illustrates the whole idea.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">uint_8</span><span class="w"> </span><span class="n">hi_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi</span><span class="p">;</span><span class="w">
+
+</span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">hi_nibble</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mh">0x3</span><span class="p">:</span><span class="w">
+        </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+        </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">9</span><span class="p">;</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mh">0x4</span><span class="p">:</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mh">0x6</span><span class="p">:</span><span class="w">
+        </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w">
+        </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">6</span><span class="w">
+    </span><span class="k">default</span><span class="o">:</span><span class="w">
+        </span><span class="cm">/* error */</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0f</span><span class="p">;</span><span class="w">
+
+</span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">lo</span><span class="p">)</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="p">(</span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">hi</span><span class="p">))</span><span class="w">
+    </span><span class="cm">/* error */</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">~</span><span class="n">hi</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">9</span><span class="p">;</span><span class="w">
+
+</span><span class="k">return</span><span class="w"> </span><span class="n">lo_nibble</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">shift</span><span class="p">;</span>
+</pre>
+<p>The vectorized algorithm #2.</p>
+<ol class="arabic" start="0">
+<li><p class="first">Sample input.</p>
+<pre class="literal-block">
+[46|65|44|63|42|61|39|38|37|36|35|34|33|32|31|30] -- input
+ F  e  D  c  B  a  9  8  7  6  5  4  3  2  1   0
+</pre>
+</li>
+</ol>
+<ol class="arabic" start="2">
+<li><p class="first">Get higher nibble.</p>
+<pre class="literal-block">
+[04|06|04|06|04|06|03|03|03|03|03|03|03|03|03|03] -- hi_nibbles
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi_nibbles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">_mm_srli_epi32</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+<ol class="arabic">
+<li><p class="first">Get the lower bounds.</p>
+<pre class="literal-block">
+[01|01|01|01|01|01|00|00|00|00|00|00|00|00|00|00] -- lo
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lower_bound</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0x00 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x10 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x20 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x30 */</span><span class="w">    </span><span class="mi">0</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x40 */</span><span class="w">    </span><span class="mi">1</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x50 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x60 */</span><span class="w">    </span><span class="mi">1</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x70 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x80 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x90 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xa0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xb0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xc0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xd0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xe0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xf0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="w">
+</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">lower_bound</span><span class="p">,</span><span class="w"> </span><span class="n">hi_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Get the upper bounds.</p>
+<pre class="literal-block">
+[06|06|06|06|06|06|09|09|09|09|09|09|09|09|09|09] -- hi
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">upper_bound</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="cm">/* 0x00 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x10 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x20 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x30 */</span><span class="w">    </span><span class="mi">9</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x40 */</span><span class="w">    </span><span class="mi">6</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x50 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x60 */</span><span class="w">    </span><span class="mi">6</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x70 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x80 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0x90 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xa0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xb0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xc0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xd0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xe0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="p">,</span><span class="w">
+    </span><span class="cm">/* 0xf0 */</span><span class="w"> </span><span class="mh">0xff</span><span class="w">
+</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">upper_bound</span><span class="p">,</span><span class="w"> </span><span class="n">hi_nibbles</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Validate lower nibbles against the ranges. Please note that SSE does
+not provide unsigned comparison, however in our case we use only
+lower nibbles, so never hit signed numbers.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">gt_hi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">hi</span><span class="p">,</span><span class="w"> </span><span class="n">lo_nibbles</span><span class="p">);</span><span class="w"> </span><span class="c1">// lo_nibble &gt; hi_bound
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt_lo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">lo_nibbles</span><span class="p">,</span><span class="w"> </span><span class="n">lo</span><span class="p">);</span><span class="w"> </span><span class="c1">// lo_nibble &lt; lo_bound
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">error</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_or_si128</span><span class="p">(</span><span class="n">gt_hi</span><span class="p">,</span><span class="w"> </span><span class="n">lt_lo</span><span class="p">);</span><span class="w">
+
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">error</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Keep only lower nibbles.</p>
+<pre class="literal-block">
+[0f|0e|0d|0c|0b|0a|09|08|07|06|05|04|03|02|01|00] -- result
+</pre>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">mask</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mh">0x0f</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">mask</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Add 9 to hex letter, keep digits intact.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_andnot_si128</span><span class="p">(</span><span class="n">hi</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">9</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">lo_nibbles</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Reverse nibbles and join into a single 64-bit word &mdash; see <a class="reference internal" href="#nibble2bin">separate section</a>.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="algorithm-3-by-geoff-langdale">
+<h1>Algorithm #3 &mdash; by Geoff Langdale</h1>
+<p>The Geoff's approach does not use <tt class="docutils literal">PSHUFB</tt>, it is based on shifting number
+ranges. The algorithm works in two phases, separately converting the digits
+and hex letters.</p>
+<p>First, digits are shifted from range '0'..'9' to 0xf6..0xff and then
+0xf0..0xf9.  All other bytes &mdash; above '9' and below '0' &mdash; become smaller
+than 0xf0. After subtracting 0xf0, the ASCII digits are transformed into valid
+nibbles (0..9), while other values become greater than 0x0f.</p>
+<p>The second step converts the hex digits. At the very beginning, the ASCII
+letters are converted into upper case by resetting the 5th bit. Then, in a
+similar way as with the digits, we shift ASCII letters 'A'..'F' into range
+0..5. Any other bytes become bigger than 5. Then we adjust range 0..5 to
+10..15, keeping the non-hex bytes greater than 0x0f.</p>
+<p>At this point we have the following possibilities:</p>
+<ol class="arabic simple">
+<li><strong>digits</strong> &mdash; the result of step #1 is a valid nibble (0..9),
+the result of step #2 is greater than 0x0f.</li>
+<li><strong>hex letters</strong> &mdash; the result of step #1 is greater than 0xf0,
+the result of step #2 is a valid nibble (10..15).</li>
+<li>other &mdash; results of both steps are greater than 0x0f.</li>
+</ol>
+<p>It is sufficient to find the minimum of both steps. If either step resulted in
+valid nibble it will be chosen. Otherwise, the minimum operation yields some
+byte greater than 0x0f. Thus, to detect errors we have only check if the result
+of minimum is greater than 0x0f.</p>
+<p>The vectorized algorithm #3.</p>
+<ol class="arabic">
+<li><p class="first">Move digits '0'..'9' into range 0xf6..0xff.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi8</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="kt">char</span><span class="p">(</span><span class="mh">0xff</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'9'</span><span class="p">)));</span>
+</pre>
+</li>
+<li><p class="first">And then correct the range to 0xf0..0xf9. All other bytes become less than 0xf0.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_subs_epu8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">6</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Convert '0'..'9' into nibbles 0..9. Non-digit bytes become greater than 0x0f.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_epi8</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="kt">char</span><span class="p">(</span><span class="mh">0xf0</span><span class="p">)));</span>
+</pre>
+</li>
+<li><p class="first">Convert into uppercase 'a'..'f' =&gt; 'A'..'F'.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_and_si128</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="kt">char</span><span class="p">(</span><span class="mh">0xdf</span><span class="p">)));</span>
+</pre>
+</li>
+<li><p class="first">Move hex letter 'A'..'F' into range 0..5.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_epi8</span><span class="p">(</span><span class="n">t4</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">'A'</span><span class="p">))</span>
+</pre>
+</li>
+<li><p class="first">And correct the range into 10..15. The non-hex letters bytes become greater than 0x0f.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_adds_epu8</span><span class="p">(</span><span class="n">t5</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">10</span><span class="p">));</span>
+</pre>
+</li>
+<li><p class="first">Finally choose the result: either valid nibble (0..9/10..15) or some byte greater than 0x0f.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t7</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_min_epu8</span><span class="p">(</span><span class="n">t3</span><span class="p">,</span><span class="w"> </span><span class="n">t6</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Detect errors, i.e. bytes greater than 15. As SSE does not provide an unsigned compare,
+we have to use a trick with the saturated add.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t8</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_adds_epu8</span><span class="p">(</span><span class="n">t7</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">127-15</span><span class="p">));</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">t8</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Reverse nibbles and join into a single 64-bit word &mdash; see <a class="reference internal" href="#nibble2bin">separate section</a>.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="comparison">
+<h1>Comparison</h1>
+<table border="1" class="docutils">
+<caption>The total number of instructions</caption>
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">instruction</th>
+<th class="head">algorithm #1</th>
+<th class="head">algorithm #2</th>
+<th class="head">algorithm #3</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>shift</td>
+<td>1</td>
+<td>1</td>
+<td>--</td>
+</tr>
+<tr><td>pshufb</td>
+<td>3</td>
+<td>2</td>
+<td>--</td>
+</tr>
+<tr><td>bit-and</td>
+<td>7</td>
+<td>3</td>
+<td>1</td>
+</tr>
+<tr><td>bit-or</td>
+<td>2</td>
+<td>1</td>
+<td>--</td>
+</tr>
+<tr><td>comparison</td>
+<td>2</td>
+<td>2</td>
+<td>--</td>
+</tr>
+<tr><td>move mask</td>
+<td>1</td>
+<td>1</td>
+<td>--</td>
+</tr>
+<tr><td>add/sub</td>
+<td>--</td>
+<td>1</td>
+<td>6</td>
+</tr>
+<tr><td>min</td>
+<td>--</td>
+<td>--</td>
+<td>1</td>
+</tr>
+<tr><td>sum</td>
+<td>16</td>
+<td>11</td>
+<td>8</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="converting-nibbles-to-binary-value">
+<span id="nibble2bin"></span><h1>Converting nibbles to binary value</h1>
+<p>After completing any of the above algorithms we have the following layout
+of 16 nibbles (from <tt class="docutils literal">a</tt> to <tt class="docutils literal">p</tt>):</p>
+<pre class="literal-block">
+[0000|aaaa|0000|bbbb|0000|cccc|0000|dddd|...|0000|oooo|0000|pppp]
+| byte 15 | byte 14 | byte 13 | byte 12 |...| byte 1  | byte 0  |
+</pre>
+<p>The target is 64-bit word, where nibbles are <strong>reversed</strong>:</p>
+<pre class="literal-block">
+[pppp|oooo|...|dddd|cccc|bbbb|aaaa]
+</pre>
+<p>What we need to do, is: 1) first put two from adjacent nibbles in a byte,
+and 2) store only bytes having proper nibble pairs.</p>
+<p>Joining adjacent nibbles can be easily done with shift, followed by bit-and
+and bit-or. A single instruction <tt class="docutils literal">pmaddubsw</tt> can do that too.  It
+multiplies two pairs of bytes, add the products and yield 16-bit words.</p>
+<p>Then we need to store only single bytes from 16-bit words in a 64-bit result
+word (the lower half of an SSE register).</p>
+<p>Below is a code snippet that shows constants for <tt class="docutils literal">pmaddubsw</tt> and <tt class="docutils literal">pshufb</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_maddubs_epi16</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi16</span><span class="p">(</span><span class="mh">0x0110</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mi">14</span><span class="p">,</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w">
+    </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">);</span>
+</pre>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample code is available.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-parse-hex">https://github.com/WojciechMula/toys/tree/master/simd-parse-hex</a></p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2022-01-17-validating-hex-parse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

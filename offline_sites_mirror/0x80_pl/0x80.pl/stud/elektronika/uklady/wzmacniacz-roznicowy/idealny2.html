@@ -1,0 +1,30 @@
+Idealny wzmacniacz ró¿nicowy -- charakterystka przej¶ciowa Uo = f(Ud)
+* "Wzmacniacz ró¿nicowy.pdf", str. 8
+* Wojciech Mu³a, 11.10.2005
+
+* wej¶cie nieodwracaj±ce: 0 2
+* wej¶cie odwracaj±ce:    0 4	
+* wyjscie odwracaj±ce:    0 3
+* wyj¶cie nieodwracaj±ce: 0 5
+
+
+* wzmacniacz
+Ie	1 0	10m
+Q1	3 2 1	t
+Q2	5 4 1	t
+Rc1	3 6	100
+Rc2	5 6	100
+Vcc	6 0	DC 10V
+
+.model t NPN
+
+* sygna³ ró¿nicowy Ud
+Vd	2 4	DC 0V
+
+* analiza
+.DC Vd -150mV 150mV 1mV
+
+* charakterystyka przej¶ciowa Uo = f(Ud)
+.plot DC V(3,5)
+
+.end

@@ -1,0 +1,593 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-11-14-simd-multiple-vector-ops.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Speeding up multiple vector operations using SIMD</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="speeding-up-multiple-vector-operations-using-simd">
+<h1 class="title">Speeding up multiple vector operations using SIMD</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-11-14</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#baseline-1" id="toc-entry-2">Baseline</a></li>
+<li><a class="reference internal" href="#optimization" id="toc-entry-3">Optimization</a><ul>
+<li><a class="reference internal" href="#distance-function" id="toc-entry-4">Distance function</a></li>
+<li><a class="reference internal" href="#multiple-distances-at-once" id="toc-entry-5">Multiple distances at once</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#evaluation" id="toc-entry-6">Evaluation</a></li>
+<li><a class="reference internal" href="#conclusions" id="toc-entry-7">Conclusions</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-8">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>One step of <a class="reference external" href="http://en.wikipedia.org/wiki/K-means">k-means</a> algorithm is calculating the distance between
+all <strong>centroids</strong> and all <strong>samples</strong>. Then centroids are recalculated
+and samples re-assigned. Centroids and also samples are <strong>vectors of
+fixed size</strong>.</p>
+<p>I was curious how SIMD might help in this task (or similar ones).</p>
+</div>
+<div class="section" id="baseline-1">
+<span id="baseline"></span><h1>Baseline</h1>
+<p>C++ code that shows the idea of this step:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// M - vector size
+// K - number of centroids
+// N - number of samples
+</span><span class="w">
+</span><span class="c1">// ...
+</span><span class="k">using</span><span class="w"> </span><span class="n">Vector</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">float</span><span class="p">[</span><span class="n">M</span><span class="p">];</span><span class="w">
+</span><span class="c1">// ...
+</span><span class="n">Vector</span><span class="w"> </span><span class="n">centroids</span><span class="p">[</span><span class="n">K</span><span class="p">];</span><span class="w">
+</span><span class="kt">float</span><span class="w">  </span><span class="n">distances</span><span class="p">[</span><span class="n">K</span><span class="p">];</span><span class="w">
+</span><span class="n">Vector</span><span class="w"> </span><span class="n">samples</span><span class="p">[</span><span class="n">N</span><span class="p">];</span><span class="w">
+</span><span class="c1">// ...
+</span><span class="w">
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">K</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">N</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">distances</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">calculate_distance</span><span class="p">(</span><span class="n">M</span><span class="p">,</span><span class="w"> </span><span class="n">centroids</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="n">samples</span><span class="p">[</span><span class="n">j</span><span class="p">]);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// somehow consume 'distances' vector
+</span><span class="p">}</span>
+</pre>
+<p>The distance function is often the sum of squares of differences:</p>
+<pre class="code cpp literal-block">
+<span class="kt">float</span><span class="w"> </span><span class="nf">scalar_dist_vectors</span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">float</span><span class="w"> </span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0f</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+        </span><span class="n">ret</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">d</span><span class="o">*</span><span class="n">d</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">ret</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="optimization">
+<h1>Optimization</h1>
+<div class="section" id="distance-function">
+<span id="vectorized-dist"></span><h2>Distance function</h2>
+<p>Since we operates on vectors, the most obvious use of SIMD instructions
+is to vectorize the distance procedure <tt class="docutils literal">calculate_distance</tt>.</p>
+<p>A decent compiler is able to auto-vectorize such a simple function;
+GCC and clang require flag <tt class="docutils literal"><span class="pre">-ffast-math</span></tt> to enable this. Here is
+the assembly code generated by GCC 7.3.1:</p>
+<pre class="literal-block">
+.L7:
+        movaps  (%r10,%rax), %xmm1
+        addl    $1, %r8d
+        movups  (%rcx,%rax), %xmm3
+        addq    $16, %rax
+        cmpl    %r11d, %r8d
+        subps   %xmm3, %xmm1
+        mulps   %xmm1, %xmm1
+        addps   %xmm1, %xmm2
+        jb      .L7
+</pre>
+<p>Below is a hand-coded version, without processing vectors' tail.</p>
+<pre class="code cpp literal-block">
+<span class="kt">float</span><span class="w"> </span><span class="nf">sse_dist_vector</span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kr">__m128</span><span class="w"> </span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_ps</span><span class="p">();</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">ai</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">bi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">b</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_ps</span><span class="p">(</span><span class="n">ai</span><span class="p">,</span><span class="w"> </span><span class="n">bi</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mul_ps</span><span class="p">(</span><span class="n">d</span><span class="p">,</span><span class="w"> </span><span class="n">d</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">ret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_ps</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span><span class="w"> </span><span class="n">d2</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="kt">float</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">];</span><span class="w">
+    </span><span class="n">_mm_storeu_ps</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">ret</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="multiple-distances-at-once">
+<span id="multiple-dist"></span><h2>Multiple distances at once</h2>
+<p>In the inner loop the expression <tt class="docutils literal">centroid[i]</tt> is constant.  We can use this
+fact and calculate <strong>multiple</strong> distances at once, minimizing number of memory
+fetches from <tt class="docutils literal">centroids</tt> array and also utilizing all SIMD resources.</p>
+<p>So the algorithm becomes:</p>
+<pre class="code cpp literal-block">
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">K</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">calculate_multiple_distances</span><span class="p">(</span><span class="n">centroid</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="n">samples</span><span class="p">,</span><span class="w"> </span><span class="n">distances</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>And actual implementation of <tt class="docutils literal">calculate_multiple_distances</tt>, which processes
+four vectors at once:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">sse_dist_vector_many</span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">const_vector</span><span class="p">[],</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">k</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">in</span><span class="p">[],</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">out</span><span class="p">[])</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">j</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">k</span><span class="p">;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">in0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">in</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="p">];</span><span class="w"> </span><span class="c1">// Note: factoring out these pointer gave pretty
+</span><span class="w">        </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">in1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">in</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">];</span><span class="w"> </span><span class="c1">//       nice boost, as GCC 7.3.1 couldn't handle
+</span><span class="w">        </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">in2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">in</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="p">];</span><span class="w"> </span><span class="c1">//       well complex addresses like `in[j + 0][i]`
+</span><span class="w">        </span><span class="kt">float</span><span class="o">*</span><span class="w"> </span><span class="n">in3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">in</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="p">];</span><span class="w">
+
+        </span><span class="kr">__m128</span><span class="w"> </span><span class="n">out0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_ps</span><span class="p">();</span><span class="w">
+        </span><span class="kr">__m128</span><span class="w"> </span><span class="n">out1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_ps</span><span class="p">();</span><span class="w">
+        </span><span class="kr">__m128</span><span class="w"> </span><span class="n">out2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_ps</span><span class="p">();</span><span class="w">
+        </span><span class="kr">__m128</span><span class="w"> </span><span class="n">out3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setzero_ps</span><span class="p">();</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">vc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">const_vector</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">x0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">in0</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">x1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">in1</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">x2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">in2</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">x3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_ps</span><span class="p">(</span><span class="n">in3</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d0</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_ps</span><span class="p">(</span><span class="n">x0</span><span class="p">,</span><span class="w"> </span><span class="n">vc</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d0_2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mul_ps</span><span class="p">(</span><span class="n">d0</span><span class="p">,</span><span class="w"> </span><span class="n">d0</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_ps</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span><span class="w"> </span><span class="n">vc</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d1_2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mul_ps</span><span class="p">(</span><span class="n">d1</span><span class="p">,</span><span class="w"> </span><span class="n">d1</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d2</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_ps</span><span class="p">(</span><span class="n">x2</span><span class="p">,</span><span class="w"> </span><span class="n">vc</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d2_2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mul_ps</span><span class="p">(</span><span class="n">d2</span><span class="p">,</span><span class="w"> </span><span class="n">d2</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d3</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_ps</span><span class="p">(</span><span class="n">x3</span><span class="p">,</span><span class="w"> </span><span class="n">vc</span><span class="p">);</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128</span><span class="w"> </span><span class="n">d3_2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_mul_ps</span><span class="p">(</span><span class="n">d3</span><span class="p">,</span><span class="w"> </span><span class="n">d3</span><span class="p">);</span><span class="w">
+
+            </span><span class="n">out0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_ps</span><span class="p">(</span><span class="n">out0</span><span class="p">,</span><span class="w"> </span><span class="n">d0_2</span><span class="p">);</span><span class="w">
+            </span><span class="n">out1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_ps</span><span class="p">(</span><span class="n">out1</span><span class="p">,</span><span class="w"> </span><span class="n">d1_2</span><span class="p">);</span><span class="w">
+            </span><span class="n">out2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_ps</span><span class="p">(</span><span class="n">out2</span><span class="p">,</span><span class="w"> </span><span class="n">d2_2</span><span class="p">);</span><span class="w">
+            </span><span class="n">out3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_ps</span><span class="p">(</span><span class="n">out3</span><span class="p">,</span><span class="w"> </span><span class="n">d3_2</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="kt">float</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">4</span><span class="p">];</span><span class="w">
+
+        </span><span class="n">_mm_storeu_ps</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">out0</span><span class="p">);</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span><span class="w">
+
+        </span><span class="n">_mm_storeu_ps</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">out1</span><span class="p">);</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span><span class="w">
+
+        </span><span class="n">_mm_storeu_ps</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">out2</span><span class="p">);</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span><span class="w">
+
+        </span><span class="n">_mm_storeu_ps</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">out3</span><span class="p">);</span><span class="w">
+        </span><span class="n">out</span><span class="p">[</span><span class="n">j</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">v</span><span class="p">[</span><span class="mi">3</span><span class="p">];</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>While in a naive algorithm we fetch numbers from the <tt class="docutils literal">centroids</tt> table
+<tt class="docutils literal">K * N</tt> times, here we do <tt class="docutils literal">K * N/4</tt>, just 25%.</p>
+</div>
+</div>
+<div class="section" id="evaluation">
+<h1>Evaluation</h1>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td><a class="reference internal" href="#baseline">baseline</a></td>
+</tr>
+<tr><td>SSE</td>
+<td>hand-written <a class="reference internal" href="#vectorized-dist">distance function</a></td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td><a class="reference internal" href="#multiple-dist">multiple distances at once</a></td>
+</tr>
+</tbody>
+</table>
+<p>CPU: Intel(R) Core(TM) i5 CPU M 540 &#64; 2.53GHz</p>
+<p>Compiler: GCC version 7.3.0 (Debian 7.3.0-16)</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="10%" />
+<col width="9%" />
+<col width="6%" />
+<col width="9%" />
+<col width="6%" />
+<col width="9%" />
+<col width="6%" />
+<col width="9%" />
+<col width="6%" />
+<col width="9%" />
+<col width="6%" />
+<col width="9%" />
+<col width="6%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head" colspan="2">8 vectors</th>
+<th class="head" colspan="2">16 vectors</th>
+<th class="head" colspan="2">32 vectors</th>
+<th class="head" colspan="2">64 vectors</th>
+<th class="head" colspan="2">128 vectors</th>
+<th class="head" colspan="2">256 vectors</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">avg cycles</th>
+<th class="head">speedup</th>
+<th class="head">avg cycles</th>
+<th class="head">speedup</th>
+<th class="head">avg cycles</th>
+<th class="head">speedup</th>
+<th class="head">avg cycles</th>
+<th class="head">speedup</th>
+<th class="head">avg cycles</th>
+<th class="head">speedup</th>
+<th class="head">avg cycles</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td colspan="13"><em>vector size 64</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>7.722</td>
+<td>0.77</td>
+<td>17.460</td>
+<td>0.67</td>
+<td>29.995</td>
+<td>0.78</td>
+<td>59.743</td>
+<td>0.78</td>
+<td>125.639</td>
+<td>0.82</td>
+<td>243.951</td>
+<td>0.80</td>
+</tr>
+<tr><td>SSE</td>
+<td>5.918</td>
+<td>1.00</td>
+<td>11.660</td>
+<td>1.00</td>
+<td>23.435</td>
+<td>1.00</td>
+<td>46.609</td>
+<td>1.00</td>
+<td>103.063</td>
+<td>1.00</td>
+<td>195.983</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>4.316</td>
+<td>1.37</td>
+<td>8.262</td>
+<td>1.41</td>
+<td>16.068</td>
+<td>1.46</td>
+<td>31.796</td>
+<td>1.47</td>
+<td>64.827</td>
+<td>1.59</td>
+<td>131.814</td>
+<td>1.49</td>
+</tr>
+<tr><td colspan="13"><em>vector size 128</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>6.324</td>
+<td>0.81</td>
+<td>12.562</td>
+<td>0.80</td>
+<td>27.698</td>
+<td>0.74</td>
+<td>56.080</td>
+<td>0.77</td>
+<td>112.804</td>
+<td>0.78</td>
+<td>205.904</td>
+<td>0.86</td>
+</tr>
+<tr><td>SSE</td>
+<td>5.123</td>
+<td>1.00</td>
+<td>10.104</td>
+<td>1.00</td>
+<td>20.384</td>
+<td>1.00</td>
+<td>43.358</td>
+<td>1.00</td>
+<td>87.848</td>
+<td>1.00</td>
+<td>176.197</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>4.071</td>
+<td>1.26</td>
+<td>7.378</td>
+<td>1.37</td>
+<td>14.630</td>
+<td>1.39</td>
+<td>29.439</td>
+<td>1.47</td>
+<td>59.328</td>
+<td>1.48</td>
+<td>118.533</td>
+<td>1.49</td>
+</tr>
+<tr><td colspan="13"><em>vector size 256</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>5.673</td>
+<td>0.86</td>
+<td>11.791</td>
+<td>0.84</td>
+<td>24.314</td>
+<td>1.26</td>
+<td>49.156</td>
+<td>0.84</td>
+<td>98.680</td>
+<td>0.89</td>
+<td>199.404</td>
+<td>0.87</td>
+</tr>
+<tr><td>SSE</td>
+<td>4.870</td>
+<td>1.00</td>
+<td>9.846</td>
+<td>1.00</td>
+<td>30.579</td>
+<td>1.00</td>
+<td>41.315</td>
+<td>1.00</td>
+<td>88.000</td>
+<td>1.00</td>
+<td>172.773</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>3.577</td>
+<td>1.36</td>
+<td>6.997</td>
+<td>1.41</td>
+<td>13.973</td>
+<td>2.19</td>
+<td>28.017</td>
+<td>1.47</td>
+<td>56.665</td>
+<td>1.55</td>
+<td>122.198</td>
+<td>1.41</td>
+</tr>
+<tr><td colspan="13"><em>vector size 512</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>5.512</td>
+<td>0.95</td>
+<td>11.288</td>
+<td>0.94</td>
+<td>23.021</td>
+<td>0.91</td>
+<td>46.159</td>
+<td>0.92</td>
+<td>96.044</td>
+<td>0.90</td>
+<td>193.548</td>
+<td>0.93</td>
+</tr>
+<tr><td>SSE</td>
+<td>5.263</td>
+<td>1.00</td>
+<td>10.556</td>
+<td>1.00</td>
+<td>21.044</td>
+<td>1.00</td>
+<td>42.326</td>
+<td>1.00</td>
+<td>86.618</td>
+<td>1.00</td>
+<td>179.824</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>3.425</td>
+<td>1.54</td>
+<td>6.830</td>
+<td>1.55</td>
+<td>13.708</td>
+<td>1.54</td>
+<td>27.406</td>
+<td>1.54</td>
+<td>58.562</td>
+<td>1.48</td>
+<td>123.773</td>
+<td>1.45</td>
+</tr>
+<tr><td colspan="13"><em>vector size 1024</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>5.537</td>
+<td>0.93</td>
+<td>11.006</td>
+<td>0.93</td>
+<td>22.110</td>
+<td>0.95</td>
+<td>46.855</td>
+<td>0.90</td>
+<td>93.629</td>
+<td>0.92</td>
+<td>186.649</td>
+<td>0.92</td>
+</tr>
+<tr><td>SSE</td>
+<td>5.148</td>
+<td>1.00</td>
+<td>10.225</td>
+<td>1.00</td>
+<td>20.995</td>
+<td>1.00</td>
+<td>42.357</td>
+<td>1.00</td>
+<td>85.820</td>
+<td>1.00</td>
+<td>172.297</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>6.028</td>
+<td>0.85</td>
+<td>6.840</td>
+<td>1.49</td>
+<td>13.595</td>
+<td>1.54</td>
+<td>28.767</td>
+<td>1.47</td>
+<td>58.689</td>
+<td>1.46</td>
+<td>118.137</td>
+<td>1.46</td>
+</tr>
+<tr><td colspan="13"><em>vector size 4096</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>7.279</td>
+<td>0.93</td>
+<td>11.265</td>
+<td>0.95</td>
+<td>22.857</td>
+<td>0.95</td>
+<td>45.792</td>
+<td>0.93</td>
+<td>99.772</td>
+<td>0.95</td>
+<td>359.419</td>
+<td>0.98</td>
+</tr>
+<tr><td>SSE</td>
+<td>6.805</td>
+<td>1.00</td>
+<td>10.667</td>
+<td>1.00</td>
+<td>21.734</td>
+<td>1.00</td>
+<td>42.647</td>
+<td>1.00</td>
+<td>94.667</td>
+<td>1.00</td>
+<td>352.802</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>4.504</td>
+<td>1.51</td>
+<td>7.500</td>
+<td>1.42</td>
+<td>14.748</td>
+<td>1.47</td>
+<td>29.902</td>
+<td>1.43</td>
+<td>64.656</td>
+<td>1.46</td>
+<td>302.095</td>
+<td>1.17</td>
+</tr>
+<tr><td colspan="13"><em>vector size 8192</em></td>
+</tr>
+<tr><td>scalar</td>
+<td>8.293</td>
+<td>0.98</td>
+<td>13.242</td>
+<td>0.94</td>
+<td>24.831</td>
+<td>0.98</td>
+<td>53.673</td>
+<td>0.99</td>
+<td>180.724</td>
+<td>0.99</td>
+<td>408.179</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE</td>
+<td>8.160</td>
+<td>1.00</td>
+<td>12.426</td>
+<td>1.00</td>
+<td>24.274</td>
+<td>1.00</td>
+<td>52.892</td>
+<td>1.00</td>
+<td>178.407</td>
+<td>1.00</td>
+<td>406.330</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE (custom)</td>
+<td>4.751</td>
+<td>1.72</td>
+<td>7.466</td>
+<td>1.66</td>
+<td>15.167</td>
+<td>1.60</td>
+<td>32.015</td>
+<td>1.65</td>
+<td>145.880</td>
+<td>1.22</td>
+<td>358.551</td>
+<td>1.13</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="conclusions">
+<h1>Conclusions</h1>
+<p>Results surprised me. I didn't expect that such a simple <em>reorganization</em> of
+computations might be beneficial. In this case we have speedups ranging from
+1.10 to 1.60. Which is pretty nice, especially in context of k-means where
+this operation is the most time consuming.</p>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample code is available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-multi-vec-dist">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-11-14-simd-multiple-vector-ops.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:39 GMT -->
+</html>

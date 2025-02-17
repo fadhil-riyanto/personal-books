@@ -1,0 +1,139 @@
+* "Bramka CMOS.pdf"
+* Wojciech Mu³a, 11-12.10.2005
+
+* -----------------------------------------------------------------
+* Inwerter (str. 1)
+.SUBCKT CMOS_NEG 1 2 3
+* X:	1
+* Y:	2
+* Ucc:	3
+*
+* Y = not(X)
+Mp	2 1 3 3		t_pmos
+Mn	2 1 0 0		t_nmos
+.model t_nmos NMOS(level=1 Vto=1.5V)
+.model t_pmos PMOS(level=1 Vto=-1.5V)
+.ENDS CMOS_NEG
+
+* -----------------------------------------------------------------
+* Bramka NOR (str. 6)
+.SUBCKT CMOS_NOR 1 2 3 4
+* A:	1
+* B:	2
+* Y:	3
+* Ucc:	4
+*
+* Y = not(A or B)
+M1	5 1 4 4		t_pmos
+M2	3 2 5 4		t_pmos
+M3	3 1 0 0		t_nmos
+M4	3 2 0 0		t_nmos
+
+.model t_nmos NMOS(level=1 Vto=1.5V)
+.model t_pmos PMOS(level=1 Vto=-1.5V)
+.ENDS CMOS_NOR
+
+* -----------------------------------------------------------------
+* Bramka NAND (str. 9)
+.SUBCKT CMOS_NAND 1 2 3 4
+* A:	1
+* B:	2
+* Y:	3
+* Ucc:	4
+*
+* Y = not(A and B)
+
+M1	3 1 4 4		t_pmos
+M2	3 2 4 4		t_pmos
+M3	3 2 5 0		t_nmos
+M4	5 1 0 0		t_nmos
+
+.model t_nmos NMOS(level=1 Vto=1.5V)
+.model t_pmos PMOS(level=1 Vto=-1.5V)
+.ENDS CMOS_NAND
+
+* -----------------------------------------------------------------
+* Bufor
+.SUBCKT CMOS_BUF 1 2 3
+* X:	1
+* Y:	2
+* Ucc:	3
+*
+* Y = X
+
+X1 1 5 3 CMOS_NEG
+X2 5 2 3 CMOS_NEG
+.ENDS CMOS_BUF
+
+* -----------------------------------------------------------------
+* Buforowane bramka NAND
+.SUBCKT CMOS_NAND_BUF 1 2 3 4
+* A:	1
+* B:	2
+* Y:	3
+* Ucc:	4
+*
+* Y = not(A and B)
+
+Xnand	1 2 5 4		CMOS_NAND
+Xbuf	5 3 4		CMOS_BUF
+.ENDS CMOS_NAND_BUF
+
+* -----------------------------------------------------------------
+* Buforowane bramka NOR
+.SUBCKT CMOS_NOR_BUF 1 2 3 4
+* A:	1
+* B:	2
+* Y:	3
+* Ucc:	4
+*
+* Y = not(A or B)
+
+Xnand	1 2 5 4		CMOS_NOR
+Xbuf	5 3 4		CMOS_BUF
+.ENDS CMOS_NOR_BUF
+
+* -----------------------------------------------------------------
+* Bramka transmisyjna (str. 10)
+.SUBCKT CMOS_TG 1 2 3 4
+* X:	1
+* Y:	2
+* C:	3
+* Udd:	4
+
+Xneg1	3  10 4		CMOS_NEG
+Xneg2	10 11 4		CMOS_NEG
+
+M1	1 10 2 0	t_nmos
+M2	2 11 1 4	t_pmos
+
+.model t_nmos NMOS(level=1 Vto=1.5V)
+.model t_pmos PMOS(level=1 Vto=-1.5V)
+.ENDS CMOS_TG
+
+* -----------------------------------------------------------------
+* Bramka EXOR (str. 12)
+.SUBCKT CMOS_EXOR 1 2 3 4
+* A:	1
+* B:	2
+* Y:	3
+* Ucc:	4
+*
+* Y = not(A and B)
+
+Xneg1	1 6 4		CMOS_NEG
+Xneg2	2 7 4		CMOS_NEG
+
+* bramka transmisyjna a
+Ma1	3 1 2 4		t_pmos
+Ma2	2 6 3 0		t_nmos
+
+* bramka transmisyjna b
+Mb1	3 6 7 4		t_pmos
+Mb2	7 1 3 0		t_nmos
+
+.model t_nmos NMOS(level=1 Vto=1.5V)
+.model t_pmos PMOS(level=1 Vto=-1.5V)
+.ENDS CMOS_EXOR
+
+

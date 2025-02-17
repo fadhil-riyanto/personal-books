@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>other on TheXcellerator</title>
+    <link>/categories/other/</link>
+    <description>Recent content in other on TheXcellerator</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en</language>
+    <copyright>Harvey Phillips 2020 - London, England</copyright>
+    <lastBuildDate>Sat, 23 Sep 2023 12:00:00 +0100</lastBuildDate><atom:link href="/categories/other/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>BGGP 4: How Low Can You Go?</title>
+      <link>/posts/bggp4/</link>
+      <pubDate>Sat, 23 Sep 2023 12:00:00 +0100</pubDate>
+      
+      <guid>/posts/bggp4/</guid>
+      <description>Guess who&amp;rsquo;s back? The Binary Golf Grand Prix is back for it&amp;rsquo;s fourth annual outing! Sadly, after getting nerdsniped last year by the one and only @netspooky, I ended up not submitting an entry for last year&amp;rsquo;s competition (you can see what I got up to instead here).
+This year, the theme was self replication. To avoid being sent active virii, the Binary Golf Association required that the entry created only a single copy of itself, and did not re-execute itself.</description>
+    </item>
+    
+    <item>
+      <title>Tetsuji: Remote Code Execution on a GameBoy Colour 22 Years Later</title>
+      <link>/posts/tetsuji/</link>
+      <pubDate>Sat, 27 Aug 2022 02:00:00 +0100</pubDate>
+      
+      <guid>/posts/tetsuji/</guid>
+      <description>Introduction It&amp;rsquo;s that time of year again - the Binary Golf Grand Prix is back for a third year running! You can also check out my entries to the first and second times this amazing competition ran.
+The theme this year was to produce a binary that crashes a given program. Bonus points for hijacking execution, and submitting a patch to the project that fixes the vulnerability. Coinciding with the announcement of this year&amp;rsquo;s competition, @netspooky told me about a little-known accessory for the GameBoy/GameBoy Colour/GameBoy Advance called the Mobile Adapter GB, which let players connect their console to the internet via their mobile phone.</description>
+    </item>
+    
+    <item>
+      <title>Janus: A Polyglot Binary for BGGP 2021</title>
+      <link>/posts/bggp21/</link>
+      <pubDate>Thu, 16 Sep 2021 12:00:00 +0100</pubDate>
+      
+      <guid>/posts/bggp21/</guid>
+      <description>This year, @netspooky announced another round of the Binary Golf Grand Prix. If you missed it last year, the challenge was to create a palindromic binary - you can see the writeup of my entry, BootNoodle, here. This time around, the theme was polyglots, i.e. the challenge was to create a binary (as small as possible - hence the Golf part&amp;hellip;) that was simulateously another filetype.
+The rules were laid out very clearly into 2 categories: first - the smallest file that satisfied all the rules wins; second - rack up points by overlapping more and more filetypes with the bytes of your host binary.</description>
+    </item>
+    
+    <item>
+      <title>Coming soon!</title>
+      <link>/posts/check_back_soon/</link>
+      <pubDate>Tue, 25 Aug 2020 21:00:00 +0100</pubDate>
+      
+      <guid>/posts/check_back_soon/</guid>
+      <description>Check back soon for more!</description>
+    </item>
+    
+  </channel>
+</rss>

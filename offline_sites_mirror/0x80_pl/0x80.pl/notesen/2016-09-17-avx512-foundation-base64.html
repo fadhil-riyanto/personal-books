@@ -1,0 +1,1347 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-09-17-avx512-foundation-base64.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512F base64 coding and decoding</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512f-base64-coding-and-decoding">
+<h1 class="title">AVX512F base64 coding and decoding</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-09-17</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-11-24 (fixed pseudocode mistake, spotted by Günther Foidl)</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Both base64 coding and decoding algorithms can be vectorized, i.e.  SIMD
+instructions can be utilized, gaining significant speed-up over plain, scalar
+versions.  I've shown different vectorization approaches in a series of
+articles:</p>
+<ul class="simple">
+<li><a class="reference external" href="2016-01-12-sse-base64-encoding.html">Base64 encoding with SIMD instructions</a>,</li>
+<li><a class="reference external" href="2016-01-17-sse-base64-decoding.html">Base64 decoding with SIMD instructions</a> and</li>
+<li><a class="reference external" href="2016-04-03-avx512-base64.html">Base64 encoding &amp; decoding using AVX512BW instructions</a>.</li>
+</ul>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/AVX-512">AVX-512</a> is the recent extension to the Intel's ISA, unfortunately the
+extension is split into several subextensions. In the last article from the
+list I described usage of subextension AVX512BW (<strong>Byte-Word</strong>), at the
+moment of writing both articles AVX512BW was not available.</p>
+<p>However, in 2016 on the market has appeared processors having subextension
+AVX512F (<strong>Foundation</strong>). Among many advantages of AVX512F there is one
+serious problem: lack of instructions working at byte and word level.
+The minimum vector element's size is 32 bits.</p>
+<p>This article is a study of base64 algorithms realisation with foundation
+instructions AVX512F, major contributions are:</p>
+<ul class="simple">
+<li>The new, binary search vectorized lookup for base64 encoding.</li>
+<li>Evidence that <a class="reference external" href="http://en.wikipedia.org/wiki/SWAR">SWAR</a> techniques, even seem not optimistic at the
+first glance, are beneficial.</li>
+<li>Use of <a class="reference external" href="2015-03-22-avx512-ternary-functions.html">a ternary logic instruction</a> makes code simpler and faster.</li>
+<li>Evaluation of gather instruction in the context of lookup-based methods.</li>
+<li><strong>Measurements from a real machine</strong>.</li>
+</ul>
+<p>The text is split into four parts:</p>
+<ul class="simple">
+<li>description of SWAR techniques required for algorithms;</li>
+<li>details of base64 encoding;</li>
+<li>details of base64 decoding;</li>
+<li>experiment results and final remarks.</li>
+</ul>
+<p>As I don't want to repeat myself too much, please refer to the linked
+articles for other algorithms for SSE and AVX2 and their analysis.</p>
+<p>2016-12-18 note: in the initial version of this text I wrongly assumed
+order of input words, <strong>Alfred Klomp</strong> noted that the standard imposes
+a specific order. Today's change fixes this error.</p>
+<hr class="docutils" />
+<div class="contents topic" id="table-of-contents">
+<p class="topic-title">Table of contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#before-we-start-swar-within-an-avx512-register" id="toc-entry-2">Before we start: SWAR within an AVX512 register</a><ul>
+<li><a class="reference internal" href="#unsigned-compare-with-constant" id="toc-entry-3">Unsigned compare with constant</a></li>
+<li><a class="reference internal" href="#building-a-mask" id="toc-entry-4">Building a mask</a></li>
+<li><a class="reference internal" href="#adding-modulo-256" id="toc-entry-5">Adding modulo 256</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#c-notes" id="toc-entry-6">C++ notes</a></li>
+<li><a class="reference internal" href="#base64-encoding" id="toc-entry-7">Base64 encoding</a><ul>
+<li><a class="reference internal" href="#loading-data" id="toc-entry-8">Loading data</a><ul>
+<li><a class="reference internal" href="#gather-based" id="toc-entry-9">Gather-based</a></li>
+<li><a class="reference internal" href="#vectorized-approach" id="toc-entry-10">Vectorized approach</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#unpacking-6-bit-words-into-bytes" id="toc-entry-11">Unpacking 6-bit words into bytes</a></li>
+<li><a class="reference internal" href="#vectorized-lookup-incremental" id="toc-entry-12">Vectorized lookup &mdash; incremental</a><ul>
+<li><a class="reference internal" href="#introduction-1" id="toc-entry-13">Introduction</a></li>
+<li><a class="reference internal" href="#swar-notes" id="toc-entry-14">SWAR notes</a></li>
+<li><a class="reference internal" href="#pseudocode" id="toc-entry-15">Pseudocode</a></li>
+<li><a class="reference internal" href="#c-implementation" id="toc-entry-16">C++ implementation</a></li>
+<li><a class="reference internal" href="#improved-c-implementation" id="toc-entry-17">Improved C++ implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#vectorized-lookup-binary-search" id="toc-entry-18">Vectorized lookup &mdash; binary search</a><ul>
+<li><a class="reference internal" href="#introduction-2" id="toc-entry-19">Introduction</a></li>
+<li><a class="reference internal" href="#c-implementation-1" id="toc-entry-20">C++ implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#storing-data" id="toc-entry-21">Storing data</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#base64-decoding" id="toc-entry-22">Base64 decoding</a><ul>
+<li><a class="reference internal" href="#loading-data-1" id="toc-entry-23">Loading data</a></li>
+<li><a class="reference internal" href="#vectorized-lookup" id="toc-entry-24">Vectorized lookup</a><ul>
+<li><a class="reference internal" href="#introduction-3" id="toc-entry-25">Introduction</a></li>
+<li><a class="reference internal" href="#swar-notes-1" id="toc-entry-26">SWAR notes</a></li>
+<li><a class="reference internal" href="#pseudocode-1" id="toc-entry-27">Pseudocode</a></li>
+<li><a class="reference internal" href="#c-implementation-2" id="toc-entry-28">C++ implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#packing-data" id="toc-entry-29">Packing data</a></li>
+<li><a class="reference internal" href="#storing-data-1" id="toc-entry-30">Storing data</a><ul>
+<li><a class="reference internal" href="#scatter-based" id="toc-entry-31">Scatter-based</a></li>
+<li><a class="reference internal" href="#vectorized-approach-1" id="toc-entry-32">Vectorized approach</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#base64-coding-and-decoding-using-gather" id="toc-entry-33">Base64 coding and decoding using gather</a></li>
+<li><a class="reference internal" href="#experiment-results" id="toc-entry-34">Experiment results</a><ul>
+<li><a class="reference internal" href="#encoding" id="toc-entry-35">Encoding</a></li>
+<li><a class="reference internal" href="#decoding" id="toc-entry-36">Decoding</a></li>
+<li><a class="reference internal" href="#conclusions" id="toc-entry-37">Conclusions</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#further-work" id="toc-entry-38">Further work</a></li>
+<li><a class="reference internal" href="#acknowledgments" id="toc-entry-39">Acknowledgments</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-40">Source code</a></li>
+<li><a class="reference internal" href="#changes" id="toc-entry-41">Changes</a></li>
+</ul>
+</div>
+</div>
+<div class="section" id="before-we-start-swar-within-an-avx512-register">
+<h1>Before we start: SWAR within an AVX512 register</h1>
+<p>Lack of byte-level instructions forces to use SWAR techniques on
+32-bit vector's elements. Following operations are needed in both
+encoding and decoding:</p>
+<ol class="arabic simple">
+<li>unsigned compare for greater or equal, where one argument is
+a vector of bytes, and the another one is a vector of constants;</li>
+<li>build a mask based on comparison's result;</li>
+<li>add two vectors with wrap-around arithmetic
+(modulo 256).</li>
+</ol>
+<p>In case of SSE, AVX2 and AVX512BW the points 1st &amp; 2nd are performed by
+single instruction like <tt class="docutils literal">pcmpgtb</tt> (SSE intrinsic <tt class="docutils literal">_mm_cmpgt_epi8</tt>).
+Likewise, the equivalent of the 3rd operation is single instruction
+<tt class="docutils literal">paddb</tt> (SSE intrinsic <tt class="docutils literal">_mm_add_epi8</tt>).</p>
+<p><strong>Important note</strong>: input vectors for the core part of base64
+algorithms contain bytes less than 128, i.e. the most significant bit
+isn't set.</p>
+<div class="section" id="unsigned-compare-with-constant">
+<h2>Unsigned compare with constant</h2>
+<p>The SWAR trick of unsigned comparison for greater or equal is based on
+following equation:</p>
+<pre class="literal-block">
+x + 0x80 - constant = 0x80 + (x - constant)
+</pre>
+<p>The assumption is that both <tt class="docutils literal">x</tt> and <tt class="docutils literal">constant</tt> are less than 0x80.
+If <tt class="docutils literal">x &gt;= constant</tt> then the result of the expression is greater or
+equal to 0x80, less than 0x80 otherwise. It means that <strong>the most
+significant bit</strong> indicates the result of comparison.</p>
+<p>Let see a sample AVX512F code which compares input vector with
+<tt class="docutils literal">constant = 26</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__uint8_t</span><span class="w"> </span><span class="n">constant</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">;</span><span class="w"> </span><span class="c1">// 102 = 0x66
+</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">x</span><span class="w">        </span><span class="o">=</span><span class="w"> </span><span class="n">load</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="n">somehow</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">constant</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="mh">0x66666666</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">result</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">constant</span><span class="p">);</span>
+</pre>
+<p>Such code requires following instructions:</p>
+<ul class="simple">
+<li>build a constant vector (move constant to a GP register,
+<tt class="docutils literal">vpbroadcastd</tt> the value to an AVX512 register);</li>
+<li>add this vector and the input vector.</li>
+</ul>
+</div>
+<div class="section" id="building-a-mask">
+<h2>Building a mask</h2>
+<p>Once we have a result of comparison we can easily build:</p>
+<ul class="simple">
+<li>1-bit value,</li>
+<li>7-bit mask (<tt class="docutils literal">_mm512_cmpge_mask7bit</tt> in sample codes),</li>
+<li>8-bit mask (<tt class="docutils literal">_mm512_cmpge_mask8bit</tt>).</li>
+</ul>
+<p>In case of base64 masks are used to conditionally set some constants,
+thus depending on a constant value masks of different width are
+needed.</p>
+<p>A 1-bit value require just one shift right.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// left MSBs
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mm512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="mh">0x80808080</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// put MSB at the desired position, for example 3rd
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mm512</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">3</span><span class="p">);</span>
+</pre>
+<p>Building a 7-bit mask requires also a shift and a subtract.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// left MSBs
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mm512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="mh">0x80808080</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// mask = MSB - (MSB &gt;&gt; 7)
+</span><span class="w">
+</span><span class="c1">//        0x80 - 0x01 = 0x7f
+//        0x00 - 0x00 = 0x00
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mm512</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512i_sub_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span>
+</pre>
+<p>An 8-bit mask is simply a 7-bit mask merged with the MSB.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// left MSBs
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mm512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_epi32</span><span class="p">(</span><span class="n">result</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="mh">0x80808080</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// mask = MSB | (MSB - (MSB &gt;&gt; 7))
+</span><span class="w">
+</span><span class="c1">//        0x80 | (0x80 - 0x01) = 0x80 | 0x7f = 0xff
+//        0x00 | (0x00 - 0x00) = 0x00
+</span><span class="k">const</span><span class="w"> </span><span class="n">__mm512</span><span class="w"> </span><span class="n">tmp</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512i_sub_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span>
+</pre>
+<p>Summing things up: building a mask always require masking MSB and shift.
+Depending on the mask's width it would require an additional bit-and or
+bit-or.</p>
+</div>
+<div class="section" id="adding-modulo-256">
+<h2>Adding modulo 256</h2>
+<p>The operation for a single 8-bit number is defined as follows:</p>
+<pre class="literal-block">
+(a + b) &amp; 0xff
+</pre>
+<p>While adding two vectors of 8-bit numbers we must disallow propagating
+carry bits across byte boundaries. This requires two major steps:</p>
+<ul class="simple">
+<li>add inputs having reset MSB in each byte &mdash; this will never cause
+the carry propagation (0x7f + 0x7f = 0xfe, obviously 0xfe &lt;= 0xff);</li>
+<li>combine MSB of inputs with the MSB of result to set final MSB to
+the correct value.</li>
+</ul>
+<p>Pseudocode for 8-bit numbers.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">a_06</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">b_06</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">a_7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">b_7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a_06</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b_06</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">a_7</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">b_7</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">sum</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>As it was said above, inputs for the algorithms are smaller than 128,
+thanks to that some masking is not needed and calculating the final
+<tt class="docutils literal">sum</tt> is simpler. Following C++ procedure adds a vectors of 7-bit
+numbers and 8-bit numbers.</p>
+<pre class="code cpp literal-block">
+<span class="c1">// returns packed (a[i] + b[i]) &amp; 0xff
+// assertion a[i] &lt; 0x80, b[i] can be any value
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">_mm512_add_epu8</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">b06</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x7f</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">b06</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// merge the 7th bit of b with sum
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">),</span><span class="w"> </span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">sum</span><span class="p">,</span><span class="w"> </span><span class="mh">0x6a</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The procedure requires two logic instructions and one addition, it uses
+two constants.</p>
+</div>
+</div>
+<div class="section" id="c-notes">
+<h1>C++ notes</h1>
+<p>Sample C++ codes use two macros: <tt class="docutils literal">packed_dword</tt> and <tt class="docutils literal">packed_byte</tt>.
+The first macro fills all 32-bit elements of vector with given value,
+the second one fills all bytes with a value. The macros are used just
+for better readability, both use intrinsic <tt class="docutils literal">_mm512_set1_epi32</tt>.</p>
+</div>
+<div class="section" id="base64-encoding">
+<h1>Base64 encoding</h1>
+<p>Base64 encoding consists following steps:</p>
+<ol class="arabic simple">
+<li>Load data: put 3-byte sequences into 4-byte words.</li>
+<li>Unpack 6-bit words into bytes in each 4-byte word.</li>
+<li>Translate all 6-bit words into ASCII codes according to the base64 table.
+The table contains big letters, small letters, digits, the plus and
+the slash character ('A'-'Z', 'a'-'z', '0'-'9', '+' and '/').</li>
+<li>Save the result.</li>
+</ol>
+<img alt="2016-09-17-avx512-foundation-base64/base64-avx512-encoding.png" class="align-center" src="2016-09-17-avx512-foundation-base64/base64-avx512-encoding.png" />
+<div class="section" id="loading-data">
+<h2>Loading data</h2>
+<div class="section" id="gather-based">
+<span id="encoding-load-gather"></span><h3>Gather-based</h3>
+<p>Since AVX512F lacks of byte-level shuffling, loading data can be accomplished
+with a <strong>gather</strong> instruction. The gather does a parallel lookup in
+given table, indices are stored in vector's elements. Gather is
+significantly faster than individual loads, especially when it touches
+a small number of cache lines. In this case single gather would touch at
+most two cache lines.</p>
+<p>An input is sequence 48 bytes, or twelve 32-bit lanes. The layout of
+an input:</p>
+<pre class="literal-block">
+[PPPO|OONN|NMMM|LLLK|KKJJ|JIII|HHHG|GGFF|FEEE|DDDC|CCBB|BAAA]
+  11   10    9    8    7    6    5    4    3    2    1    0
+</pre>
+<p>The result vector's layout:</p>
+<pre class="literal-block">
+[.PPP|.OOO|.NNN|.MMM|.LLL|.KKK|.JJJ|.III|.HHH|.GGG|.FFF|.EEE|.DDD|.CCC|.BBB|.AAA]
+  15   14   13   12   11   10    9    8    7    6    5    4    3    2    1    0
+</pre>
+<p>The 4th byte of each lane is not important.</p>
+<p>Vector of indices contains a sequence of multiplies of 3: [0, 3, 6, 9, 12, ...
+and so on]. Loading data is then performed by a single instruction; please note
+that the last argument of <tt class="docutils literal">_mm512_i32gather_epi32</tt>, <strong>scale</strong>, is 1.</p>
+<pre class="code cpp literal-block">
+<span class="k">static</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">input_offsets</span><span class="p">[</span><span class="mi">16</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+     </span><span class="mi">0</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">3</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">
+     </span><span class="mi">4</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">7</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">
+     </span><span class="mi">8</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w">
+    </span><span class="mi">12</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="o">*</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">15</span><span class="o">*</span><span class="mi">3</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">input_gather</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*&gt;</span><span class="p">(</span><span class="n">input_offsets</span><span class="p">));</span><span class="w">
+
+</span><span class="k">for</span><span class="w"> </span><span class="p">(...)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_i32gather_epi32</span><span class="p">(</span><span class="n">input_gather</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="o">*</span><span class="p">)(</span><span class="n">input</span><span class="p">),</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// ...
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="vectorized-approach">
+<span id="encoding-load-vectorized"></span><h3>Vectorized approach</h3>
+<p>Although the gather-based loading is pretty simple and straightforward,
+the instruction's latency is really huge &mdash; it's 15 cycles.</p>
+<p>A vectorized approach loads 64 bytes, where only 48 bytes are used,
+and performs all shifting and shuffling within registers. AVX512F offers
+shuffling instruction <tt class="docutils literal">vpermd</tt> (<tt class="docutils literal">_mm512_permutexvar_epi32</tt>), which
+works at 32-bit words level and can move words across lanes.</p>
+<p>The algorithm:</p>
+<ol class="arabic">
+<li><p class="first">Load 64 bytes:</p>
+<pre class="literal-block">
+[PPPO|OONN|NMMM|LLLK|KKJJ|JIII|HHHG|GGFF|FEEE|DDDC|CCBB|BAAA]
+  11   10    9    8    7    6    5    4    3    2    1    0
+</pre>
+<p>The 48-byte array could be split into four 12-byte subarrays:</p>
+<pre class="literal-block">
+t1 = [D2 D1 D0 C2|C1 C0 B2 B1|B0 A2 A1 A0] x 4
+        word 2      word 1      word 0
+
+            12-byte subarray
+</pre>
+</li>
+<li><p class="first">Each 12-byte array is then placed in a separate 128-bit lane.
+This is done by <tt class="docutils literal">_mm512_permutexvar_epi32</tt>. Note the order
+of words: 0, 1, 1, 2.</p>
+<pre class="literal-block">
+t2 = [D2 D1 D0 C2|C1 C0 B2 B1|C1 C0 B2 B1|B0 A2 A1 A0] x 4
+</pre>
+</li>
+<li><p class="first">Shift bytes C right by 16 bits (<tt class="docutils literal">_mm512_mask_srli_epi64</tt>).
+Now bytes A and C are at correct places.</p>
+<pre class="literal-block">
+t3 = [.. .. D2 D1|D0 C2 C1 C0|C1 C0 B2 B1|B0 A2 A1 A0] x 4
+</pre>
+</li>
+<li><p class="first">Shift bytes D and B left by 8 bit (<tt class="docutils literal">_mm512_slli_epi64</tt>).
+And now these bytes are also at the correct position.</p>
+<pre class="literal-block">
+t4 = [.. D2 D1 D0|C2 C1 C0 ..|C0 B2 B1 B0|A2 A1 A0 ..] x 4
+</pre>
+</li>
+<li><p class="first">Merge results from 3rd and 4th steps (<tt class="docutils literal">_mm512_ternarylogic_epi32</tt>).
+The 3rd byte of each word will be omitted by a lookup procedure,
+thus no masking is needed.</p>
+<pre class="literal-block">
+t5 = [.. D2 D1 D0|.. C2 C1 C0|C0 B2 B1 B0|.. A2 A1 A0] x 4
+</pre>
+</li>
+</ol>
+<p>An excerpt from sample code.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="w">
+    </span><span class="n">_mm512_set_epi32</span><span class="p">(</span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">),</span><span class="w">
+    </span><span class="n">tmp1</span><span class="w">
+</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_srli_epi64</span><span class="p">(</span><span class="n">tmp2</span><span class="p">,</span><span class="w"> </span><span class="mh">0xaa</span><span class="p">,</span><span class="w"> </span><span class="n">tmp2</span><span class="p">,</span><span class="w"> </span><span class="mi">16</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_slli_epi64</span><span class="p">(</span><span class="n">tmp3</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi64</span><span class="p">(</span><span class="n">_mm512_set1_epi64</span><span class="p">(</span><span class="mh">0x00ffffff</span><span class="p">),</span><span class="w"> </span><span class="n">tmp4</span><span class="p">,</span><span class="w"> </span><span class="n">tmp3</span><span class="p">,</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+<div class="section" id="unpacking-6-bit-words-into-bytes">
+<h2>Unpacking 6-bit words into bytes</h2>
+<p>A single 32-bit words layout:</p>
+<pre class="literal-block">
+[????????|ccdddddd|bbbbcccc|aaaaaabb]
+</pre>
+<p>An expected output is:</p>
+<pre class="literal-block">
+[00dddddd|00cccccc|00bbbbbb|00aaaaaa]
+</pre>
+<p>Where <strong>a</strong>, <strong>b</strong>, <strong>c</strong> and <strong>d</strong> are bits of individual 6-bit words.
+The question mark denotes random, unimportant data.</p>
+<img alt="2016-09-17-avx512-foundation-base64/base64unpack.png" class="align-center" src="2016-09-17-avx512-foundation-base64/base64unpack.png" />
+<p>Unfortunately this step can't use any fancy AVX512F instruction, a series
+of shifts followed by a bit merge is the only solution. The bit merge
+is done by the ternary logic instruction.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="kt">int</span><span class="w"> </span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">mask</span><span class="o">&gt;</span><span class="w">
+</span><span class="n">__m512i</span><span class="w"> </span><span class="n">merge</span><span class="p">(</span><span class="n">__m512i</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">src</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shifted</span><span class="p">;</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">shift</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">shifted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">shifted</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_slli_epi32</span><span class="p">(</span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="n">shift</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">_mm512_set1_epi32</span><span class="p">(</span><span class="n">mask</span><span class="p">),</span><span class="w"> </span><span class="n">shifted</span><span class="p">,</span><span class="w"> </span><span class="n">target</span><span class="p">,</span><span class="w"> </span><span class="mh">0xca</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="n">__m512i</span><span class="w"> </span><span class="n">unpack</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// [????????|ccdddddd|bbbbCCCC|aaaaaaBB]
+</span><span class="w">    </span><span class="c1">//           ^^       ^^^^^^^^       ^^
+</span><span class="w">    </span><span class="c1">//           lo        lo  hi        hi
+</span><span class="w">
+    </span><span class="c1">// [00000000|00000000|00000000|00aaaaaa]
+</span><span class="w">    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">),</span><span class="w"> </span><span class="n">packed_dword</span><span class="p">(</span><span class="mh">0x0000003f</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// [00000000|00000000|00BB0000|00aaaaaa]
+</span><span class="w">    </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="mi">-12</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00003000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// [00000000|00000000|00BBbbbb|00aaaaaa]
+</span><span class="w">    </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="w">  </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000f00</span><span class="o">&gt;</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// [00000000|00CCCC00|00BBbbbb|00aaaaaa]
+</span><span class="w">    </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="mi">-10</span><span class="p">,</span><span class="w"> </span><span class="mh">0x003c0000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// [00000000|00CCCCcc|00BBbbbb|00aaaaaa]
+</span><span class="w">    </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00030000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// [00dddddd|00CCCCcc|00BBbbbb|00aaaaaa]
+</span><span class="w">    </span><span class="n">indices</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="w"> </span><span class="mi">-8</span><span class="p">,</span><span class="w"> </span><span class="mh">0x3f000000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">indices</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of constants: 6.</p>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>bit-and: 1</li>
+<li>ternary logic: 5,</li>
+<li>shift: 6.</li>
+</ul>
+<p>Total: 12 instructions.</p>
+</div>
+<div class="section" id="vectorized-lookup-incremental">
+<h2>Vectorized lookup &mdash; incremental</h2>
+<div class="section" id="introduction-1">
+<h3>Introduction</h3>
+<p>A lookup procedure considers five ranges assigned to characters: 'A'-'Z', 'a'-'z',
+'0'-'9', '+' and '/'. The procedure associates a range with <strong>shift</strong> value,
+a constant that added to the input value gives a proper ASCII code.</p>
+<p>The simplest algorithm incrementally calculates <strong>shift</strong>, pseudocode
+shows the idea.</p>
+<pre class="code cpp literal-block">
+<span class="kt">char</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_8bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">187</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">17</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">29</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">shift</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w"> </span><span class="c1">// add modulo 256
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="swar-notes">
+<h3>SWAR notes</h3>
+<p>The elementary operation is building a mask according to comparison
+result, the methods to do this are described earlier.</p>
+<p>As we see, masks for all but one constants can be 7-bit. However, we could
+split constant 187 into MSB and lower part. The lower part contributes in
+<tt class="docutils literal">shift</tt>, while the MSB will be used to adjust sum <tt class="docutils literal">shift + i</tt>. This
+solution has one important advantage, the sum would never wrap, and
+plain addition can be used.</p>
+</div>
+<div class="section" id="pseudocode">
+<span id="encoding-lookup-incremental"></span><h3>Pseudocode</h3>
+<p>Rewritten algorithm.</p>
+<pre class="code cpp literal-block">
+<span class="kt">char</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w">  </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">26</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w">  </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">62</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">17</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift</span><span class="w">  </span><span class="o">^=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">29</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">cmp_MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MSB</span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="p">);</span><span class="w">
+    </span><span class="n">mask</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="p">(</span><span class="n">MSB</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">7</span><span class="p">);</span><span class="w"> </span><span class="c1">// inlined mask_7bit
+</span><span class="w">
+    </span><span class="c1">// Note: order of updating shift isn't important
+</span><span class="w">    </span><span class="n">shift</span><span class="w">  </span><span class="o">^=</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">59</span><span class="p">;</span><span class="w"> </span><span class="c1">// 187 &amp; 0x7f
+</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">sum</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">cmp_MSB</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="c-implementation">
+<h3>C++ implementation</h3>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">XOR_ALL</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x96</span><span class="p">;</span><span class="w">
+
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">lookup_incremental_logic</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'A'</span><span class="p">);</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="n">c3</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// shift ^= cmp(i &gt;= 26) &amp; 6;
+</span><span class="w">    </span><span class="n">c0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">)),</span><span class="w"> </span><span class="n">MSB</span><span class="p">);</span><span class="w">
+    </span><span class="n">c0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+    </span><span class="n">c0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">6</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// shift ^= cmp(i &gt;= 52) &amp; 187;
+</span><span class="w">    </span><span class="n">c1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">)),</span><span class="w"> </span><span class="n">MSB</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">c1msb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c1</span><span class="p">;</span><span class="w">
+    </span><span class="n">c1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+    </span><span class="n">c1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">187</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// shift ^= cmp(i &gt;= 62) &amp; 17;
+</span><span class="w">    </span><span class="n">c2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">)),</span><span class="w"> </span><span class="n">MSB</span><span class="p">);</span><span class="w">
+    </span><span class="n">c2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+    </span><span class="n">c2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">17</span><span class="p">));</span><span class="w">
+
+    </span><span class="c1">// shift ^= cmp(i &gt;= 63) &amp; 29;
+</span><span class="w">    </span><span class="n">c3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">63</span><span class="p">)),</span><span class="w"> </span><span class="n">MSB</span><span class="p">);</span><span class="w">
+    </span><span class="n">c3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">c3</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">c3</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+    </span><span class="n">c3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">c3</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">29</span><span class="p">));</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">XOR_ALL</span><span class="p">);</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="n">c3</span><span class="p">,</span><span class="w"> </span><span class="n">XOR_ALL</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// produce the result
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_xor_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">),</span><span class="w"> </span><span class="n">c1msb</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of constants: 10.</p>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>bit-and: 8</li>
+<li>bit-xor: 1</li>
+<li>ternary: 2</li>
+<li>add/sub: 9</li>
+<li>shift:   4</li>
+</ul>
+<p>Total 24 instructions.</p>
+</div>
+<div class="section" id="improved-c-implementation">
+<span id="encoding-lookup-incremental-improved"></span><h3>Improved C++ implementation</h3>
+<p>An expression like <tt class="docutils literal">shift ^= <span class="pre">cmp(...)</span> &amp; const</tt> might be expressed with
+ternary logic.  This transformation makes the above procedure slightly shorter,
+four bit-ands are replaced with two ternary logic instructions.</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">lookup_incremental_logic_improved</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">using</span><span class="w"> </span><span class="k">namespace</span><span class="w"> </span><span class="nn">avx512f_swar</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift</span><span class="p">;</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="n">c3</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">);</span><span class="w">
+
+    </span><span class="cm">/*
+        s m c | shift ^ (mask &amp; constant)
+        ------+--------------------------
+        0 0 0 | 0
+        0 0 1 | 0
+        0 1 0 | 0
+        0 1 1 | 1
+        1 0 0 | 1
+        1 0 1 | 1
+        1 1 0 | 1
+        1 1 1 | 0 -&gt; 0x78
+    */</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">XOR_AND</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x78</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">// shift ^= cmp(i &gt;= 26) &amp; 6;
+</span><span class="w">    </span><span class="c1">// shift ^= cmp(i &gt;= 52) &amp; 187;
+</span><span class="w">    </span><span class="c1">// shift ^= cmp(i &gt;= 62) &amp; 17;
+</span><span class="w">    </span><span class="c1">// shift ^= cmp(i &gt;= 63) &amp; 29;
+</span><span class="w">
+    </span><span class="n">c0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_mask7bit</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">));</span><span class="w">
+    </span><span class="n">c1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">)),</span><span class="w"> </span><span class="n">MSB</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">c1msb</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c1</span><span class="p">;</span><span class="w">
+    </span><span class="n">c1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+    </span><span class="n">c2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_mask7bit</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">));</span><span class="w">
+    </span><span class="n">c3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_mask7bit</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">63</span><span class="p">));</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'A'</span><span class="p">),</span><span class="w"> </span><span class="n">c0</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">6</span><span class="p">),</span><span class="w"> </span><span class="n">XOR_AND</span><span class="p">);</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">c1</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">187</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">),</span><span class="w"> </span><span class="n">XOR_AND</span><span class="p">);</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">c2</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">17</span><span class="p">),</span><span class="w"> </span><span class="n">XOR_AND</span><span class="p">);</span><span class="w">
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">c3</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">29</span><span class="p">),</span><span class="w"> </span><span class="n">XOR_AND</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// produce the result
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_xor_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">),</span><span class="w"> </span><span class="n">c1msb</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="vectorized-lookup-binary-search">
+<span id="encoding-lookup-binary-search"></span><h2>Vectorized lookup &mdash; binary search</h2>
+<div class="section" id="introduction-2">
+<h3>Introduction</h3>
+<p>The vectorized lookup uses in fact <strong>the linear search</strong>, but a kind of
+<strong>binary search</strong> can be used:</p>
+<ul class="simple">
+<li>In the first step we select if an input byte belongs to &quot;letters&quot; group
+('A'-'Z' or 'a'-'z'), or to &quot;digits&quot; group ('0'-'9', '+' and '/'). At
+this step we select both <strong>shift</strong> value and <strong>comparison value</strong> for
+the next step.</li>
+<li>In the second step the input is compared with value selected in the
+previous step. At this point we exactly know if input byte should be
+mapped to 'A'-'Z', 'a'-'z', '0'-'9' or one of '+' or '/'.</li>
+<li>The last step is used to properly select shift value for '+'
+and '/' chars.</li>
+</ul>
+<p>Pseudocode for scalar inputs shows the idea.</p>
+<pre class="code cpp literal-block">
+<span class="kt">char</span><span class="w"> </span><span class="nf">lookup</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">// 1st step
+</span><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">52</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// 0-9, + or /
+</span><span class="w">        </span><span class="n">shift</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">;</span><span class="w">
+        </span><span class="n">value</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">62</span><span class="p">;</span><span class="w">
+        </span><span class="n">shift2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'+'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// A-Z or a-z
+</span><span class="w">        </span><span class="n">shift</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="sc">'A'</span><span class="p">;</span><span class="w">
+        </span><span class="n">value</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">26</span><span class="p">;</span><span class="w">
+        </span><span class="n">shift2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="sc">'a'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// 2nd step
+</span><span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">shift2</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// 3rd step: fixup for /
+</span><span class="w">    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">mask</span><span class="p">;</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">63</span><span class="p">)</span><span class="w">
+        </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">29</span><span class="p">;</span><span class="w">
+    </span><span class="k">else</span><span class="w">
+        </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w"> </span><span class="o">^=</span><span class="w"> </span><span class="n">mask</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">// produce result: add modulo the input and the shift
+</span><span class="w">    </span><span class="n">shift06</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="w">
+    </span><span class="n">shift7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">shift06</span><span class="p">)</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">shift7</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="c-implementation-1">
+<h3>C++ implementation</h3>
+<p>The C++ implementation simply replaces all ifs with merge operations.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0xca</span><span class="p">;</span><span class="w">
+
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">lookup_binary_search</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">using</span><span class="w"> </span><span class="k">namespace</span><span class="w"> </span><span class="nn">avx512f_swar</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">cmp1_mask</span><span class="p">;</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift</span><span class="p">;</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift_step2</span><span class="p">;</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">cmp2_mask</span><span class="p">;</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">cmp2_value</span><span class="p">;</span><span class="w">
+    </span><span class="n">__m512i</span><span class="w"> </span><span class="n">cmp_63_mask</span><span class="p">;</span><span class="w">
+
+
+    </span><span class="c1">// 1st step
+</span><span class="w">
+    </span><span class="c1">// cmp1_mask   = cmp(i &gt;= 52)
+</span><span class="w">    </span><span class="c1">// shift       = bit_merge(cmp1_mask, '0' - 52, 'A')
+</span><span class="w">    </span><span class="c1">// cmp2_value  = bit_merge(cmp1_mask, 62, 26)
+</span><span class="w">    </span><span class="c1">// shift_step2 = bit_merge(cmp1_mask, '+' - 62, 'a' - 26)
+</span><span class="w">
+    </span><span class="n">cmp1_mask</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_mask8bit</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">));</span><span class="w">
+    </span><span class="n">shift</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">cmp1_mask</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'0'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">52</span><span class="p">),</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'A'</span><span class="p">),</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="p">);</span><span class="w">
+    </span><span class="n">cmp2_value</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">cmp1_mask</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">),</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">),</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="p">);</span><span class="w">
+    </span><span class="n">shift_step2</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">cmp1_mask</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'+'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">62</span><span class="p">),</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'a'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">26</span><span class="p">),</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 2nd step
+</span><span class="w">
+    </span><span class="c1">// cmp2_mask   = cmp(i &gt;= cmp_value)
+</span><span class="w">    </span><span class="c1">// shift       = bit_merge(cmp2_mask, shift, shift_step2)
+</span><span class="w">
+    </span><span class="n">cmp2_mask</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_mask8bit</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">cmp2_value</span><span class="p">);</span><span class="w">
+    </span><span class="n">shift</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">cmp2_mask</span><span class="p">,</span><span class="w"> </span><span class="n">shift_step2</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// 3rd step
+</span><span class="w">
+    </span><span class="c1">// cmp_63_mask = cmp(i &gt;= 63)
+</span><span class="w">    </span><span class="c1">// shift       = shift ^ (cmp_63_mask &amp; 29)
+</span><span class="w">    </span><span class="n">cmp_63_mask</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpge_mask7bit</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">63</span><span class="p">));</span><span class="w">
+    </span><span class="n">shift</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">cmp_63_mask</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mi">29</span><span class="p">),</span><span class="w"> </span><span class="mh">0x78</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// add modulo 256
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_add_epu8</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Number of constants: 10.</p>
+<p>Number of instructions:</p>
+<ul class="simple">
+<li>bit-and: 4</li>
+<li>bit-xor: 0</li>
+<li>bit-or:  2</li>
+<li>ternary: 6</li>
+<li>add/sub: 7</li>
+<li>shift:   3</li>
+</ul>
+<p>Total 22 instructions.</p>
+</div>
+</div>
+<div class="section" id="storing-data">
+<h2>Storing data</h2>
+<p>Fortunately result vector doesn't require any post-processing and can be
+stored directly.</p>
+<pre class="code cpp literal-block">
+<span class="n">_mm512_storeu_si512</span><span class="p">(</span><span class="n">ptr</span><span class="p">,</span><span class="w"> </span><span class="n">result</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+<div class="section" id="base64-decoding">
+<h1>Base64 decoding</h1>
+<p>Base64 decoding consists following steps:</p>
+<ol class="arabic simple">
+<li>Load data, a 64-byte vector.</li>
+<li>Translate each byte of the vector from base64 ASCII chars back into
+6-bit values. At this stage input validation is performed.</li>
+<li>Pack 6-bit sequences into continuous bit string, forming a 48-byte
+array.</li>
+<li>Save the result.</li>
+</ol>
+<img alt="2016-09-17-avx512-foundation-base64/base64-avx512-decoding.png" class="align-center" src="2016-09-17-avx512-foundation-base64/base64-avx512-decoding.png" />
+<div class="section" id="loading-data-1">
+<h2>Loading data</h2>
+<p>Symmetrically to storing encoded data, loading such data doesn't require
+any effort, it is a simple load.</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">(</span><span class="n">input</span><span class="p">);</span>
+</pre>
+</div>
+<div class="section" id="vectorized-lookup">
+<span id="decoding-vectorized-lookup"></span><h2>Vectorized lookup</h2>
+<div class="section" id="introduction-3">
+<h3>Introduction</h3>
+<p>Unlike encoding, decoding has to care about input's validity.
+However, the scheme of decoding is similar to encoding: depending on
+byte range (A-Z, a-z, 0-9, + or /) a shift value is selected and the
+shift is added to byte forming a 6-bit value. If a byte doesn't match
+any range, then shift value is zero, denoting an invalid input.</p>
+<p>Very important observation is that a valid input can't contains any
+extended ASCII characters, i.e. bytes should be less than 0x80. Before
+doing a lookup procedure the input bytes are reduced to 7-bit value.
+This leads to simpler code, as SWAR procedures don't have to deal with
+full 8-bit numbers. Information about invalid, extended ASCII chars is
+used during a validation step.</p>
+<p>Pseudocode for decoding summing up the above observations.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">decode_byte</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="p">)</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">          </span><span class="c1">// invalid value
+</span><span class="w">
+    </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">;</span><span class="w">        </span><span class="c1">// reducing range to 0..0x7f
+</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'A'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="sc">'Z'</span><span class="p">)</span><span class="w">
+        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-65</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'a'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="sc">'z'</span><span class="p">)</span><span class="w">
+        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-71</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="sc">'9'</span><span class="p">)</span><span class="w">
+        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'+'</span><span class="p">)</span><span class="w">
+        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">19</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'/'</span><span class="p">)</span><span class="w">
+        </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">shift</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">invalid</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="p">))</span><span class="w">
+        </span><span class="c1">// an invalid byte or an extended ASCII char
+</span><span class="w">        </span><span class="n">report</span><span class="w"> </span><span class="n">error</span><span class="w">
+
+    </span><span class="c1">// sum modulo 256, as shift can be less than 0
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">shift</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="swar-notes-1">
+<h3>SWAR notes</h3>
+<p>One of the most important part of procedure is range checking. Since we
+know how to express the relation <tt class="docutils literal">&gt;=</tt>, the range checking could be replaced
+with:</p>
+<pre class="code cpp literal-block">
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">lo</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">byte</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">hi</span><span class="p">)</span><span class="w">
+    </span><span class="c1">// ...</span>
+</pre>
+<p>This involves two additions and one and-not operation, followed by mask
+forming. And since building mask requires MSB value, we can use ternary
+logic to do all needed binary operations in one instruction:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="n">lo</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">H</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="n">hi</span><span class="p">));</span><span class="w">
+
+</span><span class="c1">// MSB = L &amp; ~H &amp; 0x80
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">),</span><span class="w"> </span><span class="n">H</span><span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">);</span>
+</pre>
+<p>Equality comparison (required for chars '+' and '/') has surprisingly the
+same complexity as range checking, so the latter operation is used.</p>
+<p>Adding shift and input uses arithmetic modulo 256.</p>
+</div>
+<div class="section" id="pseudocode-1">
+<h3>Pseudocode</h3>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="nf">decode_byte</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">input</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">;</span><span class="w">        </span><span class="c1">// reducing range to 0..0x7f
+</span><span class="w">
+    </span><span class="c1">// determine shift
+</span><span class="w">    </span><span class="n">mask1</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">mask_8bit</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'A'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'Z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w">
+    </span><span class="n">range_AZ</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mask1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">-65</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">mask2</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">mask_8bit</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'a'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w">
+    </span><span class="n">range_az</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">mask2</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">-71</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">MSB</span><span class="w">      </span><span class="o">=</span><span class="w"> </span><span class="n">mask_1bit</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'9'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w">
+    </span><span class="n">range_09</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w"> </span><span class="c1">// value 4
+</span><span class="w">
+    </span><span class="n">mask3</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'+'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'+'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w">
+    </span><span class="n">plus</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">mask3</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">19</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">mask4</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">mask_7bit</span><span class="p">(</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'/'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">input</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'/'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w">
+    </span><span class="n">slash</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">mask4</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mi">16</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">shift</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">range_AZ</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">range_az</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">range_09</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">plus</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">slash</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">// addition modulo 256
+</span><span class="w">    </span><span class="n">shift06</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">;</span><span class="w">
+    </span><span class="n">shift7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="p">;</span><span class="w">
+    </span><span class="n">result</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">shift</span><span class="p">)</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">shift7</span><span class="p">;</span><span class="w">
+
+    </span><span class="c1">// valid iff: shift is non-zero, input's MSB is zero
+</span><span class="w">
+    </span><span class="n">non_zero_shift_7lower</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">shift06</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">;</span><span class="w">
+    </span><span class="n">non_zero_shift_MSB</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">shift7</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">valid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">non_zero_shift_7lower</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">non_zero_shift_MSB</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="o">~</span><span class="n">input</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">valid</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mh">0x80</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// invalid byte or extended ASCII char
+</span><span class="w">        </span><span class="n">report</span><span class="w"> </span><span class="n">error</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="c-implementation-2">
+<h3>C++ implementation</h3>
+<p>The vectorized version of pseudocode, most binary operations were expressed
+with ternary logic instructions:</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">lookup_comparisons</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x7f</span><span class="p">));</span><span class="w">
+
+    </span><span class="cp">#define GET_RANGE_SHIFT_7BIT(shift, lo, hi) \
+    _mm512_and_si512(packed_byte(uint8_t(shift)), \
+                     _mm512_range_mask_7bit(in, packed_byte(0x80 - (lo)), packed_byte(0x80 - (hi))))
+</span><span class="w">
+    </span><span class="cp">#define GET_RANGE_SHIFT_8BIT(shift, lo, hi) \
+    _mm512_and_si512(packed_byte(uint8_t(shift)), \
+                     _mm512_range_mask_8bit(in, packed_byte(0x80 - (lo)), packed_byte(0x80 - (hi))))
+</span><span class="w">
+    </span><span class="cp">#define GET_RANGE_SHIFT_3RD_BIT(lo, hi) \
+    _mm512_range_3rd_bit(in, packed_byte(0x80 - (lo)), packed_byte(0x80 - (hi)))
+</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">range_AZ</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">GET_RANGE_SHIFT_8BIT</span><span class="w">   </span><span class="p">(</span><span class="mi">-65</span><span class="p">,</span><span class="w"> </span><span class="sc">'A'</span><span class="p">,</span><span class="w"> </span><span class="sc">'Z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">range_az</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">GET_RANGE_SHIFT_8BIT</span><span class="w">   </span><span class="p">(</span><span class="mi">-71</span><span class="p">,</span><span class="w"> </span><span class="sc">'a'</span><span class="p">,</span><span class="w"> </span><span class="sc">'z'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">range_09</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">GET_RANGE_SHIFT_3RD_BIT</span><span class="p">(</span><span class="sc">'0'</span><span class="p">,</span><span class="w"> </span><span class="sc">'9'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">char_plus</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">GET_RANGE_SHIFT_7BIT</span><span class="w">   </span><span class="p">(</span><span class="mi">19</span><span class="p">,</span><span class="w"> </span><span class="sc">'+'</span><span class="p">,</span><span class="w"> </span><span class="sc">'+'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">char_slash</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">GET_RANGE_SHIFT_7BIT</span><span class="w">   </span><span class="p">(</span><span class="mi">16</span><span class="p">,</span><span class="w"> </span><span class="sc">'/'</span><span class="p">,</span><span class="w"> </span><span class="sc">'/'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// shift = range_AZ | range_az | range_09 | char_plus | char_slash
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">OR_ALL</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mh">0xfe</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">tmp</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">range_AZ</span><span class="p">,</span><span class="w"> </span><span class="n">range_az</span><span class="p">,</span><span class="w"> </span><span class="n">range_09</span><span class="p">,</span><span class="w"> </span><span class="n">OR_ALL</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">char_plus</span><span class="p">,</span><span class="w"> </span><span class="n">char_slash</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">,</span><span class="w">   </span><span class="n">OR_ALL</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// (shift + input) &amp; 0xff
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift06</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x7f</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">shift7</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">result</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_xor_si512</span><span class="p">(</span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="n">shift06</span><span class="p">),</span><span class="w"> </span><span class="n">shift7</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// validation
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">non_zero_7lower</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">shift06</span><span class="p">,</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x7f</span><span class="p">));</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">valid</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">non_zero_7lower</span><span class="p">,</span><span class="w"> </span><span class="n">shift</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mh">0x54</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpneq_epi32_mask</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_and_si512</span><span class="p">(</span><span class="n">valid</span><span class="p">,</span><span class="w"> </span><span class="n">MSB</span><span class="p">));</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">report_exception</span><span class="p">(</span><span class="n">input</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>And SWAR procedures for mask calculations:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// returns packed (a[i] &gt;= lo and a[i] &lt;= hi) ? 0x7f : 0x00;
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">_mm512_range_mask_7bit</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">lo</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">hi</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">lo</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">H</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">hi</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// MSB = L &amp; ~H &amp; 0x80
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">),</span><span class="w"> </span><span class="n">H</span><span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// MSB - (MSB &gt;&gt; 7)
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">));</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="c1">// returns packed (a[i] &gt;= lo and a[i] &lt;= hi) ? 0xff : 0x00;
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">_mm512_range_mask_8bit</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">lo</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">hi</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">lo</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">H</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">hi</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">),</span><span class="w"> </span><span class="n">H</span><span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// MSB | (MSB - (MSB &gt;&gt; 7))
+</span><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_or_si512</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_sub_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">)));</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+
+</span><span class="c1">// returns packed (a[i] &gt;= lo and a[i] &lt;= hi) ? 0x04 : 0x00;
+</span><span class="n">__m512i</span><span class="w"> </span><span class="nf">_mm512_range_3rd_bit</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">lo</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">hi</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">lo</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">H</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_add_epi32</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">hi</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">MSB</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">packed_byte</span><span class="p">(</span><span class="mh">0x80</span><span class="p">),</span><span class="w"> </span><span class="n">H</span><span class="p">,</span><span class="w"> </span><span class="n">L</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">_mm512_srli_epi32</span><span class="p">(</span><span class="n">MSB</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="packing-data">
+<h2>Packing data</h2>
+<p>The result of the lookup procedure is a vector of 32-bit lanes. Each lane
+has following layout:</p>
+<pre class="literal-block">
+[00dddddd|00cccccc|00bbbbbb|00aaaaaa]
+</pre>
+<p>Intermediate result:</p>
+<pre class="literal-block">
+[00000000|aaaaaabb|bbbbcccc|ccdddddd]
+</pre>
+<p>And finally, after byte swapping it is:</p>
+<pre class="literal-block">
+[00000000|ccdddddd|bbbbcccc|aaaaaabb]
+</pre>
+<img alt="2016-09-17-avx512-foundation-base64/base64pack.png" class="align-center" src="2016-09-17-avx512-foundation-base64/base64pack.png" />
+<p>Packing has exactly the same problems as unpacking step in encoding. Only
+shifts and bit-merges can be used. The code use the same template <tt class="docutils literal">merge</tt>
+as encoding.</p>
+<pre class="code cpp literal-block">
+<span class="n">__m512i</span><span class="w"> </span><span class="nf">pack_improved</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">in</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="c1">// in = |00dddddd|00cccccc|00bbbbbb|00aaaaaa|
+</span><span class="w">
+    </span><span class="c1">// t0 = |00000000|00000000|00000000|aaaaaa00|
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_slli_epi32</span><span class="p">(</span><span class="n">masked</span><span class="p">(</span><span class="n">in</span><span class="p">,</span><span class="w"> </span><span class="mh">0x0000003f</span><span class="p">),</span><span class="w"> </span><span class="mi">2</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t1 = |00000000|00000000|00000000|aaaaaabb|
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000003</span><span class="o">&gt;</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t2 = |00000000|00000000|bbbb0000|aaaaaabb|
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="mi">-4</span><span class="p">,</span><span class="w"> </span><span class="mh">0x0000f000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t3 = |00000000|00000000|bbbbcccc|aaaaaabb|
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000f00</span><span class="o">&gt;</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t4 = |00000000|cc000000|bbbbcccc|aaaaaabb|
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="mi">-6</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00c00000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">t3</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// t5 = |00000000|ccdddddd|bbbbcccc|aaaaaabb|
+</span><span class="w">    </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge</span><span class="o">&lt;</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mh">0x003f0000</span><span class="o">&gt;</span><span class="p">(</span><span class="n">t4</span><span class="p">,</span><span class="w"> </span><span class="n">in</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">t5</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="storing-data-1">
+<h2>Storing data</h2>
+<div class="section" id="scatter-based">
+<span id="decoding-store-scatter"></span><h3>Scatter-based</h3>
+<p>We can store 48 bytes using the <strong>scatter</strong> instruction, which saves 32-bit
+lanes at certain offsets [0, 3, 6, 9, and so on]; the vector of offset is
+exactly the same as encoding use.</p>
+<p>According to the documentation, scatter stores items sequentially.
+Since indices are in ascending order, all 4th bytes of lane will be
+overwritten by data from the next lane.</p>
+<pre class="literal-block">
+_mm512_i32scatter_epi32(out, scatter_offsets, result, 1);
+</pre>
+</div>
+<div class="section" id="vectorized-approach-1">
+<span id="decoding-store-vectorized"></span><h3>Vectorized approach</h3>
+<p>It is possible to do all shifting within registers, unfortunately there
+is no instruction allowing to shift across 64-bit boundary. This make
+decoding procedure more complicated than compared to the encoding
+counterpart.</p>
+<p>The algorithm:</p>
+<ol class="arabic">
+<li><p class="first">Input is treated as four 128-bit lanes. The layout of a lane:</p>
+<pre class="literal-block">
+[.. D2 D1 D0|.. C2 C1 C0|.. B2 B1 B0|.. A2 A1 A0] x 4
+  3           2           1           0
+</pre>
+</li>
+<li><p class="first">Shift fields C and A left by 8 bits (<tt class="docutils literal">_mm512_mask_slli_epi32</tt>):</p>
+<pre class="literal-block">
+[.. D2 D1 D0|C2 C1 C0 ..|.. B2 B1 B0|A2 A1 A0 ..] x 4
+</pre>
+</li>
+<li><p class="first">Shift fields D, B and A right by 8 and 24 bits (<tt class="docutils literal">_mm512_srlv_epi64</tt>):</p>
+<pre class="literal-block">
+[.. .. .. ..|D2 D1 D0 C2|.. .. B2 B1|B0 A2 A1 A0] x 4
+</pre>
+<p>Now only bytes C2 and C1 have to be moved to word 1, and this is
+an expansive procedure.</p>
+</li>
+<li><p class="first">Shift the input vector right by a word (<tt class="docutils literal">_mm512_alignr_epi32</tt>):</p>
+<pre class="literal-block">
+[E2 E1 E0 ..|.. D2 D1 D0|C2 C1 C0 ..|.. B2 B1 B0] x 4
+                         ^^^^^
+                only these bytes are needed
+</pre>
+</li>
+<li><p class="first">Shift and mask bytes C2 and C1 (<tt class="docutils literal">_mm512_maskz_slli_epi32</tt>):</p>
+<pre class="literal-block">
+[.. .. .. ..|.. .. .. ..|C1 C0 .. ..|.. .. .. ..] x 4
+</pre>
+</li>
+<li><p class="first">Merge vectors from 3rd and 5th steps (<tt class="docutils literal">_mm512_ternarylogic_epi32</tt>):</p>
+<pre class="literal-block">
+[.. .. .. ..|D2 D1 D0 C2|C1 C0 B2 B1|B0 A2 A1 A0] x 4
+</pre>
+</li>
+<li><p class="first">Shuffle words from 128-bit lanes to form 48-byte result (<tt class="docutils literal">_mm512_permutexvar_epi32</tt>).</p>
+</li>
+</ol>
+<p>An excerpt from sample code.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0xca</span><span class="p">;</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_mask_slli_epi32</span><span class="p">(</span><span class="n">packed</span><span class="p">,</span><span class="w"> </span><span class="mh">0x5555</span><span class="p">,</span><span class="w"> </span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">s2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setr_epi64</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">24</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_srlv_epi64</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">s2</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_alignr_epi32</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_maskz_slli_epi32</span><span class="p">(</span><span class="mh">0x2222</span><span class="p">,</span><span class="w"> </span><span class="n">t3</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">m5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setr_epi32</span><span class="p">(</span><span class="w">
+    </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0xffff0000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w">
+    </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0xffff0000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w">
+    </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0xffff0000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w">
+    </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0xffff0000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_ternarylogic_epi32</span><span class="p">(</span><span class="n">m5</span><span class="p">,</span><span class="w"> </span><span class="n">t4</span><span class="p">,</span><span class="w"> </span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">BIT_MERGE</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">s6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_setr_epi32</span><span class="p">(</span><span class="w">
+     </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">1</span><span class="p">,</span><span class="w">  </span><span class="mi">2</span><span class="p">,</span><span class="w">
+     </span><span class="mi">4</span><span class="p">,</span><span class="w">  </span><span class="mi">5</span><span class="p">,</span><span class="w">  </span><span class="mi">6</span><span class="p">,</span><span class="w">
+     </span><span class="mi">8</span><span class="p">,</span><span class="w">  </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w">
+    </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="mi">13</span><span class="p">,</span><span class="w"> </span><span class="mi">14</span><span class="p">,</span><span class="w">
+    </span><span class="c1">// unused
+</span><span class="w">     </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w">  </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w"> </span><span class="n">t6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_permutexvar_epi32</span><span class="p">(</span><span class="n">s6</span><span class="p">,</span><span class="w"> </span><span class="n">t5</span><span class="p">);</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="base64-coding-and-decoding-using-gather">
+<span id="gather-based-procedures"></span><h1>Base64 coding and decoding using gather</h1>
+<p>A repository contains also lookup procedures use gather instructions.
+The procedures are pretty short and clean (no SWAR tricks), however they
+use quite large tables: encoding 4 * 4 * 64 bytes (1kB), decoding 4 * 4
+* 256 (4kB).</p>
+<p>And the most important fact is that performance of both procedures is
+worse than vectorized counterparts.</p>
+</div>
+<div class="section" id="experiment-results">
+<h1>Experiment results</h1>
+<p>Sample programs from repository tests dozens of different variants of scalar,
+SSE and AVX2 implementations. I picked the best methods from scalar, SSE and
+AVX2 groups.</p>
+<p>Test programs were compiled by GCC 5.3.0 and run on <strong>Knights Landing</strong>
+processor, model <strong>7210</strong>.</p>
+<p>Note that tests perform whole encoding/decoding procedures, thus memory
+transfers are included in results.</p>
+<div class="section" id="encoding">
+<h2>Encoding</h2>
+<p>See <a class="reference external" href="https://github.com/WojciechMula/base64simd/blob/master/encode/results/knights-landing-7210-gcc5.3.0-avx512f.txt">all measurements</a>.  The best non-AVX512F procedures:</p>
+<ul class="simple">
+<li>scalar &mdash; a 64 bit variant;</li>
+<li>SSE &mdash; fully unrolled, with an improved lookup;</li>
+<li>AVX2 &mdash; unrolled with an improved lookup.</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="13%" />
+<col width="15%" />
+<col width="19%" />
+<col width="10%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">procedure</th>
+<th class="head" colspan="2">AVX512 specific</th>
+<th class="head" rowspan="2">time [s]</th>
+<th class="head" colspan="3">speed-up relative to ...</th>
+</tr>
+<tr><th class="head">load</th>
+<th class="head">lookup</th>
+<th class="head">AVX2</th>
+<th class="head">SSE</th>
+<th class="head">scalar</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td colspan="2" rowspan="3">N/A</td>
+<td>0.58455</td>
+<td>0.52</td>
+<td>0.50</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE</td>
+<td>0.29187</td>
+<td>1.04</td>
+<td>1.00</td>
+<td>2.00</td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.30332</td>
+<td>1.00</td>
+<td>0.96</td>
+<td>1.93</td>
+</tr>
+<tr><td rowspan="5">AVX512</td>
+<td><a class="reference internal" href="#encoding-load-vectorized">vectorized</a></td>
+<td><a class="reference internal" href="#encoding-lookup-incremental">vectorized</a></td>
+<td>0.12472</td>
+<td>2.43</td>
+<td>2.34</td>
+<td>4.69</td>
+</tr>
+<tr><td><a class="reference internal" href="#encoding-load-gather">vectorized</a></td>
+<td><a class="reference internal" href="#encoding-lookup-incremental-improved">improved</a></td>
+<td>0.11348</td>
+<td><strong>2.67</strong></td>
+<td><strong>2.57</strong></td>
+<td><strong>5.15</strong></td>
+</tr>
+<tr><td><a class="reference internal" href="#encoding-load-vectorized">gather</a></td>
+<td><a class="reference internal" href="#encoding-lookup-incremental-improved">improved</a></td>
+<td>0.12745</td>
+<td>2.38</td>
+<td>2.29</td>
+<td>4.59</td>
+</tr>
+<tr><td><a class="reference internal" href="#encoding-load-vectorized">vectorized</a></td>
+<td><a class="reference internal" href="#encoding-lookup-binary-search">binary search</a></td>
+<td>0.12521</td>
+<td>2.24</td>
+<td>2.33</td>
+<td>4.67</td>
+</tr>
+<tr><td colspan="2"><a class="reference internal" href="#gather-based-procedures">gather</a></td>
+<td>0.25674</td>
+<td>1.18</td>
+<td>1.14</td>
+<td>2.28</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="decoding">
+<h2>Decoding</h2>
+<p>See <a class="reference external" href="https://github.com/WojciechMula/base64simd/blob/master/decode/results/knights-landing-7210-gcc5.3.0-avx512f.txt">all measurements</a>.  The best non-AVX512F procedures:</p>
+<ul class="simple">
+<li>scalar &mdash; an improved version;</li>
+<li>SSE &mdash; base lookup, pack naive;</li>
+<li>AVX2 &mdash; base lookup, pack naive.</li>
+</ul>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="15%" />
+<col width="15%" />
+<col width="11%" />
+<col width="15%" />
+<col width="15%" />
+<col width="15%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">procedure</th>
+<th class="head" colspan="2">AVX512 specific</th>
+<th class="head" rowspan="2">time [s]</th>
+<th class="head" colspan="3">speed-up relative to ...</th>
+</tr>
+<tr><th class="head">lookup</th>
+<th class="head">store</th>
+<th class="head">AVX2</th>
+<th class="head">SSE</th>
+<th class="head">scalar</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>scalar</td>
+<td colspan="2" rowspan="3">N/A</td>
+<td>0.2289</td>
+<td>0.36</td>
+<td>0.54</td>
+<td>1.00</td>
+</tr>
+<tr><td>SSE</td>
+<td>0.1234</td>
+<td>0.67</td>
+<td>1.00</td>
+<td>1.85</td>
+</tr>
+<tr><td>AVX2</td>
+<td>0.0832</td>
+<td>1.00</td>
+<td>1.48</td>
+<td>2.75</td>
+</tr>
+<tr><td rowspan="3">AVX512</td>
+<td rowspan="2"><a class="reference internal" href="#decoding-vectorized-lookup">vectorized</a></td>
+<td><a class="reference internal" href="#decoding-store-scatter">scatter</a></td>
+<td>0.0519</td>
+<td>1.72</td>
+<td>2.55</td>
+<td>4.74</td>
+</tr>
+<tr><td><a class="reference internal" href="#decoding-store-vectorized">vectorized</a></td>
+<td>0.0441</td>
+<td><strong>1.89</strong></td>
+<td><strong>2.80</strong></td>
+<td><strong>5.19</strong></td>
+</tr>
+<tr><td colspan="2"><a class="reference internal" href="#gather-based-procedures">gather</a></td>
+<td>0.0519</td>
+<td>1.60</td>
+<td>2.38</td>
+<td>4.41</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="conclusions">
+<h2>Conclusions</h2>
+<ul class="simple">
+<li>AVX512F implementation is always faster.</li>
+<li>Surprisingly, even gather-based decoding is faster than plain vector AVX2 procedure.</li>
+<li>Although gather and scatter instructions are pretty fast, vectorized versions
+of load and store outperform hardware.</li>
+<li>On Knights Landing AVX2 code is merely 1.2-1.3 times faster than SSE code.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="further-work">
+<h1>Further work</h1>
+<p>I've deliberately left two ideas aside:</p>
+<ul class="simple">
+<li><em>Unrolling loops</em>. My experiments with simpler algorithms showed that
+unrolling usually makes code slower on KNL.</li>
+<li><em>Binary-search based lookup for decoding</em>. Binary search used for encoding
+is not better than incremental procedure, so at the moment I think it
+is not worth to bother with decoding.</li>
+</ul>
+</div>
+<div class="section" id="acknowledgments">
+<h1>Acknowledgments</h1>
+<p>This work wouldn't be possible without <a class="reference external" href="http://lemire.me/">Daniel Lemire</a>, who has gave me
+access to a brand new machine having Knights Landing CPU. I could do all
+experiments on a real processor. Daniel also shared some ideas about
+an early version of this text. Thank you!</p>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/base64simd">Github repository</a> contains all procedures and sample programs.</p>
+</div>
+<div class="section" id="changes">
+<h1>Changes</h1>
+<ul class="simple">
+<li>2017-01-25 &mdash; spelling</li>
+<li>2016-12-18 &mdash; fixed order of bytes according
+to the base64 standard</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-09-17-avx512-foundation-base64.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/linux_smc.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Linux: kod samomodyfikujący się</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="linux-kod-samomodyfikujacy-sie">
+<h1 class="title">Linux: kod samomodyfikujący się</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">28.07.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">13.07.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="asembler">
+<h1>Asembler</h1>
+<p>Kernel Linuksa x86 działa w trybie chronionym, do ochrony pamięci
+procesów używane są nie tylko atrybuty segmentów, ale również atrybuty
+stron. Proces otrzymuje od systemu dwa selektory z tablicy <strong>GDT</strong>:
+4 &mdash; dla kodu, 5 &mdash; dla danych, nie ma odrębnego deskryptora stosu. Oba
+mają bazę <tt class="docutils literal">0x00000000</tt> i limit 4GB (choć formalnie procesy są
+umieszczane w pierwszych 3GB pamięci) &mdash; tak więc oba segmenty obejmują
+<strong>ten sam</strong> obszar pamięci.  Ochrona danych jest więc
+realizowana przede wszystkim poprzez atrybuty stron, i tak:</p>
+<ul class="simple">
+<li>strony i katalogi stron poza przestrzenią adresową procesu mają
+wyzerowane bity <em>Present</em> (bit 0);</li>
+<li>strony i katalogi stron obejmujące kod programu mogą być tylko
+czytane (wyzerowany bit 1 <em>Read/Write</em> atrybutów);</li>
+<li>pozostałe strony mogą być również zapisywane.</li>
+</ul>
+<p>Można to łatwo sprawdzić za pomocą prostego programu:</p>
+<pre class="literal-block">
+segment .text
+
+global _start
+_start:
+        xor eax, eax
+        mov  ax, ds
+        lsl ebx, eax    ; ebx == 0xffffffff
+
+        verw ax         ; sprawdzamy czy _segment_ może być zapisywany
+        jnz  .error     ; oczywiście może
+
+        mov [ds:0], eax ; i tu dostajemy błąd ochrony pamięci
+ .error:
+        mov eax, 1
+        mov ebx, 0
+        int 0x80
+</pre>
+<p>Wracając do meritum: aby móc modyfikować kod należy zmienić atrybut
+stron pamięci.  Umożliwia to funkcja systemowa <tt class="docutils literal">sys_mprotect</tt> (numer
+125), jej parametry są następujące:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="23%" />
+<col width="65%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">rejestr</th>
+<th class="head">typ danych</th>
+<th class="head">opis</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td><tt class="docutils literal">ebx</tt></td>
+<td><tt class="docutils literal">void*</tt></td>
+<td>adres początku obszaru (wewnętrznie jest wyrównywany
+do granicy 4kB strony)</td>
+</tr>
+<tr><td><tt class="docutils literal">ecx</tt></td>
+<td><tt class="docutils literal">unsgined long</tt></td>
+<td>długość tego obszaru (również odpowiednio
+wyrównywana)</td>
+</tr>
+<tr><td><tt class="docutils literal">edx</tt></td>
+<td><tt class="docutils literal">int</tt></td>
+<td><p class="first">prawa dostępu zdefiniowane w <tt class="docutils literal">asm/mman.h</tt>:</p>
+<ul class="last simple">
+<li><tt class="docutils literal">PROT_READ</tt> (strona może być czytana)</li>
+<li><tt class="docutils literal">PROT_WRITE</tt> (strona może być zapisywana)</li>
+<li><tt class="docutils literal">PROT_EXEC</tt> (kod umieszczony na stronie może
+być wykonywany)</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Funkcja zwraca następujące wartości błędów: <tt class="docutils literal">EINVAL</tt>, <tt class="docutils literal">EFAULT</tt>,
+<tt class="docutils literal">EACCESS</tt>. Oczywiście można zmieniać atrybuty stron które należą do
+procesu, pozostałe nie są dostępne.</p>
+<p>Oto przykładowy program, który modyfikuje argument rozkazu <tt class="docutils literal">mov eax,
+imm32</tt>.</p>
+<pre class="literal-block">
+segment .text
+
+global _start
+_start:
+        mov eax, 125
+        mov ebx, smc_address
+        mov ecx, 4096
+        mov edx, PROT_READ | PROT_WRITE | PROT_EXEC
+        int 0x80
+
+        or  eax, eax
+        jnz .error      ; gdyby coś poszło nie tak, choć nie powinno
+
+        mov [smc_address], 0xaabbccdd
+
+        mov eax, 0x0000000000
+smc_address equ $-4
+
+        ; w tym miejscu eax==0xaabbccdd
+
+        ; należy pamiętać o ponownym zablokowaniu zapisu,
+        ; tak na wszelki wypadek
+
+ .error:
+        mov eax, 1
+        mov ebx, 0
+        int 0x80
+</pre>
+</div>
+<div class="section" id="jezyk-c-i-funkcje-biblioteczne-13-07-2008">
+<h1>Język C i funkcje biblioteczne [13.07.2008]</h1>
+<p>Większość opisanych tutaj rzeczy można wykonać bezpośrednio z poziomu
+języka C.  W pliku <tt class="docutils literal">sys/mman.h</tt> znajduje się funkcja <tt class="docutils literal">mprotect</tt>,
+która przyjmuje adres (<strong>wyrównany</strong> do granicy strony), rozmiar obszaru
+oraz prawa dostępu.  Oczywiście poza tym, należy wykonać działania
+niskopoziomowe.</p>
+<p>Prosty program <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/x86-self-modifying-code">x86linux_smc.c</a> wykonuje dokładnie to samo działanie,
+co przedstawiony wyżej program asemblerowy:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">function</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="w">
+        </span><span class="s">&quot;smc_address:                   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">     </span><span class="c1">// global label
+</span><span class="w">        </span><span class="s">&quot;       mov $0xbadcaffe, %%eax  </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">     </span><span class="c1">// instruction we will patch
+</span><span class="w">        </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;=a&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">)</span><span class="w">
+        </span><span class="p">);</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">argc</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">argv</span><span class="p">[])</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">patch_val</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">argc</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w">
+                </span><span class="n">patch_val</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">strtol</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span><span class="w"> </span><span class="nb">NULL</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+                </span><span class="n">patch_val</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x11223344</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;Before patch function() returned 0x%08x</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">function</span><span class="p">());</span><span class="w">
+
+        </span><span class="c1">// obtain global label address
+</span><span class="w">        </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">address</span><span class="p">;</span><span class="w">
+        </span><span class="n">__asm__</span><span class="w"> </span><span class="k">volatile</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;mov $smc_address, %%eax&quot;</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;=a&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">address</span><span class="p">));</span><span class="w">
+
+
+        </span><span class="c1">// change page rights
+</span><span class="w">        </span><span class="c1">// address must be aligned at page boundary
+</span><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mprotect</span><span class="p">((</span><span class="kt">void</span><span class="o">*</span><span class="p">)(</span><span class="n">address</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xfffff000</span><span class="p">),</span><span class="w"> </span><span class="mi">4096</span><span class="p">,</span><span class="w"> </span><span class="n">PROT_EXEC</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">PROT_WRITE</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">PROT_READ</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;mprotect: %s</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">strerror</span><span class="p">(</span><span class="n">errno</span><span class="p">));</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;Argument of mov instruction: 0x%08x</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">patch_val</span><span class="p">);</span><span class="w">
+
+        </span><span class="c1">// change argument of mov instruction (opcode: b8 xx yy zz ww)
+</span><span class="w">        </span><span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span><span class="o">*</span><span class="p">)(</span><span class="n">address</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">patch_val</span><span class="p">;</span><span class="w">
+
+
+        </span><span class="n">printf</span><span class="p">(</span><span class="s">&quot;After patch function() returned 0x%08x</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">function</span><span class="p">());</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="konwencja-wywolan-funkcji-systemowych-w-asemblerze">
+<h1>Konwencja wywołań funkcji systemowych w asemblerze</h1>
+<p>W Linuksie funkcje systemowe są dostępne przez przerwanie <tt class="docutils literal">0x80</tt>,
+argumenty są ładowane w następującej kolejności: <tt class="docutils literal">eax</tt>, <tt class="docutils literal">ebx</tt>,
+<tt class="docutils literal">ecx</tt>, <tt class="docutils literal">edx</tt>, <tt class="docutils literal">edi</tt>, <tt class="docutils literal">esi</tt>, <tt class="docutils literal">ebp</tt>.</p>
+<p>Numer funkcji systemowej jest przekazywany w <tt class="docutils literal">eax</tt>, natomiast
+pozostałe argumenty zależą już od rodzaju funkcji, i oczywiście nie
+wszystkie muszą być wykorzystane. Status operacji zwracany jest w
+rejestrze <tt class="docutils literal">eax</tt>, gdy operacja wykona się bezbłędnie jego wartość jest
+równa <tt class="docutils literal">0</tt>, w przeciwnym razie jest to ujemna liczba &mdash; zanegowana
+wartość z pliku <tt class="docutils literal">asm/errno.h</tt>. Pozostałe rejestry nie są zmieniane.</p>
+<p>Po pełen opis funkcji systemowych odsyłam do stron, których linki są
+umieszczone na <a class="reference external" href="http://www.linuxassembly.org/">http://www.linuxassembly.org</a></p>
+<p>Poniżej użyteczne makro (NASM):</p>
+<pre class="literal-block">
+; %1 - eax
+; %2 - ebx
+; %3 - ecx
+; %4 - edx
+; %5 - esi
+; %6 - edi
+; %7 - ebp
+%macro syscall 1-7
+
+__syscall_move eax, %1
+%if %0 &gt;= 2
+        __syscall_move ebx, %2
+%endif
+%if %0 &gt;= 3
+        __syscall_move ecx, %3
+%endif
+%if %0 &gt;= 4
+        __syscall_move edx, %4
+%endif
+%if %0 &gt;= 5
+        __syscall_move esi, %5
+%endif
+%if %0 &gt;= 6
+        __syscall_move edi, %6
+%endif
+%if %0 &gt;= 7
+        __syscall_move ebp, %7
+%endif
+
+int 0x80
+%endmacro
+
+%macro __syscall_move 2
+%ifnidni %1,%2
+        mov %1, %2
+%endif
+%endmacro
+</pre>
+<p>Przykład użycia (<em>hello world</em>):</p>
+<pre class="literal-block">
+segment .data
+
+hello db &quot;hello world!&quot;, 0xa
+
+hellolen equ $-hello
+stdout   equ 1
+
+segment .text
+
+global _start
+_start:
+        syscall 4, stdout, hello, hellolen      ; wypisz na stdout napis
+        syscall 1, 0                            ; zakończenie programu z kodem błędu 0
+</pre>
+<p>Makro zapobiega generowaniu zbędnych przesłań w przypadku, gdy któreś
+rejestry mają żądane wartości. Wystarczy w miejsce znanego parametru podać
+nazwę rejestru odpowiadającemu temu parametrowi, np.:</p>
+<pre class="literal-block">
+syscall 4, ebx, ecx, 5
+</pre>
+<p>wygeneruje kod:</p>
+<pre class="literal-block">
+mov eax, 4
+mov edx, 5
+int 0x80
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/linux_smc.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:32 GMT -->
+</html>

@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2025/reverse-mode-automatic-differentiation/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:38:58 GMT -->
+<head>
+    <title>Reverse mode Automatic Differentiation - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Reverse mode Automatic Differentiation">
+                        Reverse mode Automatic Differentiation
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> January 13, 2025 at 19:02</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/math.html">Math</a>
+        ,
+    <a href="../../tag/machine-learning.html">Machine Learning</a>
+        ,
+    <a href="../../tag/python.html">Python</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>Automatic Differentiation (AD) is an important algorithm for calculating the
+derivatives of arbitrary functions that can be expressed by a computer program.
+One of my favorite CS papers is
+<a class="reference external" href="https://arxiv.org/abs/1502.05767">&quot;Automatic differentiation in machine learning: a survey&quot;</a> by
+Baydin, Perlmutter, Radul and Siskind (ADIMLAS from here on).
+While this post attempts to be useful on its own, it serves best as a followup
+to the ADIMLAS paper - so I strongly encourage you to read that first.</p>
+<p>The main idea of AD is to treat a computation as a nested sequence of function
+compositions, and then calculate the derivative of the outputs w.r.t. the inputs
+using repeated applications of the chain rule. There are two methods of AD:</p>
+<ul class="simple">
+<li>Forward mode: where derivatives are computed starting at the inputs</li>
+<li>Reverse mode: where derivatives are computed starting at the outputs</li>
+</ul>
+<p>Reverse mode AD is a generalization of the <em>backpropagation</em> technique used
+in training neural networks. While backpropagation starts from a single scalar
+output, reverse mode AD works for any number of function outputs. In this post
+I'm going to be describing how reverse mode AD works in detail.</p>
+<p>While reading the ADIMLAS paper is strongly recommended but not required,
+there <em>is</em> one mandatory pre-requisite for this post: a good understanding of
+the chain rule of calculus, including its multivariate formulation. Please
+read <a class="reference external" href="../../2016/the-chain-rule-of-calculus.html">my earlier post on the subject</a>
+first if you're not familiar with it.</p>
+<div class="section" id="linear-chain-graphs">
+<h2>Linear chain graphs</h2>
+<p>Let's start with a simple example where the computation is a linear chain of
+primitive operations: the Sigmoid function.</p>
+<img alt="\[S(x)=\frac{1}{1+e^{-x}}\]" class="align-center" src="../../images/math/9a39d0495ce32da5840b76adaf508a0349394c49.png" style="height: 38px;" />
+<p>This is a basic Python implementation:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="k">return</span> <span class="mi">1</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">x</span><span class="p">))</span>
+</pre></div>
+<p>To apply the chain rule, we'll break down the calculation of <object class="valign-m5" data="../../images/math/fa94a6b584da9e970e40fbcbe4d615031ac59bc2.svg" style="height: 19px;" type="image/svg+xml">S(x)</object> to
+a sequence of function compositions, as follows:</p>
+<object class="align-center" data="../../images/math/33494603270cd9090af303e2e99cf367173f588b.svg" style="height: 119px;" type="image/svg+xml">\[\begin{align*}
+  f(x)&amp;=-x\\
+  g(f)&amp;=e^f\\
+  w(g)&amp;=1+g\\
+  v(w)&amp;=\frac{1}{w}
+\end{align*}\]</object>
+<p>Take a moment to convince yourself that <object class="valign-m5" data="../../images/math/fa94a6b584da9e970e40fbcbe4d615031ac59bc2.svg" style="height: 19px;" type="image/svg+xml">S(x)</object> is equivalent to
+the composition <object class="valign-m5" data="../../images/math/2496463ea05f38acb598c84a70bfcc4692591511.svg" style="height: 19px;" type="image/svg+xml">v\circ(w\circ(g\circ f))(x)</object>.</p>
+<p>The same decomposition of <tt class="docutils literal">sigmoid</tt> into primitives in Python would look as
+follows:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">sigmoid</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="o">-</span><span class="n">x</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="n">w</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">+</span> <span class="n">g</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">w</span>
+    <span class="k">return</span> <span class="n">v</span>
+</pre></div>
+<p>Yet another representation is this computational graph:</p>
+<img alt="Computational graph showing sigmoid" class="align-center" src="../../images/2025/sigmoid-graph.png" />
+<p>Each box (graph node) represents a primitive operation, and the name assigned
+to it (the green rectangle on the right of each box). An arrows (graph edge)
+represent the flow of values between operations.</p>
+<p>Our goal is to find the derivative of <em>S</em> w.r.t. <em>x</em> at some point <img alt="x_0" class="valign-m3" src="../../images/math/efbda784ad565c1c5201fdc948a570d0426bc6e6.png" style="height: 11px;" />,
+denoted as <object class="valign-m5" data="../../images/math/e4ba6fb484fe0c504010c93b6144b99a885a0b97.svg" style="height: 19px;" type="image/svg+xml">S&#x27;(x_0)</object>. The process starts by running the computational
+graph forward with our value of <img alt="x_0" class="valign-m3" src="../../images/math/efbda784ad565c1c5201fdc948a570d0426bc6e6.png" style="height: 11px;" />. As an example, we'll use
+<object class="valign-m3" data="../../images/math/064a529ef0eed72cc7839b45e015ec432a83c9b2.svg" style="height: 16px;" type="image/svg+xml">x_0=0.5</object>:</p>
+<img alt="Computational graph with forward calculation at 0.5" class="align-center" src="../../images/2025/sigmoid-graph-forward-calc.png" />
+<p>Since all the functions in this graph have a single input and a single output,
+it's sufficient to use the single-variable formulation of the chain rule.</p>
+<object class="align-center" data="../../images/math/28362ed858958e6d1e4754338cb3e6bc6aca6026.svg" style="height: 21px;" type="image/svg+xml">\[(g \circ f)&#x27;(x_0)={g}&#x27;(f(x_0)){f}&#x27;(x_0)\]</object>
+<p>To avoid confusion, let's switch notation so we can explicitly see which
+derivatives are involved. For <img alt="f(x)" class="valign-m4" src="../../images/math/3e03f4706048fbc6c5a252a85d066adf107fcc1f.png" style="height: 18px;" /> and <object class="valign-m5" data="../../images/math/5ad8d30dbab83209f45a10850ffbcacf6662321e.svg" style="height: 19px;" type="image/svg+xml">g(f)</object> as before, we can
+write the derivatives like this:</p>
+<object class="align-center" data="../../images/math/2a365d03b211d0f53930958bcf200b18409b32b6.svg" style="height: 40px;" type="image/svg+xml">\[f&#x27;(x)=\frac{df}{dx}\quad g&#x27;(f)=\frac{dg}{df}\]</object>
+<p>Each of these is a function we can evaluate at some point; for example, we
+denote the evaluation of <object class="valign-m5" data="../../images/math/9567f23affb8a7bd391269e4572b0200f9747cb8.svg" style="height: 19px;" type="image/svg+xml">f&#x27;(x)</object> at <img alt="x_0" class="valign-m3" src="../../images/math/efbda784ad565c1c5201fdc948a570d0426bc6e6.png" style="height: 11px;" /> as <object class="valign-m6" data="../../images/math/5bf185ec15f166ab5130fbff525b5dc8a2d91546.svg" style="height: 23px;" type="image/svg+xml">\frac{df}{dx}(x_0)</object>.
+So we can rewrite the chain rule like this:</p>
+<object class="align-center" data="../../images/math/9ec7442f9adf5913013decd3f4959574375fec58.svg" style="height: 42px;" type="image/svg+xml">\[\frac{d(g \circ f)}{dx}(x_0)=\frac{dg}{df}(f(x_0))\frac{df}{dx}(x_0)\]</object>
+<p>Reverse mode AD means applying the chain rule to our computation graph, starting
+with the last operation and ending at the first.
+Remember that our final goal is to calculate:</p>
+<object class="align-center" data="../../images/math/e2774a76c051cd50d2dbf1ae13593fa7f1e773db.svg" style="height: 36px;" type="image/svg+xml">\[\frac{dS}{dx}(x_0)\]</object>
+<p>Where <em>S</em> is a composition of multiple functions. The first composition we
+unravel is the last node in the graph, where <em>v</em> is calculated from <em>w</em>. This is
+the chain rule for it:</p>
+<object class="align-center" data="../../images/math/234154080611fa2d641c60b299b89513aed5dad6.svg" style="height: 38px;" type="image/svg+xml">\[\frac{dS}{dw}=\frac{d(S \circ v)}{dw}(x_0)=\frac{dS}{dv}(v(x_0))\frac{dv}{dw}(x_0)\]</object>
+<p>The formula for <em>S</em> is <object class="valign-m5" data="../../images/math/f5dec59579550096a611d2ed38b64a0935219947.svg" style="height: 19px;" type="image/svg+xml">S(v)=v</object>, so its derivative is 1. The formula for
+<em>v</em> is <object class="valign-m6" data="../../images/math/15935505468369a4c3d1371b6092dd47fb843936.svg" style="height: 22px;" type="image/svg+xml">v(w)=\frac{1}{w}</object>, so its derivative is <object class="valign-m7" data="../../images/math/26a341f4d7d5266620d3ad953a2b3b6cf45d1b42.svg" style="height: 23px;" type="image/svg+xml">-\frac{1}{w^2}</object>.
+Substituting the value of <em>w</em> computed in the forward pass, we get:</p>
+<object class="align-center" data="../../images/math/f4fac2ae8c9004597295e076cb4bbabac5a364f1.svg" style="height: 45px;" type="image/svg+xml">\[\frac{dS}{dw}(x_0)=1\cdot\frac{-1}{w^2}\bigg\rvert_{w=1.61}=-0.39\]</object>
+<p>Continuing backwards from <em>v</em> to <em>w</em>:</p>
+<object class="align-center" data="../../images/math/b16fa07dd10b039349e4addc1948ffe7c1207bed.svg" style="height: 40px;" type="image/svg+xml">\[\frac{dS}{dg}(x_0)=\frac{dS}{dw}(x_0)\frac{dw}{dg}(x_0)\]</object>
+<p>We've already calculated <object class="valign-m6" data="../../images/math/7f843eaca6c53d1341ffd2285f643d0f233d18cb.svg" style="height: 22px;" type="image/svg+xml">\frac{dS}{dw}(x_0)</object> in the previous step. Since
+<object class="valign-m4" data="../../images/math/f16c67e0ba9a5df1ffa4ebe6e9d13dcf9a9df0e1.svg" style="height: 16px;" type="image/svg+xml">w=1+g</object>, we know that <object class="valign-m5" data="../../images/math/93fc061d1af1e6125431be32a6d07be34ae82976.svg" style="height: 19px;" type="image/svg+xml">w&#x27;(g)=1</object>, so:</p>
+<object class="align-center" data="../../images/math/bead5038f022559d95b89314911e713bc88d0a05.svg" style="height: 40px;" type="image/svg+xml">\[\frac{dS}{dg}(x_0)=-0.39\cdot1=-0.39\]</object>
+<p>Continuing similarly down the chain, until we get to the input <em>x</em>:</p>
+<object class="align-center" data="../../images/math/e9b20f826ab6a143e8dc08f0e1d4bffdef1739f1.svg" style="height: 94px;" type="image/svg+xml">\[\begin{align*}
+  \frac{dS}{df}(x_0)&amp;=\frac{dS}{dg}(x_0)\frac{dg}{df}(x_0)=-0.39\cdot e^f\bigg\rvert_{f=-0.5}=-0.24\\
+  \frac{dS}{dx}(x_0)&amp;=\frac{dS}{df}(x_0)\frac{df}{dx}(x_0)=-0.24\cdot -1=0.24
+\end{align*}\]</object>
+<p>We're done; the value of the derivative of the sigmoid function at <object class="valign-0" data="../../images/math/b252e76d8a58888c218a5a4c2d463bdd8f0c0b20.svg" style="height: 13px;" type="image/svg+xml">x=0.5</object>
+is 0.24; this can be easily verified with a calculator using the analytical
+derivative of this function.</p>
+<p>As you can see, this procedure is rather mechanical and it's not surprising that
+it can be automated. Before we get to automation, however, let's review the
+more common scenario where the computational graph is a DAG rather than a linear
+chain.</p>
+</div>
+<div class="section" id="general-dags">
+<h2>General DAGs</h2>
+<p>The sigmoid sample we worked though above has a very simple, linear
+computational graph. Each node has a single predecessor and a single successor;
+moreover, the function itself has a single input and single output. Therefore,
+the single-variable chain rule is sufficient here.</p>
+<p>In the more general case, we'll encounter functions that have multiple inputs,
+may also have multiple outputs <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>, and the internal nodes are connected in
+non-linear patterns. To compute their derivatives, we have to use the
+multivariate chain rule.</p>
+<p>As a reminder, in the most general case we're dealing with a function that has
+<em>n</em> inputs, denoted <object class="valign-m4" data="../../images/math/ea64bb914bc3a768b4557a09b6e79badac50efb6.svg" style="height: 12px;" type="image/svg+xml">a=a_1,a_2\cdots a_n</object>, and <em>m</em>
+outputs, denoted <object class="valign-m4" data="../../images/math/97ca4dff67272bbafc9631d485c7687d07dffe90.svg" style="height: 16px;" type="image/svg+xml">f_1,f_2\cdots f_m</object>. In other words, the function is
+mapping <img alt="f:\mathbb{R}^{n} \to \mathbb{R}^{m}" class="valign-m4" src="../../images/math/13f219789047343729036279bb11630db317d98d.png" style="height: 16px;" />.</p>
+<p>The partial derivative of output <em>i</em> w.r.t. input <em>j</em> at some point <em>a</em> is:</p>
+<img alt="\[D_j f_i(a)=\frac{\partial f_i}{\partial a_j}(a)\]" class="align-center" src="../../images/math/30881b5a92e45259714ba01c7a12fbf8f6c56109.png" style="height: 42px;" />
+<p>Assuming <em>f</em> is differentiable at <em>a</em>, then the complete derivative of <em>f</em>
+w.r.t. its inputs can be represented by the <em>Jacobian matrix</em>:</p>
+<img alt="\[Df(a)=\begin{bmatrix} D_1 f_1(a) &amp;amp; \cdots &amp;amp; D_n f_1(a) \\ \vdots &amp;amp;  &amp;amp; \vdots \\ D_1 f_m(a) &amp;amp; \cdots &amp;amp; D_n f_m(a) \\ \end{bmatrix}\]" class="align-center" src="../../images/math/ab09367d48e9ef4d8bc2314a60313dec700193af.png" style="height: 76px;" />
+<p>The multivariate chain rule then states that if we compose <object class="valign-m4" data="../../images/math/fc2de39fe9cb2349e17b06356b230494023e2663.svg" style="height: 16px;" type="image/svg+xml">f\circ g</object>
+(and assuming all the dimensions are correct), the derivative is:</p>
+<img alt="\[D(f \circ g)(a)=Df(g(a)) \cdot Dg(a)\]" class="align-center" src="../../images/math/00bdefa904bd34df2dfb50cc385e6497c4e5096e.png" style="height: 18px;" />
+<p>This is the matrix multiplication of <img alt="Df(g(a))" class="valign-m4" src="../../images/math/e567730c48bb2f95c258b630b4d6e997043e09ab.png" style="height: 18px;" /> and <img alt="Dg(a)" class="valign-m4" src="../../images/math/2575fc98e794a733a7aa6237fe67246a41e6c8c5.png" style="height: 18px;" />.</p>
+<div class="section" id="linear-nodes">
+<h3>Linear nodes</h3>
+<p>As a warmup, let's start with a linear node that has a single input and a single
+output:</p>
+<img alt="A single node f(x) with one input and one output" class="align-center" src="../../images/2025/linear-node.png" />
+<p>In all these examples, we assume the full graph output is <em>S</em>, and its
+derivative by the node's outputs is
+<object class="valign-m9" data="../../images/math/f57c6269b575f0c225f18e0bef2f974a5a048802.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial S}{\partial f}</object>.
+We're then interested in finding <object class="valign-m6" data="../../images/math/0367612a0ebda078dea5f14a1fe973802a982d52.svg" style="height: 23px;" type="image/svg+xml">\frac{\partial S}{\partial x}</object>.
+Since since <object class="valign-m4" data="../../images/math/77d5e13c951f5a369089f05a0505728896773ed3.svg" style="height: 16px;" type="image/svg+xml">f:\mathbb{R}\to\mathbb{R}</object>, the Jacobian is just a scalar:</p>
+<object class="align-center" data="../../images/math/507412aef50458ce55fd10110906db71979a548b.svg" style="height: 37px;" type="image/svg+xml">\[Df=\frac{\partial f}{\partial x}\]</object>
+<p>And the chain rule is:</p>
+<object class="align-center" data="../../images/math/9d9fc987a32c5c653bccfce4a89ee860b14286ff.svg" style="height: 41px;" type="image/svg+xml">\[D(S\circ f)=DS(f)\cdot Df=\frac{\partial S}{\partial f}\frac{\partial f}{\partial x}\]</object>
+<p>No surprises so far - this is just the single variable chain rule!</p>
+</div>
+<div class="section" id="fan-in">
+<h3>Fan-in</h3>
+<p>Let's move on to the next scenario, where <em>f</em> has two inputs:</p>
+<img alt="A single node f(x1,x2) with two inputs and one output" class="align-center" src="../../images/2025/fan-in-node.png" />
+<p>Once again, we already have the derivative <object class="valign-m9" data="../../images/math/f57c6269b575f0c225f18e0bef2f974a5a048802.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial S}{\partial f}</object>
+available, and we're interested in finding the derivative of <em>S</em> w.r.t. the
+inputs.</p>
+<p>In this case, <object class="valign-m4" data="../../images/math/20b92036dc896227ef062a8bbe58ba8c022805ab.svg" style="height: 19px;" type="image/svg+xml">f:\mathbb{R}^2\to\mathbb{R}</object>, so the Jacobian is a 1x2
+matrix:</p>
+<object class="align-center" data="../../images/math/0d81f11639f8d8506ca7bdc461d5e5d3a9cc2e5b.svg" style="height: 42px;" type="image/svg+xml">\[Df=\left [
+  \frac{\partial f}{\partial x_1} \quad \frac{\partial f}{\partial x_2}
+\right ]\]</object>
+<p>And the chain rule here means multiplying a 1x1 matrix by a 1x2 matrix:</p>
+<object class="align-center" data="../../images/math/057bba77db0d7abde54de3542704c4f5e0c32ff9.svg" style="height: 42px;" type="image/svg+xml">\[D(S\circ f)=DS(f)\cdot Df=
+  \left [ \frac{\partial S}{\partial f} \right ]
+  \left [ \frac{\partial f}{\partial x_1} \quad \frac{\partial f}{\partial x_2} \right ]
+= \left [ \frac{\partial S}{\partial f} \frac{\partial f}{\partial x_1} \quad \frac{\partial S}{\partial f} \frac{\partial f}{\partial x_2} \right ]\]</object>
+<p>Therefore, we see that the output derivative propagates to each input
+separately:</p>
+<object class="align-center" data="../../images/math/781df9a4c6233932820bc19c4a6b155b86522aa5.svg" style="height: 87px;" type="image/svg+xml">\[\begin{align*}
+  \frac{\partial S}{\partial x_1}&amp;=\frac{\partial S}{\partial f} \frac{\partial f}{\partial x_1}\\
+  \frac{\partial S}{\partial x_2}&amp;=\frac{\partial S}{\partial f} \frac{\partial f}{\partial x_2}
+\end{align*}\]</object>
+</div>
+<div class="section" id="fan-out">
+<h3>Fan-out</h3>
+<p>In the most general case, <em>f</em> may have multiple inputs but its output may also
+be used by more than one other node. As a concrete example, here's a node with
+three inputs and an output that's used in two places:</p>
+<img alt="A single node f(x1,x2,x3) with three inputs and two outputs" class="align-center" src="../../images/2025/fan-out-node.png" />
+<p>While we denote each output edge from <em>f</em> with a different name, <em>f</em>
+has a single output! This point is a bit subtle and important to dwell on:
+yes, <em>f</em> has a single output, so in the forward calculation both <object class="valign-m4" data="../../images/math/0b35cc5e94a0d7682217d901f757b70990808891.svg" style="height: 16px;" type="image/svg+xml">f_1</object>
+and <object class="valign-m4" data="../../images/math/9f68396d20ac17fe4705c1bf347774699bc27a3e.svg" style="height: 16px;" type="image/svg+xml">f_2</object> will have the same value. However, we have to treat them
+differently for the derivative calculation, because it's very possible that
+<object class="valign-m9" data="../../images/math/18c0d7d012453644b8448317709f2e54ebf0599c.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial S}{\partial f_1}</object> and <object class="valign-m9" data="../../images/math/ceaa592c34f5079817c6abcfa6fabf5b2a3ed061.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial S}{\partial f_2}</object>
+are different!</p>
+<p>In other words, we're reusing the machinery of multi-output functions here.
+If <em>f</em> had multiple outputs (e.g. a vector function), everything would work
+exactly the same.</p>
+<p>In this case, since we treat <em>f</em> as <object class="valign-m4" data="../../images/math/c0ac304ca884452f91df6662e7f6919db48d69f9.svg" style="height: 19px;" type="image/svg+xml">f:\mathbb{R}^3\to\mathbb{R}^2</object>,
+its Jacobian is a 2x3 matrix:</p>
+<object class="align-center" data="../../images/math/1a29aa7661d6293f39df5cf65181e04848ed6b82.svg" style="height: 75px;" type="image/svg+xml">\[Df=
+\begin{bmatrix}
+  \frac{\partial f_1}{\partial x_1} &amp; \frac{\partial f_1}{\partial x_2} &amp; \frac{\partial f_1}{\partial x_3} \\ \\
+  \frac{\partial f_2}{\partial x_1} &amp; \frac{\partial f_2}{\partial x_2} &amp; \frac{\partial f_2}{\partial x_3} \\
+\end{bmatrix}\]</object>
+<p>The Jacobian <object class="valign-m5" data="../../images/math/a6de1a158410623c078f4274fe7c35e95fa36d98.svg" style="height: 19px;" type="image/svg+xml">DS(f)</object> is a 1x2 matrix:</p>
+<object class="align-center" data="../../images/math/7aae6e867bb005f41aed0591aee6d837dff93795.svg" style="height: 42px;" type="image/svg+xml">\[DS(f)=\left [ \frac{\partial S}{\partial f_1} \quad \frac{\partial S}{\partial f_2} \right ]\]</object>
+<p>Applying the chain rule:</p>
+<object class="align-center" data="../../images/math/885af1372b513038aa1d6f52fc9e2d69e4e8f9a1.svg" style="height: 123px;" type="image/svg+xml">\[\begin{align*}
+D(S\circ f)=DS(f)\cdot Df&amp;=
+\left [ \frac{\partial S}{\partial f_1} \quad \frac{\partial S}{\partial f_2} \right ]
+  \begin{bmatrix}
+  \frac{\partial f_1}{\partial x_1} &amp; \frac{\partial f_1}{\partial x_2} &amp; \frac{\partial f_1}{\partial x_3} \\ \\
+  \frac{\partial f_2}{\partial x_1} &amp; \frac{\partial f_2}{\partial x_2} &amp; \frac{\partial f_2}{\partial x_3} \\
+\end{bmatrix}\\
+&amp;=
+\left [
+\frac{\partial S}{\partial f_1}\frac{\partial f_1}{\partial x_1}+\frac{\partial S}{\partial f_2}\frac{\partial f_2}{\partial x_1}\qquad
+\frac{\partial S}{\partial f_1}\frac{\partial f_1}{\partial x_2}+\frac{\partial S}{\partial f_2}\frac{\partial f_2}{\partial x_2}\qquad
+\frac{\partial S}{\partial f_1}\frac{\partial f_1}{\partial x_3}+\frac{\partial S}{\partial f_2}\frac{\partial f_2}{\partial x_3}
+\right ]
+\end{align*}\]</object>
+<p>Therefore, we have:</p>
+<object class="align-center" data="../../images/math/5148bfc79c2c82a178c9a0818931405d8067befd.svg" style="height: 134px;" type="image/svg+xml">\[\begin{align*}
+  \frac{\partial S}{\partial x_1}&amp;=\frac{\partial S}{\partial f_1}\frac{\partial f_1}{\partial x_1}+\frac{\partial S}{\partial f_2}\frac{\partial f_2}{\partial x_1}\\
+  \frac{\partial S}{\partial x_2}&amp;=\frac{\partial S}{\partial f_1}\frac{\partial f_1}{\partial x_2}+\frac{\partial S}{\partial f_2}\frac{\partial f_2}{\partial x_2}\\
+  \frac{\partial S}{\partial x_3}&amp;=\frac{\partial S}{\partial f_1}\frac{\partial f_1}{\partial x_3}+\frac{\partial S}{\partial f_2}\frac{\partial f_2}{\partial x_3}
+\end{align*}\]</object>
+<p>The key point here - which we haven't encountered before - is that the derivatives
+through <em>f</em> add up for each of its outputs (or for each copy of its output).
+Qualitatively, it means that the sensitivity of <em>f</em>'s input to the output is
+the sum of its sensitivities across each output separately. This makes logical
+sense, and mathematically it's just the consequence of the dot product inherent
+in matrix multiplication.</p>
+<p>Now that we understand how reverse mode AD works for the more general case
+of DAG nodes, let's work through a complete example.</p>
+</div>
+</div>
+<div class="section" id="general-dags-full-example">
+<h2>General DAGs - full example</h2>
+<p>Consider this function (a sample used in the ADIMLAS paper):</p>
+<object class="align-center" data="../../images/math/1568c8ae7ffdb24afc990d937585b7a779e185b2.svg" style="height: 19px;" type="image/svg+xml">\[f(x_1, x_2)=ln(x_1)+x_1 x_2-sin(x_2)\]</object>
+<p>It has two inputs and a single output; once we decompose it to primitive
+operations, we can represent it with the following computational graph <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>:</p>
+<img alt="Computational graph of f as function of x_1 and x_2" class="align-center" src="../../images/2025/fpaper-graph.png" />
+<p>As before, we begin by running the computation forward for the values of
+<object class="valign-m4" data="../../images/math/c5ea3aabcca7242c957a64cb671c96944ec70bcc.svg" style="height: 12px;" type="image/svg+xml">x_1,x_2</object> at which we're interested to find the derivative. Let's take
+<object class="valign-m3" data="../../images/math/a1e99f7b67c1a129f77df5026f3701a5cfbdcc3f.svg" style="height: 15px;" type="image/svg+xml">x_1=2</object> and <object class="valign-m3" data="../../images/math/c2025f310759a37b724da44e26ea744680a2743e.svg" style="height: 16px;" type="image/svg+xml">x_2=5</object>:</p>
+<img alt="Computational graph with forward calculation at 2, 5" class="align-center" src="../../images/2025/fpaper-graph-forward-calc.png" />
+<p>Recall that our goal is to calculate <object class="valign-m8" data="../../images/math/92a7ef7129edaf480d777987e2b69306fff75f87.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial f}{\partial x_1}</object>
+and <object class="valign-m8" data="../../images/math/0af90c749150f76175dd2af7dc930774ab7579c0.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial f}{\partial x_2}</object>. Initially we know that
+<object class="valign-m8" data="../../images/math/dc5d153e1b607ee33620d8c97cc46edf61fa7696.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial f}{\partial v_5}=1</object> <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>.</p>
+<p>Starting with the <object class="valign-m3" data="../../images/math/ca513d085e9f35047a4c85c1759e63b9f3d23e5b.svg" style="height: 11px;" type="image/svg+xml">v_5</object> node, let's use the fan-in formulas developed
+earlier:</p>
+<object class="align-center" data="../../images/math/b45f5a7e39c1f64899b95d2ea3ef7562401b3eeb.svg" style="height: 85px;" type="image/svg+xml">\[\begin{align*}
+  \frac{\partial f}{\partial v_4}&amp;=\frac{\partial f}{\partial v_5} \frac{\partial v_5}{\partial v_4}=1\cdot 1=1\\
+  \frac{\partial f}{\partial v_3}&amp;=\frac{\partial f}{\partial v_5} \frac{\partial v_5}{\partial v_3}=1\cdot -1=-1
+\end{align*}\]</object>
+<p>Next, let's tackle <object class="valign-m3" data="../../images/math/9a69ccb973264d203d460f9a7e0df867faf7e918.svg" style="height: 11px;" type="image/svg+xml">v_4</object>. It also has a fan-in configuration, so we'll
+use similar formulas, plugging in the value of <object class="valign-m8" data="../../images/math/39e8a55c9a3ae7936e835846a6ed4c631922e039.svg" style="height: 26px;" type="image/svg+xml">\frac{\partial f}{\partial v_4}</object> we've just
+calculated:</p>
+<object class="align-center" data="../../images/math/e735c4d3d5ef555607e8acde0f84310291277101.svg" style="height: 85px;" type="image/svg+xml">\[\begin{align*}
+  \frac{\partial f}{\partial v_1}&amp;=\frac{\partial f}{\partial v_4} \frac{\partial v_4}{\partial v_1}=1\cdot 1=1\\
+  \frac{\partial f}{\partial v_2}&amp;=\frac{\partial f}{\partial v_4} \frac{\partial v_4}{\partial v_2}=1\cdot 1=1
+\end{align*}\]</object>
+<p>On to <object class="valign-m4" data="../../images/math/9b12bbf79036cb3e904f971fd86838db1dade1aa.svg" style="height: 12px;" type="image/svg+xml">v_1</object>. It's a simple linear node, so:</p>
+<object class="align-center" data="../../images/math/55bb2c892485048d8ccb9796017d2002cd205231.svg" style="height: 44px;" type="image/svg+xml">\[\frac{\partial f}{\partial x_1}^{(1)}=\frac{\partial f}{\partial v_1} \frac{\partial v_1}{\partial x_1}=1\cdot \frac{1}{x_1}=0.5\]</object>
+<p>Note the (1) superscript though! Since <object class="valign-m3" data="../../images/math/593f4cff5d4210d46e140db57bafc4f692493f76.svg" style="height: 11px;" type="image/svg+xml">x_1</object> is a fan-out node, it will have
+more than one contribution to its derivative; we've just computed the one from
+<object class="valign-m4" data="../../images/math/9b12bbf79036cb3e904f971fd86838db1dade1aa.svg" style="height: 12px;" type="image/svg+xml">v_1</object>. Next, let's compute the one from <object class="valign-m3" data="../../images/math/2e84f52c0f54659a1f533b25591adb924f2a4131.svg" style="height: 11px;" type="image/svg+xml">v_2</object>. That's another
+fan-in node:</p>
+<object class="align-center" data="../../images/math/abb4615332fa4d17f90efc39ef6574223a66c901.svg" style="height: 94px;" type="image/svg+xml">\[\begin{align*}
+  \frac{\partial f}{\partial x_1}^{(2)}&amp;=\frac{\partial f}{\partial v_2} \frac{\partial v_2}{\partial x_1}=1\cdot x_2=5\\
+  \frac{\partial f}{\partial x_2}^{(1)}&amp;=\frac{\partial f}{\partial v_2} \frac{\partial v_2}{\partial x_2}=1\cdot x_1=2
+\end{align*}\]</object>
+<p>We've calculated the other contribution to the <object class="valign-m3" data="../../images/math/593f4cff5d4210d46e140db57bafc4f692493f76.svg" style="height: 11px;" type="image/svg+xml">x_1</object> derivative, and the
+first out of two contributions for the <object class="valign-m3" data="../../images/math/a8728ff397f08f1999170f64ff5838333f755380.svg" style="height: 11px;" type="image/svg+xml">x_2</object> derivative. Next, let's
+handle <object class="valign-m3" data="../../images/math/73db09ec63501c91f822ea29cefadf3bb9837084.svg" style="height: 11px;" type="image/svg+xml">v_3</object>:</p>
+<object class="align-center" data="../../images/math/6a9dce7fcdeee31cdf6dead194b8d3898b04db61.svg" style="height: 44px;" type="image/svg+xml">\[\frac{\partial f}{\partial x_2}^{(2)}=\frac{\partial f}{\partial v_3} \frac{\partial v_3}{\partial x_2}=-1\cdot cos(x_2)=-0.28\]</object>
+<p>Finally, we're ready to add up the derivative contributions for the input arguments.
+<object class="valign-m3" data="../../images/math/593f4cff5d4210d46e140db57bafc4f692493f76.svg" style="height: 11px;" type="image/svg+xml">x_1</object> is a &quot;fan-out&quot; node, with two outputs. Recall from the section above
+that we just sum their contributions:</p>
+<object class="align-center" data="../../images/math/2905b796b72079d5677b85735f0e8715a5bfd0da.svg" style="height: 44px;" type="image/svg+xml">\[\frac{\partial f}{\partial x_1}=\frac{\partial f}{\partial x_1}^{(1)}+\frac{\partial f}{\partial x_1}^{(2)}=0.5+5=5.5\]</object>
+<p>And:</p>
+<object class="align-center" data="../../images/math/98bfd4fb2ad61c35ffc3d5e45ff26c0886829a6e.svg" style="height: 44px;" type="image/svg+xml">\[\frac{\partial f}{\partial x_2}=\frac{\partial f}{\partial x_2}^{(1)}+\frac{\partial f}{\partial x_2}^{(2)}=2-0.28=1.72\]</object>
+<p>And we're done! Once again, it's easy to verify - using a calculator and the
+analytical derivatives of <object class="valign-m5" data="../../images/math/c644ca35529294cbdae3f76b2dab55120f5cbdbf.svg" style="height: 19px;" type="image/svg+xml">f(x_1,x_2)</object> - that these are the right
+derivatives at the given points.</p>
+</div>
+<div class="section" id="backpropagation-in-ml-reverse-mode-ad-and-vjps">
+<h2>Backpropagation in ML, reverse mode AD and VJPs</h2>
+<p>A quick note on reverse mode AD vs forward mode (please read the ADIMLAS paper
+for much more details):</p>
+<p>Reverse mode AD is the approach commonly used for machine learning and neural
+networks, because these tend to have a scalar <em>loss</em> (or <em>error</em>) output that we
+want to minimize. In reverse mode, we have to run AD once per output, while in
+forward mode we'd have to run it once per <em>input</em>. Therefore, when the input
+size is much larger than the output size (as is the case in NNs), reverse mode
+is preferable.</p>
+<p>There's another advantage, and it relates to the term <em>vector-jacobian product</em>
+(VJP) that you will definitely run into once you start digging deeper in this
+domain.</p>
+<p>The VJP is basically a fancy way of saying &quot;using the chain rule in reverse mode
+AD&quot;. Recall that in the most general case, the multivariate chain rule is:</p>
+<img alt="\[D(f \circ g)(a)=Df(g(a)) \cdot Dg(a)\]" class="align-center" src="../../images/math/00bdefa904bd34df2dfb50cc385e6497c4e5096e.png" style="height: 18px;" />
+<p>However, in the case of reverse mode AD, we typically have a single output
+from the full graph, so <img alt="Df(g(a))" class="valign-m4" src="../../images/math/e567730c48bb2f95c258b630b4d6e997043e09ab.png" style="height: 18px;" /> is a row vector. The chain rule
+then means multiplying this row vector by a matrix representing the node's
+jacobian. This is the <em>vector-jacobian product</em>, and its output is another
+row vector. Scroll back to the <em>Fan-out</em> sample to see an example of this.</p>
+<p>This may not seem very profound so far, but it carries an important meaning in
+terms of computational efficiency. For each node in the graph, we don't have
+to store its complete jacobian; all we need is a function that takes a row
+vector and produces the VJP. This is important because jacobians can be very
+large and very sparse <a class="footnote-reference" href="#footnote-4" id="footnote-reference-4">[4]</a>. In practice, this means that when AD libraries
+define the derivative of a computation node, they don't ask you to register
+a complete jacobian for each operation, but rather a VJP.</p>
+<p>This also provides an additional way to think about the relative efficiency of
+reverse mode AD for ML
+applications; since a graph typically has many inputs (all the weights), and a
+single output (scalar loss), accumulating from the end going backwards means the
+intermediate products are VJPs that are row vectors; accumulating from the front
+would mean multiplying full jacobians together, and the intermediate results
+would be matrices <a class="footnote-reference" href="#footnote-5" id="footnote-reference-5">[5]</a>.</p>
+</div>
+<div class="section" id="a-simple-python-implementation-of-reverse-mode-ad">
+<h2>A simple Python implementation of reverse mode AD</h2>
+<p>Enough equations, let's see some code! The whole point of AD is that it's
+<em>automatic</em>, meaning that it's simple to implement in a program. What follows
+is the simplest implementation I could think of; it requires one to build
+expressions out of a special type, which can then calculate gradients
+automatically.</p>
+<p>Let's start with some usage samples; here's the Sigmoid calculation presented
+earlier:</p>
+<div class="highlight"><pre><span></span><span class="n">xx</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+<span class="n">sigmoid</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">xx</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;xx = </span><span class="si">{</span><span class="n">xx</span><span class="o">.</span><span class="n">v</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">, sigmoid = </span><span class="si">{</span><span class="n">sigmoid</span><span class="o">.</span><span class="n">v</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">sigmoid</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;dsigmoid/dxx = </span><span class="si">{</span><span class="n">xx</span><span class="o">.</span><span class="n">gv</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+<p>We begin by building the Sigmoid expression using <tt class="docutils literal">Var</tt> values (more on this
+later). We can then run the <tt class="docutils literal">grad</tt> method on a <tt class="docutils literal">Var</tt>, with an output
+gradient of 1.0 and see that the gradient for <tt class="docutils literal">xx</tt> is 0.24, as calculated
+before.</p>
+<p>Here's the expression we used for the DAG section:</p>
+<div class="highlight"><pre><span></span><span class="n">x1</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="mf">2.0</span><span class="p">)</span>
+<span class="n">x2</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="mf">5.0</span><span class="p">)</span>
+<span class="n">f</span> <span class="o">=</span> <span class="n">log</span><span class="p">(</span><span class="n">x1</span><span class="p">)</span> <span class="o">+</span> <span class="n">x1</span> <span class="o">*</span> <span class="n">x2</span> <span class="o">-</span> <span class="n">sin</span><span class="p">(</span><span class="n">x2</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;x1 = </span><span class="si">{</span><span class="n">x1</span><span class="o">.</span><span class="n">v</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">, x2 = </span><span class="si">{</span><span class="n">x2</span><span class="o">.</span><span class="n">v</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">, f = </span><span class="si">{</span><span class="n">f</span><span class="o">.</span><span class="n">v</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="n">f</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;df/dx1 = </span><span class="si">{</span><span class="n">x1</span><span class="o">.</span><span class="n">gv</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">, df/dx2 = </span><span class="si">{</span><span class="n">x2</span><span class="o">.</span><span class="n">gv</span><span class="si">:</span><span class="s2">.2</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+<p>Once again, we build up the expression, then call <tt class="docutils literal">grad</tt> on the final value.
+It will populate the <tt class="docutils literal">gv</tt> attributes of input <tt class="docutils literal">Var</tt>s with the derivatives
+calculated w.r.t. these inputs.</p>
+<p>Let's see how <tt class="docutils literal">Var</tt> works. The high-level overview is:</p>
+<ul class="simple">
+<li>A <tt class="docutils literal">Var</tt> represents a node in the computational graph we've been discussing
+in this post.</li>
+<li>Using operator overloading and custom math functions (like the <tt class="docutils literal">exp</tt>, <tt class="docutils literal">sin</tt>
+and <tt class="docutils literal">log</tt> seen in the samples above), when an expression is constructed
+out of <tt class="docutils literal">Var</tt> values, we also build the computational graph in the
+background. Each <tt class="docutils literal">Var</tt> has links to its <em>predecessors</em> in the graph (the
+other <tt class="docutils literal">Var</tt>s that feed into it).</li>
+<li>When the <tt class="docutils literal">grad</tt> method is called, it runs reverse mode AD through the
+computational graph, using the chain rule.</li>
+</ul>
+<p>Here's the <tt class="docutils literal">Var</tt> class:</p>
+<div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Var</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">v</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">v</span> <span class="o">=</span> <span class="n">v</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">predecessors</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gv</span> <span class="o">=</span> <span class="mf">0.0</span>
+</pre></div>
+<p><tt class="docutils literal">v</tt> is the value (forward calculation) of this <tt class="docutils literal">Var</tt>. <tt class="docutils literal">predecessors</tt> is
+the list of predecessors, each of this type:</p>
+<div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span> <span class="nc">Predecessor</span><span class="p">:</span>
+    <span class="n">multiplier</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">var</span><span class="p">:</span> <span class="s2">&quot;Var&quot;</span>
+</pre></div>
+<p>Consider the <tt class="docutils literal">v5</tt> node in DAG sample, for example. It represents the
+calculation <tt class="docutils literal"><span class="pre">v4-v3</span></tt>. The <tt class="docutils literal">Var</tt> representing <tt class="docutils literal">v5</tt> will have a list of
+two predecessors, one for <tt class="docutils literal">v4</tt> and one for <tt class="docutils literal">v3</tt>. Each of these will
+have a &quot;multiplier&quot; associated with it:</p>
+<ul class="simple">
+<li>For <tt class="docutils literal">v3</tt>, <tt class="docutils literal">Predecessor.var</tt> points to the <tt class="docutils literal">Var</tt> representing <tt class="docutils literal">v3</tt>
+and <tt class="docutils literal">Predecessor.multiplier</tt> is -1, since this is the derivative
+of <tt class="docutils literal">v5</tt> w.r.t. <tt class="docutils literal">v3</tt></li>
+<li>Similarly, for <tt class="docutils literal">v4</tt>, <tt class="docutils literal">Predecessor.var</tt> points to the <tt class="docutils literal">Var</tt> representing
+<tt class="docutils literal">v4</tt> and <tt class="docutils literal">Predecessor.multiplier</tt> is 1.</li>
+</ul>
+<p>Let's see some overloaded operators of <tt class="docutils literal">Var</tt> <a class="footnote-reference" href="#footnote-6" id="footnote-reference-6">[6]</a>:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="fm">__add__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+    <span class="n">other</span> <span class="o">=</span> <span class="n">ensure_var</span><span class="p">(</span><span class="n">other</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">v</span> <span class="o">+</span> <span class="n">other</span><span class="o">.</span><span class="n">v</span><span class="p">)</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">predecessors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Predecessor</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">predecessors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Predecessor</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">other</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+<span class="c1"># ...</span>
+
+<span class="k">def</span> <span class="fm">__mul__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+    <span class="n">other</span> <span class="o">=</span> <span class="n">ensure_var</span><span class="p">(</span><span class="n">other</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">v</span> <span class="o">*</span> <span class="n">other</span><span class="o">.</span><span class="n">v</span><span class="p">)</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">predecessors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Predecessor</span><span class="p">(</span><span class="n">other</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">predecessors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Predecessor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">other</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">out</span>
+</pre></div>
+<p>And some of the custom math functions:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">log</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;log(x) - natural logarithm of x&quot;&quot;&quot;</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">ensure_var</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">v</span><span class="p">))</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">predecessors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Predecessor</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">/</span> <span class="n">x</span><span class="o">.</span><span class="n">v</span><span class="p">,</span> <span class="n">x</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">out</span>
+
+
+<span class="k">def</span> <span class="nf">sin</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;sin(x)&quot;&quot;&quot;</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">ensure_var</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">Var</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">v</span><span class="p">))</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">predecessors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Predecessor</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">v</span><span class="p">),</span> <span class="n">x</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">out</span>
+</pre></div>
+<p>Note how the multipliers for each node are exactly the derivatives of its
+output w.r.t. corresponding input. Notice also that in some cases we use the
+forward calculated value of a <tt class="docutils literal">Var</tt>'s inputs to calculate this derivative
+(e.g. in the case of <tt class="docutils literal">sin(x)</tt>, the derivative is <tt class="docutils literal">cos(x)</tt>, so we need the
+actual value of <tt class="docutils literal">x</tt>).</p>
+<p>Finally, this is the <tt class="docutils literal">grad</tt> method:</p>
+<div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">grad</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gv</span><span class="p">):</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">gv</span> <span class="o">+=</span> <span class="n">gv</span>
+    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">predecessors</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">var</span><span class="o">.</span><span class="n">grad</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">multiplier</span> <span class="o">*</span> <span class="n">gv</span><span class="p">)</span>
+</pre></div>
+<p>Some notes about this method:</p>
+<ul class="simple">
+<li>It has to be invoked on a <tt class="docutils literal">Var</tt> node that represents the entire computation.</li>
+<li>Since this function walks the graph backwards (from the outputs to the inputs),
+this is the direction our graph edges are pointing (we keep track of the
+predecessors of each node, not the successors).</li>
+<li>Since we typically want the derivative of some output &quot;loss&quot; w.r.t. each
+<tt class="docutils literal">Var</tt>, the computation will usually start with <tt class="docutils literal">grad(1.0)</tt>, because the
+output of the entire computation <em>is</em> the loss.</li>
+<li>For each node, <tt class="docutils literal">grad</tt> adds the incoming gradient to its own, and propagates
+the incoming gradient to each of its predecessors, using the relevant
+multiplier.</li>
+<li>The addition <tt class="docutils literal">self.gv += gv</tt> is key to managing nodes with fan-out. Recall
+our discussion from the DAG section - according to the multivariate chain rule,
+fan-out nodes' derivatives add up for each of their outputs.</li>
+<li>This implementation of <tt class="docutils literal">grad</tt> is very simplistic and inefficient because it
+will process the same <tt class="docutils literal">Var</tt> multiple times in complex graphs. A more
+efficient implementation would sort the graph topologically first and then
+would only have to visit each <tt class="docutils literal">Var</tt> once.</li>
+<li>Since the gradient of each <tt class="docutils literal">Var</tt> adds up, one shouldn't be reusing <tt class="docutils literal">Var</tt>s
+between different computations. Once <tt class="docutils literal">grad</tt> was run, the <tt class="docutils literal">Var</tt> should
+not be used for other <tt class="docutils literal">grad</tt> calculations.</li>
+</ul>
+<p>The full code for this sample is <a class="reference external" href="https://github.com/eliben/code-for-blog/blob/main/2025/rad/rad.py">available here</a>.</p>
+</div>
+<div class="section" id="conclusion">
+<h2>Conclusion</h2>
+<p>The goal of this post is to serve as a supplement for the ADIMLAS paper; once
+again, if the topic of AD is interesting to you, I strongly encourage you to
+read the paper! I hope this post added something on top - please let me know
+if you have any questions.</p>
+<p>Industrial strength implementations of AD, like <a class="reference external" href="https://github.com/HIPS/autograd/">autograd</a>
+and <a class="reference external" href="https://github.com/jax-ml/jax">JAX</a>, have much better ergonomics and
+performance than the toy implementation shown above. That said, the underlying
+principles are similar - reverse mode AD on computational graphs. To explore
+how such a system works, see my
+<a class="reference external" href="https://github.com/eliben/radgrad">radgrad</a> project.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>In this post we're only looking at single-output graphs, however, since
+these are typically sufficient in machine learning (the output is some
+scalar &quot;loss&quot; or &quot;error&quot; that we're trying to minimize). That said,
+for functions with multiple outputs the process is very similar - we just
+have to run the reverse mode AD process for each output variable
+separately.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>Note that the notation here is a bit different from the one used for
+the sigmoid function. This notation is adopted from the ADIMLAS paper,
+which uses <object class="valign-m3" data="../../images/math/f0cd317158e9b3b19134b2c5db4e0861fcd95222.svg" style="height: 11px;" type="image/svg+xml">v_i</object> for all temporary values within the graph.
+I'm keeping the notations different to emphasize they have absolutely
+no bearing on the math and the AD algorithm. They're just a naming
+convention.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>For consistency, I'll be using the partial derivative notation
+throughout this example, even for nodes that have a single input and
+output.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-4" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-4">[4]</a></td><td>For an example of gigantic, sparse jacobians see my older post
+on <a class="reference external" href="../../2018/backpropagation-through-a-fully-connected-layer/index.html">backpropagation through a fully connected layer</a>.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-5">[5]</a></td><td>There are a lot of additional nuances here to explain; I strongly
+recommend this <a class="reference external" href="https://videolectures.net/videos/deeplearning2017_johnson_automatic_differentiation">excellent lecture</a>
+by <a class="reference external" href="https://github.com/mattjj">Matthew Johnson</a> (of JAX and autograd
+fame) for a deeper overview.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-6" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-6">[6]</a></td><td>These use the utility function <tt class="docutils literal">ensure_var</tt>; all it does is wrap the
+its argument in a <tt class="docutils literal">Var</tt> if it's not already a <tt class="docutils literal">Var</tt>. This is needed
+to wrap constants in the expression, to ensure that the computational
+graph includes everything.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2025/reverse-mode-automatic-differentiation/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:38:58 GMT -->
+</html>

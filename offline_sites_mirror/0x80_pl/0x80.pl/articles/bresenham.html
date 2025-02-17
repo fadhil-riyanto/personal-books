@@ -1,0 +1,599 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/bresenham.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:41 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Algorytm Bresenhama</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="algorytm-bresenhama">
+<h1 class="title">Algorytm Bresenhama</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">4.10.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">4.02.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#demonstracje-on-line" id="toc-entry-2">Demonstracje <em>on-line</em></a></li>
+<li><a class="reference internal" href="#algorytm-z-punktem-srodkowym" id="toc-entry-3">1. Algorytm z punktem środkowym</a><ul>
+<li><a class="reference internal" href="#zalozenia" id="toc-entry-4">1.1. Założenia</a></li>
+<li><a class="reference internal" href="#algorytm" id="toc-entry-5">1.2 Algorytm</a></li>
+<li><a class="reference internal" href="#roznice-pierwszego-i-drugiego-rzedu" id="toc-entry-6">1.3. Różnice pierwszego i drugiego rzędu</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#rasteryzacja-odcinka" id="toc-entry-7">2. Rasteryzacja odcinka</a><ul>
+<li><a class="reference internal" href="#dwukrotne-przyspieszenie" id="toc-entry-8">2.2. Dwukrotne przyspieszenie</a></li>
+<li><a class="reference internal" href="#algorytm-rekursywny" id="toc-entry-9">2.3. Algorytm rekursywny</a></li>
+<li><a class="reference internal" href="#antyaliasing" id="toc-entry-10">2.4. Antyaliasing</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#rasteryzacja-okregu" id="toc-entry-11">3. Rasteryzacja okręgu</a></li>
+<li><a class="reference internal" href="#rasteryzacja-elipsy" id="toc-entry-12">4. Rasteryzacja elipsy</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Algorytm z punktem środkowym zaproponowany przez <strong>Bresenhama</strong> służy do
+rasteryzacji krzywych 2D, czyli jak najlepszego przybliżania matematycznych
+krzywych na siatce pikseli. Jego implementacja jest bardzo prosta i
+jednocześnie efektywna. Algorytm może działać zarówno na liczbach
+zmiennoprzecinkowych jak i całkowitych, ale ze względów praktycznych
+wykorzystuje się najczęściej realizacje całkowitoliczbowe. Siła algorytmu tkwi
+w jego prostocie, bowiem w głównej pętli algorytmu wykorzystywane są zaledwie
+dwie operacje: porównania i dodawania.</p>
+<p>W tym artykule zostaną przedstawione procedury całkowitoliczbowe rasteryzujące
+odcinek, okrąg oraz elipsę. Z moich obserwacji przeprowadzonych przy użyciu
+<a class="reference external" href="http://www.google.com/">Googli</a> wynika, iż większość materiałów dotyczy
+rysowania odcinków oraz okręgów, natomiast rysowanie elipsy jest pomijane.</p>
+<p>Przykładowe programy zostały napisane w <strong>Pythonie</strong> jedynie ze względu
+na klarowność kodu &mdash; uważam, że nawet osoba nie znająca tego języka z
+łatwością rozszyfruje kod. Swoją drogą, jeśli jeszcze nie znasz Pythona
+koniecznie odwiedź <a class="reference external" href="http://www.python.org/">http://www.python.org</a> lub <a class="reference external" href="http://www.python.org.pl/">http://www.python.org.pl</a>;
+to bardzo miły język, warto się z nim zapoznać.</p>
+<p>Rysunki wektorowe zostały wykonane w programie <a class="reference external" href="http://www.xfig.org/">XFig</a>,
+ostateczna obróbka w programie <a class="reference external" href="http://www.gimp.org/">GIMP</a>.</p>
+</div>
+<div class="section" id="demonstracje-on-line">
+<h1>Demonstracje <em>on-line</em></h1>
+<p>Prościutkie demonstracje wykorzystują element <tt class="docutils literal">canvas</tt> (patrz
+<a class="reference external" href="http://en.wikipedia.org/wiki/Canvas_(HTML_element)">Wikipedia</a>), który jest obsługiwany
+przez część nowszych przeglądarek.</p>
+<p>Rysowanie:</p>
+<ul class="simple">
+<li><a class="reference external" href="bresenham-demo-line.html">odcinka</a></li>
+<li><a class="reference external" href="bresenham-demo-circle.html">okręgu</a></li>
+<li><a class="reference external" href="bresenham-demo-ellipse.html">elipsy</a></li>
+</ul>
+</div>
+<div class="section" id="algorytm-z-punktem-srodkowym">
+<h1>1. Algorytm z punktem środkowym</h1>
+<div class="section" id="zalozenia">
+<h2>1.1. Założenia</h2>
+<p>Algorytm można stosować dla krzywych (lub ich fragmentów), które spełniają</p>
+<ol class="arabic simple">
+<li>Nachylanie krzywej, a więc kąt pomiędzy styczną a osią OX, nie może
+przekraczać 45 stopni; jeśli krzywa może zostać opisana funkcją postaci
+<span class="math"><i>y</i> = <i>f</i>(<i>x</i>)</span> to musi zostać spełniony warunek <span class="math">0 &le; <i>f</i>'(<i>x</i>) &le; 1</span>.</li>
+<li>Krzywa musi być w rozważanym zakresie monotoniczna: nierosnąca, albo niemalejąca.</li>
+</ol>
+<p>Teoretycznie można zaprogramować procedury rasteryzujące krzywe nie
+spełniające owych reguł, ale nie będą już tak efektywne &mdash; moc
+algorytmu Bresenhama wynika właśnie z tych ograniczeń!</p>
+<p>Algorytm wymaga by krzywą opisywała funkcja uwikłana postaci
+<span class="math"><i>f</i>(<i>x</i>, <i>y</i>) = 0</span> &mdash; dla punktu znajdującego się na krzywej funkcja ma
+wartość zero, w przeciwnym razie wartość różną od zera; np.  wartości
+dobrze znanej funkcji opisującej okrąg mają znak plus dla punktów
+wewnątrz okręgu, natomiast minus dla punktów leżących poza okręgiem.</p>
+<p>Proszę zwrócić uwagę na fakt, iż użycie postaci uwikłanej jest jak
+najbardziej korzystne, bowiem nie ogranicza kształtu krzywych, jak to ma
+miejsce w przypadku funkcji odwzorowujących <span class="math">R &rarr; R</span> (<span class="math"><i>y</i> = <i>f</i>(<i>x</i>)</span>).</p>
+</div>
+<div class="section" id="algorytm">
+<h2>1.2 Algorytm</h2>
+<p>Załóżmy, że krzywa w przedziale <span class="math">[<i>x</i><sub><i>p</i></sub>, <i>x</i><sub><i>k</i></sub>]</span> spełnia powyższe założenia.</p>
+<img alt="wybór kolejnego piksela" class="align-center" src="img/bresenham/nextpixel.png" />
+<p>Algorytm zaczyna więc swoje działanie od punktu <span class="math">(<i>x</i><sub><i>p</i></sub>, <i>y</i><sub><i>p</i></sub>)</span> i
+stawiany jest piksel o tych współrzędnych (zaczerniony okrąg). Następnie
+współrzędna <span class="math"><i>x</i></span> jest zwiększa o 1, czyli kolejny piksel ma
+współrzędna <span class="math"><i>x</i> = <i>x</i><sub><i>p</i></sub> + 1</span>.</p>
+<p>Teraz pozostaje wybrać współrzędną <span class="math"><i>y</i></span> &mdash; dzięki pierwszemu
+warunkowi wybór ten ogranicza się na piksele <span class="math">A</span> i <span class="math">B</span> i
+determinuje go punkt przecięcia krzywej z linią pionową <span class="math"><i>x</i><sub><i>p</i></sub> + 1</span>.
+Jeśli punkt ten jest bliżej punktu <span class="math">A</span> to oczywiście wybierany
+jest punkt <span class="math">A</span>, punkt <span class="math">B</span> w przeciwnym razie &mdash; problem, to
+jednoznaczne określenie bliżej którego piksela jest ów punkt.</p>
+<p>Bezpośrednie liczenie odległości może być dobrym rozwiązaniem podczas
+implementacji antyaliasingu, tu jednak jest nie do przyjęcia. Na rysunku
+krótką, poziomą kreską zaznaczony został <strong>punkt środkowy</strong> (o
+współrzędnej <span class="math">(<i>x</i><sub><i>p</i></sub> + 1, <i>y</i><sub><i>p</i></sub> + 0.5)</span>), który rozgranicza piksele
+<span class="math">A</span> i <span class="math">B</span>. Jeśli punkt środkowy znajduje się powyżej punktu
+przecięcia, to wybierany zostaje punkt <span class="math">A</span>, w przeciwnym razie
+punkt <span class="math">B</span>.</p>
+<p>Do stwierdzenia tego faktu wykorzystamy, wspomnianą już, cechę funkcji
+uwikłanej. Załóżmy, że <span class="math"><i>f</i>(<i>x</i>, <i>y</i>) &gt 0</span> dla punktów powyżej krzywej ---
+jeśli więc wartość funkcji w punkcie środkowym <span class="math"><i>f</i>(<i>x</i><sub><i>p</i></sub> + 1, <i>y</i><sub><i>p</i></sub> + 0.5)</span>
+jest mniejsza od zera, to wybrany zostanie punkt <span class="math">A</span>, w przeciwnym
+razie punkt <span class="math">B</span>.</p>
+<pre class="literal-block">
+def bresenham_algo(xp, yp, xk):
+
+    y = yp
+    for x in range(xp, xk):
+        putpixel(x, y)
+
+        d = f(x+1, y+0.5)  # wartość w punkcie środkowym
+        if d &lt; 0:
+            y += 1     # wybieramy punkt B
+        else:
+            pass       # wybieramy punkt A
+</pre>
+<img alt="animacja" class="align-center" src="img/bresenham/anim.gif" />
+<p>Animacja demonstrująca działanie funkcji <tt class="docutils literal">bresenham_algo</tt>.</p>
+</div>
+<div class="section" id="roznice-pierwszego-i-drugiego-rzedu">
+<h2>1.3. Różnice pierwszego i drugiego rzędu</h2>
+<p>Ponieważ współrzędne <span class="math"><i>x</i></span> i <span class="math"><i>y</i></span> zmieniają się o znane kroki,
+więc wartość funkcji w następnym kroku można przewidzieć. Wartość
+funkcji w punkcie <span class="math">(<i>x</i><sub><i>p</i></sub>, <i>y</i><sub><i>p</i></sub>)</span> wynosi</p>
+<p><span class="cmath"><i>d</i><sub><i>p</i></sub> = <i>f</i>(<i>x</i><sub><i>p</i></sub> + 1, <i>y</i><sub><i>p</i></sub> + 0.5)</span></p>
+<p>w punkcie <span class="math">A</span></p>
+<p><span class="cmath"><i>d</i><sub>A</sub> = <i>f</i>(<i>x</i><sub><i>p</i></sub> + 2, <i>y</i><sub><i>p</i></sub> + 0.5)</span></p>
+<p>natomiast w punkcie <span class="math">B</span></p>
+<p><span class="cmath"><i>d</i><sub>B</sub> = <i>f</i>(<i>x</i><sub><i>p</i></sub> + 2, <i>y</i><sub><i>p</i></sub> + 1.5)</span></p>
+<p>Tak więc przy wyborze punktu <span class="math">A</span> wartość funkcji zmieni się o
+<span class="math"><i>delta</i><sub>A</sub> = <i>d</i><sub>A</sub> &minus; <i>d</i><sub><i>p</i></sub></span>, po wybraniu punku <span class="math">B</span> o
+<span class="math"><i>delta</i><sub>B</sub> = <i>d</i><sub>B</sub> &minus; <i>d</i><sub><i>p</i></sub></span>. Różnice te są nazywane <strong>różnicami
+pierwszego rzędu</strong>. Jeśli nie są stałe, a więc zależą od
+współrzędnych, to można policzyć odpowiednie przyrosty również dla
+nich &mdash; te przyrosty nazywają się <strong>różnicami drugiego rzędu</strong>.</p>
+<pre class="literal-block">
+def bresenham_algo2(xp, yp, xk):
+
+    y = yp
+    d = f(xp+1, yp+0.5) # wartość początkowa
+    for x in range(xp, xk):
+        putpixel(x, y)
+
+        if d &lt; 0:         # wybieramy punkt B
+            d += f(x+2, y+1.5)-f(x+1, y+0.5)
+            y += 1
+        else:             # wybieramy punkt A
+            d += f(x+2, y+0.5)-f(x+1, y+0.5)
+</pre>
+<p>Zmienna <tt class="docutils literal">d</tt> nazywana jest <strong>zmienną decyzyjną</strong>.</p>
+</div>
+</div>
+<div class="section" id="rasteryzacja-odcinka">
+<h1>2. Rasteryzacja odcinka</h1>
+<p>Załóżmy na początek, że odcinek ma nachylanie z przedziału 0-45 stopni,
+oraz że jeden z jego końców znajduje się w początku układu
+współrzędnych, natomiast drugi ma współrzędne <span class="math">(<i>dx</i>, <i>dy</i>)</span>.
+Równanie opisujące prostą ma postać</p>
+<p><span class="cmath"><i>f</i>(<i>x</i>, <i>y</i>) = <i>ax</i> + <i>by</i> + <i>c</i></span></p>
+<p>gdzie <span class="math">[<i>a</i>, <i>b</i>]</span> jest wektorem normalnym; możemy go
+otrzymać poprzez obrót wektora <span class="math">[<i>dx</i>, <i>dy</i>]</span> o 90
+stopni, więc <span class="math"><i>a</i> = <i>dy</i></span>, <span class="math"><i>b</i> =  &minus; <i>dx</i></span>.
+Czynnik wolny <span class="math"><i>c</i></span> jest równy 0, ponieważ <span class="math"><i>f</i>(0, 0) = <i>c</i></span>
+i <span class="math"><i>f</i>(0, 0) = 0</span>.</p>
+<p>Wartości funkcji są dodatnie dla punktów znajdujących się poniżej odcinka.</p>
+<p>Jak widać poniżej, różnice pierwszego rzędu zależą wyłącznie od
+współrzędnych końców odcinka.</p>
+<ul class="simple">
+<li><span class="math"><i>delta</i><sub>A</sub> = <i>dy</i>(<i>x</i> + 2) &minus; <i>dx</i>(<i>y</i> + 0.5) &minus; <i>dy</i>(<i>x</i> + 1) + <i>dx</i>(<i>y</i> + 0.5) = <i>dy</i></span>,</li>
+<li><span class="math"><i>delta</i><sub>B</sub> = <i>dy</i>(<i>x</i> + 2) &minus; <i>dx</i>(<i>y</i> + 1.5) &minus; <i>dy</i>(<i>x</i> + 1) + <i>dx</i>(<i>y</i> + 0.5) = <i>dy</i> &minus; <i>dx</i></span>.</li>
+</ul>
+<p>Wartość początkowa <span class="math"><i>d</i></span> jest równa <span class="math">(0 + 1, 0 + 0.5) = <i>dy</i> &minus; 0.5 &sdot; <i>dx</i></span>.
+Pojawiła się niestety wartość ułamkowa, ale ponieważ interesuje nas wyłącznie
+<strong>znak</strong> funkcji (znak zmiennej decyzyjnej) nic nie stoi na przeszkodzie
+by pomnożyć ją przez 2. Zwracam uwagę, że to pociągnie za sobą przemnożenie
+przyrostów, co zostało uwzględnione w poniższej funkcji.</p>
+<pre class="literal-block">
+def simple_line(dx, dy):
+
+    d       = 2*dy - dx
+    delta_A = 2*dy
+    delta_B = 2*dy - 2*dx
+
+    y = 0
+    for  x in range(dx):
+        putpixel(x, y)
+
+        if d &gt; 0:
+            d += delta_B
+            y += 1
+        else:
+            d += delta_A
+</pre>
+<img alt="współrzędne odcinka w różnych oktantach" class="align-center" src="img/bresenham/lineflip.png" />
+<p>Narysowanie odcinka o innych nachyleniach wymaga zamiany współrzędnych
+zgodnie z rysunkiem powyżej.  Nie jest to zbyt kłopotliwe &mdash; na
+rysunku kolorem niebieskim zaznaczono te oktanty w których <strong>moduł</strong>
+nachylenia odcinka jest z przedziału 0-45 stopni. Do rasteryzacji tych
+odcinków można z powodzeniem użyć funkcji <tt class="docutils literal">simple_line</tt>, należy
+jedynie operować na modułach <span class="math"><i>dx</i></span> i <span class="math"><i>dy</i></span> i uzależnić
+przyrosty <span class="math"><i>x</i></span> i <span class="math"><i>y</i></span> od znaku, odpowiednio <span class="math"><i>dx</i></span> i
+<span class="math"><i>dy</i></span>.  Natomiast W przypadku oktantów oznaczonych czerwonych
+należy wymienić <span class="math"><i>x</i></span> z <span class="math"><i>y</i></span> &mdash; podkreślam, że robi
+się to <strong>przed</strong> obliczeniem <span class="math"><i>dx</i></span>, <span class="math"><i>dy</i></span>.</p>
+<p>Uwzględnienie dowolnych odcinków jest bardzo proste, wystarczy stawiać
+piksele o odpowiednio przesuniętych współrzędnych. Wszystko to zostało
+zebrane w kodzie poniżej.</p>
+<pre class="literal-block">
+def line(x0,y0, x1,y1):
+    dx = x1-x0
+    dy = y1-y0
+
+    def sign(x):
+        if x &gt;= 0: return +1
+        else:      return -1
+
+    inc_x = sign(dx) # uwzględnienie znaków dx
+    inc_y = sign(dy) # i dy
+
+    dx = abs(dx)     # teraz odcinek został &quot;przeniesiony&quot;
+    dy = abs(dy)     # do właściwego oktantu
+
+    if dx &gt;= dy:     # dy/dx &lt;= 1 -- odcinek leży w &quot;niebieskim&quot; oktancie
+
+        d       = 2*dy - dx
+        delta_A = 2*dy
+        delta_B = 2*dy - 2*dx
+
+        x, y = (0, 0)
+                    for i in range(dx+1):
+            putpixel(x0+x, y0+y, 0)
+            if d &gt; 0:
+                d += delta_B
+                x += inc_x
+                y += inc_y
+            else:
+                d += delta_A
+                x += inc_x
+
+    else:            # dy/dx &gt; 1 -- odcinek leży w &quot;czerwonym&quot; oktancie
+                     # proszę zwrócić uwagę na wspomnianą zamianę znaczenia
+             # zmiennych
+
+        d       = 2*dx - dy
+        delta_A = 2*dx
+        delta_B = 2*dx - 2*dy
+
+        x, y = (0, 0)
+        for i in range(dy+1):
+            putpixel(x0+x, y0+y, 0)
+            if d &gt; 0:
+                d += delta_B
+                x += inc_x
+                y += inc_y
+            else:
+                d += delta_A
+                y += inc_y
+</pre>
+<div class="section" id="dwukrotne-przyspieszenie">
+<h2>2.2. Dwukrotne przyspieszenie</h2>
+<p>Dwukrotne przyspieszenie można uzyskać rozpoczynając rasteryzację
+równocześnie z dwóch końców odcinka &mdash; moduły przyrostów nie
+zależą od kolejności w jakiej poda się punkty końcowe odcinka.
+Należy jedynie uzupełnić jeden piksel na środku odcinka.</p>
+<pre class="literal-block">
+def simple_line_faster(x0,y0, x1,y1):
+    dx, dy  = x1-x0, y1-y0
+
+    d       = 2*dy - dx
+    delta_A = 2*dy
+    delta_B = 2*dy - 2*dx
+
+    y = 0
+    dx2 = (dx+1)/2 # uwaga! zaokrąglenie
+    for x in range(dx2):
+        putpixel(x0+x, y0+y, 0)
+        putpixel(x1-x, y1-y, 0)
+
+        if d &gt; 0:
+            d += delta_B
+            y += 1
+        else:
+            d += delta_A
+
+    if dx % 2 == 0:
+        putpixel(x0+dx2, y0+y, 0)
+</pre>
+</div>
+<div class="section" id="algorytm-rekursywny">
+<h2>2.3. Algorytm rekursywny</h2>
+<p>Alternatywnym, dla algorytmu Bresenhama, jest algorytm rekursywny; jego
+kod bardzo prosty i krótki, oczywiście odcinek jest rasteryzowany
+prawidłowo.</p>
+<pre class="literal-block">
+def line_recursive(x0, y0, x1, y1):
+
+    if x0 == x1 and y0 == y1:
+        return
+
+    x = (x0+x1)/2 # albo (x0+x1) &gt;&gt; 2
+    y = (y0+y1)/2
+
+    putpixel(x, y)
+
+    line_recursive(x0,y0, x,y)
+    line_recursive(x1,y1, x,y)
+</pre>
+<p>Kod w asemblerze jest nie mniej przejrzysty, a po kompilacji ma zaledwie 46
+bajtów.</p>
+<pre class="literal-block">
+line_recursive:
+    pop edx            ; edx = y1
+    pop ecx            ; ecx = x1
+    pop ebx            ; ebx = y0
+    pop eax            ; eax = x0
+
+    cmp edx, ebx       ; y1==y0
+    jne .1
+    cmp eax, ecx       ; x1==x0
+    je  .2
+     .1:
+    lea esi, [eax+ecx]
+    lea edi, [ebx+edx]
+    shr esi, 1         ; esi = x
+    shr edi, 1         ; edi = y
+
+    call putpixel
+
+    ; ramka stosu dla wywołania (x0,y0, x,y)
+    push eax
+    push ebx
+    push esi
+    push edi
+    ; ramka stosu dla wywołania (x1,y1, x,y)
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    call line_recursive ; (x1,y1, x,y)
+    call line_recursive ; (x0,y0, x,y)
+     .2:
+    ret
+</pre>
+</div>
+<div class="section" id="antyaliasing">
+<h2>2.4. Antyaliasing</h2>
+<p>Podczas rysowanie odcinka jedna ze współrzędnych jest znana i ma wartość
+całkowitą, natomiast druga jest liczbą rzeczywistą. Powiedzmy, że piksel
+ma współrzędną <span class="math">(<i>x</i>, <i>y</i>.<i>u</i>)</span>, wtedy współczynnik pokrycia piksela
+<span class="math">(<i>x</i>, <i>y</i>)</span> wynosi <span class="math">1 &minus; <i>u</i></span>, natomiast piksela <span class="math">(<i>x</i>, <i>y</i> + 1)</span>
+współczynnik ten wynosi <span class="math"><i>u</i></span>.</p>
+<p>Podczas obliczeń stałoprzecinkowych najlepiej przyjąć 8 bitów na część
+ułamkową, składowe kolorów mają maksymalnie 8 bitów, więc większa
+dokładność nie jest potrzebna.</p>
+<pre class="literal-block">
+def aa_line(x0,y0, x1,y1):
+    dx = x1 - x0
+    dy = y1 - y0
+
+    dydx = (256*dy)/dx   # przyrost y-ka (fixed point)
+
+    y  = 0
+    for x in range(dx):
+
+        c = y &amp; 255      # kolor piksela to 8 najmłodszych bitów
+        i = y &gt;&gt; 8
+
+        putpixel(x0+x, y0+i,   c)
+        putpixel(x0+x, y0+i+1, 255-c)
+        y += dydx
+</pre>
+<p>Oto przykładowy wynik działania powyższej funkcji (rozmiar oryginalny po lewej, po prawej powiększenie).</p>
+<img alt="linia z antyaliasingiem" class="align-center" src="img/bresenham/aa_small.png" />
+<img alt="linia z antyaliasingiem (powiększenie)" class="align-center" src="img/bresenham/aa_big.png" />
+</div>
+</div>
+<div class="section" id="rasteryzacja-okregu">
+<h1>3. Rasteryzacja okręgu</h1>
+<img alt="okrąg" class="align-center" src="img/bresenham/circle.png" />
+<p>Podczas rasteryzacji okręgu wykorzystana zostanie jego ośmiokrotna
+symetria; rasteryzacji zostanie poddany zaznaczony na niebiesko oktant
+(który spełnia warunki nakładane przez algorytm Bresenhama), piksele z
+pozostałych oktantów uzyskane zostaną przez odbicia symetryczne.</p>
+<p>Pętla algorytmu będzie wykonywać się na współrzędnej <span class="math"><i>x</i></span>;
+punktem początkowym będzie &bdquo;szczyt&rdquo; okręgu o współrzędnych
+<span class="math">(0, <i>r</i>)</span>. Punktem końcowym będzie ten w którym nachylanie stycznej
+przekroczy <span class="math"> &minus; 1</span>.  Jak wiadomo funkcja jednej zmiennej opisująca
+połówkę okręgu ma postać</p>
+<img alt="y = sqrt{r^2 - y^2}" class="align-center" src="img/bresenham/circle_eq1.png" />
+<p>wobec czego końcowa wartość współrzędnej <span class="math"><i>x</i></span> wyniesie</p>
+<img alt="\frac{-x}{sqrt{r^2 - x^2} = -1} wtedy i tylko wtedy gdy x_0 = r/sqrt{2}" class="align-center" src="img/bresenham/circle_eq2.png" />
+<p>Proszę się nie obawiać, nie ma potrzeby dzielenia przez pierwiastek z
+dwóch, a to dlatego, że <span class="math"><i>f</i>(<i>x</i><sub>0</sub>) = <i>x</i><sub>0</sub></span>,
+więc współrzędna <span class="math"><i>x</i></span> będzie rosnąć od zera, a <span class="math"><i>y</i></span> maleć
+od <span class="math"><i>r</i></span> do chwili, aż zrówna się z <span class="math"><i>x</i></span>.</p>
+<p>Możemy teraz przystąpić do obliczeń przyrostów; dla formalności przypomnę
+równanie uwikłane dla okręgu (przyjmuje ono wartości ujemne dla punktów z
+wnętrza okręgu)</p>
+<p><span class="cmath"><i>f</i>(<i>x</i>, <i>y</i>) = <i>x</i><sup>2</sup> + <i>y</i><sup>2</sup> &minus; <i>r</i><sup>2</sup></span></p>
+<p>Wartość początkowa <span class="math"><i>d</i></span> wynosi <span class="math"><i>f</i>(0 + 1, <i>r</i> &minus; 0.5) =  &minus; <i>r</i> + 1.25</span>
+i tak jak w przypadku linii pojawiła się wartość ułamkowa. Rozwiązanie
+jest podobne &mdash; przemnożenie <span class="math"><i>d</i></span> przez 4. Pamiętając, że
+<span class="math"><i>y</i></span> maleje, obliczamy różnice pierwszego rzędu:</p>
+<ul class="simple">
+<li><span class="math"><i>delta</i><sub>A</sub> = <i>f</i>(<i>x</i> + 2, <i>y</i> &minus; 0.5) &minus; <i>f</i>(<i>x</i> + 1, <i>y</i> &minus; 0.5) = 2<i>x</i> + 3</span>,</li>
+<li><span class="math"><i>delta</i><sub>B</sub> = <i>f</i>(<i>x</i> + 2, <i>y</i> &minus; 1.5) &minus; <i>f</i>(<i>x</i> + 1, <i>y</i> &minus; 0.5) = 2<i>x</i> + 2<i>y</i> + 5</span>.</li>
+</ul>
+<p>Jak widać zależą one od chwilowych wartości współrzędnych <span class="math"><i>x</i></span>
+i <span class="math"><i>y</i></span>. Zostaną więc policzone <strong>różnice drugiego rzędu</strong>.</p>
+<p>Wartości początkowe w punkcie <span class="math">(0, <i>r</i>)</span> &mdash; bez przesunięcia
+o wektor <span class="math">[1, 0.5]</span> &mdash; wynoszą:</p>
+<ul class="simple">
+<li><span class="math"><i>delta</i><sub>A</sub>(0, <i>r</i>) = 3</span>,</li>
+<li><span class="math"><i>delta</i><sub>B</sub>(0, <i>r</i>) =  &minus; 2<i>r</i> + 5</span>.</li>
+</ul>
+<p>Przy wyborze punktu <span class="math">A</span> wzrasta wyłącznie współrzędna <span class="math"><i>x</i></span>,
+więc:</p>
+<ul class="simple">
+<li><span class="math"><i>delta</i><sub>A(A)</sub> = <i>delta</i><sub>A</sub>(<i>x</i> + 1, <i>y</i>) &minus; <i>delta</i><sub>A</sub>(<i>x</i>, <i>y</i>) = 2</span>,</li>
+<li><span class="math"><i>delta</i><sub>B(A)</sub> = <i>delta</i><sub>B</sub>(<i>x</i> + 1, <i>y</i>) &minus; <i>delta</i><sub>B</sub>(<i>x</i>, <i>y</i>) = 2</span>.</li>
+</ul>
+<p>natomiast po wybraniu <span class="math">B</span> maleje dodatkowo <span class="math"><i>y</i></span>:</p>
+<ul class="simple">
+<li><span class="math"><i>delta</i><sub>A(B)</sub> = <i>delta</i><sub>A</sub>(<i>x</i> + 1, <i>y</i> &minus; 1) &minus; <i>delta</i><sub>A</sub>(<i>x</i>, <i>y</i>) = 2</span></li>
+<li><span class="math"><i>delta</i><sub>B(B)</sub> = <i>delta</i><sub>B</sub>(<i>x</i> + 1, <i>y</i> &minus; 1) &minus; <i>delta</i><sub>B</sub>(<i>x</i>, <i>y</i>) = 4</span></li>
+</ul>
+<p>Jak widać przyrosty drugiego rzędu już nie zależą od <span class="math"><i>x</i></span>
+ani <span class="math"><i>y</i></span>.</p>
+<p>Przypominam, że <span class="math"><i>d</i></span> zostanie przemnożone przez 4.</p>
+<pre class="literal-block">
+def circle(x0, y0, r):
+
+    def circle_points(x,y): # funkcja odbija symetrycznie punkt
+        putpixel(x0-x, y0-y)
+        putpixel(x0-x, y0+y)
+        putpixel(x0+x, y0-y)
+        putpixel(x0+x, y0+y)
+        putpixel(x0-y, y0-x)
+        putpixel(x0-y, y0+x)
+        putpixel(x0+y, y0-x)
+        putpixel(x0+y, y0+x)
+
+    d = 5.0-4*r
+    x = 0
+    y = r
+
+    deltaA = (-2*r+5)*4
+    deltaB = 3*4
+    while (x &lt;= y):
+        circle_points(int(x), int(y))
+        if d &gt; 0:
+            d += deltaA
+            y -= 1
+            x += 1
+            deltaA += 4*4
+            deltaB += 2*4
+
+        else:
+            d += deltaB
+            x += 1
+            deltaA += 2*4
+            deltaB += 2*4
+</pre>
+</div>
+<div class="section" id="rasteryzacja-elipsy">
+<h1>4. Rasteryzacja elipsy</h1>
+<img alt="elipsa" class="align-center" src="img/bresenham/ellipse.png" />
+<p>Podczas rasteryzacji elipsy wykorzystamy jej czterokrotną symetrię,
+jednakże przetwarzane będą dwie części elipsy, zaznaczone na niebiesko i
+czerwono. Zostanie pokazana procedura rasteryzująca część elipsy zaznaczoną
+na niebiesko; aby przetworzyć część czerwoną wystarczy wymienić
+<span class="math"><i>a</i></span> z <span class="math"><i>b</i></span> (półosie elipsy) i ponownie wywołać procedurę.</p>
+<p>W zasadzie sytuacja jest podobna jak dla okręgu &mdash; tu również zaczynamy
+od &bdquo;wierzchołka&rdquo; elipsy o współrzędnych <span class="math">(0, <i>b</i>)</span>, również
+punktem końcowym będzie punkt w którym nachylenia przekracza <span class="math"> &minus; 1</span>.
+Oczywiście przyrównujemy pochodną funkcji jednej zmiennej &mdash; pominę
+wzory i obliczenia, bowiem są bardzo proste; interesuje nas warunek
+stopu, w przypadku tego fragmentu będzie to:</p>
+<img alt="x^2 = a^4/(a^2 + b^2)" class="align-center" src="img/bresenham/ellipse_eq1.png" />
+<p>Funkcja dwóch zmiennych opisująca elipsę przyjmuje wartości mniejsze od zera
+dla punktów z wnętrza figury i ma postać:</p>
+<p><span class="cmath"><i>f</i>(<i>x</i>, <i>y</i>) = <i>b</i><sup>2</sup><i>x</i><sup>2</sup> + <i>a</i><sup>2</sup><i>y</i><sup>2</sup> &minus; <i>a</i><sup>2</sup><i>b</i><sup>2</sup></span></p>
+<p>Znów pozwolę sobie pominąć dokładną analizę, gdyż wszystkie aspekty
+związane z wyznaczeniem przyrostów zostały już szczegółowo omówione w
+punktach wcześniejszych.</p>
+<ol class="arabic simple">
+<li><span class="math"><i>d</i><sub>0</sub> = <i>f</i>(0 + 1, <i>b</i> &minus; 0.5) = <i>b</i><sup>2</sup> &minus; <i>ba</i><sup>2</sup> + 0.25<i>a</i><sup>2</sup></span></li>
+<li><dl class="first docutils">
+<dt><span class="math"><i>delta</i><sub>A</sub> = <i>f</i>(<i>x</i> + 2, <i>y</i> &minus; 0.5) &minus; <i>f</i>(<i>x</i> + 1, <i>y</i> &minus; 0.5) = 2<i>b</i><sup>2</sup><i>x</i> + 3<i>b</i><sup>2</sup></span></dt>
+<dd><ul class="first last">
+<li><span class="math"><i>delta</i><sub>A</sub>(0, <i>b</i>) = 3<i>b</i><sup>2</sup></span></li>
+<li><span class="math"><i>delta</i><sub>A(A)</sub> = 2<i>b</i><sup>2</sup></span></li>
+<li><span class="math"><i>delta</i><sub>A(B)</sub> = 2<i>b</i><sup>2</sup></span></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt><span class="math"><i>delta</i><sub>B</sub> = <i>f</i>(<i>x</i> + 2, <i>y</i> &minus; 1.5) &minus; <i>f</i>(<i>x</i> + 1, <i>y</i> &minus; 0.5) = 2<i>b</i><sup>2</sup><i>x</i> &minus; 2<i>a</i><sup>2</sup><i>y</i> + 3<i>b</i><sup>2</sup> + 2<i>a</i><sup>2</sup></span></dt>
+<dd><ul class="first last">
+<li><span class="math"><i>delta</i><sub>A</sub>(0, <i>b</i>) = 3<i>b</i><sup>2</sup> &minus; 2<i>a</i><sup>2</sup><i>b</i> + 2<i>a</i><sup>2</sup></span></li>
+<li><span class="math"><i>delta</i><sub>B(A)</sub> = 2<i>b</i><sup>2</sup></span></li>
+<li><span class="math"><i>delta</i><sub>B(B)</sub> = 2<i>b</i><sup>2</sup> + 2<i>a</i><sup>2</sup></span></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+<pre class="literal-block">
+def rasterize(x0,y0, a,b, ellipse_points):
+    a2 = a*a
+    b2 = b*b
+
+    d       = 4*b2 - 4*b*a2 + a2
+    delta_A = 4*3*b2
+    delta_B = 4*(3*b2 - 2*b*a2 + 2*a2)
+
+    limit   = (a2*a2)/(a2+b2)
+
+    x, y    = (0, b)
+    while True:
+        # funkcja rysuje symetrycznie odbite punkty
+        # (albo dla &quot;czerwonej&quot; albo dla &quot;niebieskiej&quot; części)
+        ellipse_points(x0,y0, x,y)
+
+        if x*x &gt;= limit:
+            break
+
+        if d &gt; 0:
+            d       += delta_B
+            delta_A += 4*2*b2
+            delta_B += 4*(2*b2 + 2*a2)
+
+            x += 1
+            y -= 1
+        else:
+            d       += delta_A
+            delta_A += 4*2*b2
+            delta_B += 4*2*b2
+
+            x += 1
+
+def ellipse(x0, y0, a,b):
+    def ellipse_points_blue(x0,y0, x,y):
+        putpixel(x0+x, y0+y)
+        putpixel(x0-x, y0+y)
+        putpixel(x0+x, y0-y)
+        putpixel(x0-x, y0-y)
+
+    def ellipse_points_red(x0,y0, x,y):
+        putpixel(x0+y, y0+x)
+        putpixel(x0-y, y0+x)
+        putpixel(x0+y, y0-x)
+        putpixel(x0-y, y0-x)
+
+    def circle_points(x0,y0, x,y):
+        ellipse_points_blue(x0,y0, x,y)
+        ellipse_points_red (x0,y0, x,y)
+
+    if (a == b):
+        rasterize(x0,y0, a,a, circle_points)
+    else:
+        rasterize(x0,y0, a,b, ellipse_points_blue)
+        rasterize(x0,y0, b,a, ellipse_points_red)
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/bresenham.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:51 GMT -->
+</html>

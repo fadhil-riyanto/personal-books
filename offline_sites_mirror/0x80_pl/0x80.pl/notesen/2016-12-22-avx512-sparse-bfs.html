@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2016-12-22-avx512-sparse-bfs.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512 &mdash; first bit set in a large array</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512-first-bit-set-in-a-large-array">
+<h1 class="title">AVX512 &mdash; first bit set in a large array</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2016-12-22</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="problem">
+<h1>Problem</h1>
+<p>There is an array of 64-bit values, we want to find the first bit set; the array
+is sparse.</p>
+</div>
+<div class="section" id="scalar-version">
+<h1>Scalar version</h1>
+<p>The obvious scalar solution scans whole array. For the first non-zero word it
+calculates position of the first bit within the word (using the instruction
+<tt class="docutils literal">bsf</tt> or <tt class="docutils literal">tzcnt</tt>) and returns the appropriate value.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">scalar_bfs</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">64</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">bfs</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="avx512f">
+<h1>AVX512F</h1>
+<p>The AVX512 solution minimizes number of branches by searching non-zero word in
+an register. When comparison's result is non-zero, we locate which word of the
+register it is, and process this word in the same way as the scalar version.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">avx512f_bfs</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">chunks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">tail</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">8</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">chunks</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="w">  </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_loadu_si512</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="n">__m512i</span><span class="o">*</span><span class="p">)(</span><span class="n">data</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">8</span><span class="p">));</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm512_cmpneq_epi64_mask</span><span class="p">(</span><span class="n">v</span><span class="p">,</span><span class="w"> </span><span class="n">_mm512_setzero_si512</span><span class="p">());</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bfs</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">8</span><span class="o">*</span><span class="n">i</span><span class="p">;</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">64</span><span class="w"> </span><span class="o">+</span><span class="w">  </span><span class="n">bfs</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">index</span><span class="p">]);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// process tail
+</span><span class="w">    </span><span class="c1">// ...
+</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="performance-results">
+<h1>Performance results</h1>
+<p>A test program was compiled by GCC 5.3.0 and run on <strong>Knights Landing</strong>
+processor, model <strong>7210</strong>.</p>
+<p>The program clears the array of 64-bit words and set the last bit in
+the last word.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="45%" />
+<col width="17%" />
+<col width="17%" />
+<col width="21%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head" rowspan="2">size [64-bit words]</th>
+<th class="head" colspan="2">cycles per word</th>
+<th class="head" rowspan="2">speed-up</th>
+</tr>
+<tr><th class="head">scalar</th>
+<th class="head">AVX512</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>8</td>
+<td>4.88</td>
+<td>3.25</td>
+<td>1.50</td>
+</tr>
+<tr><td>16</td>
+<td>4.06</td>
+<td>2.44</td>
+<td>1.66</td>
+</tr>
+<tr><td>32</td>
+<td>3.66</td>
+<td>1.22</td>
+<td>3.00</td>
+</tr>
+<tr><td>64</td>
+<td>3.25</td>
+<td>1.02</td>
+<td>3.19</td>
+</tr>
+<tr><td>128</td>
+<td>3.15</td>
+<td>0.91</td>
+<td>3.46</td>
+</tr>
+<tr><td>256</td>
+<td>3.10</td>
+<td>0.76</td>
+<td>4.08</td>
+</tr>
+<tr><td>512</td>
+<td>3.05</td>
+<td>0.69</td>
+<td>4.42</td>
+</tr>
+<tr><td>1024</td>
+<td>3.02</td>
+<td>0.66</td>
+<td>4.58</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Test programs are available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/wide-bfs">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2016-12-22-avx512-sparse-bfs.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+</html>

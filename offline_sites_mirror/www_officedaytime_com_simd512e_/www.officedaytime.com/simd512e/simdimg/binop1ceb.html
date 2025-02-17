@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binop.php?f=psubsb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:17 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/binop.php?f=psubsb" />
+<link rel="alternate" hreflang="en" href="binop1ceb.html?f=psubsb" />
+<title>psubsb</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+
+<body>
+<h2>PSUBSB - Packed SUBtract signed Saturation Byte<br /></h2>
+PSUBSB<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(S2<br />
+<span class="intr">__m128i _mm_subs_epi8(__m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_1.png" /><br />
+<span style="padding-left: 110px">For each BYTE, calculate (1) - (2) with signed saturation and set the result to (3).   Set -128 / 127 on overflow.</span><br />
+<div style="height: 30px"></div>
+VPSUBSB<span class="operand"> xmm1, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128i _mm_subs_epi8(__m128i a, __m128i b)</span><br />
+VPSUBSB<span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL<br />
+<span class="intr">__m128i _mm_mask_subs_epi8(__m128i s, __mmask16 k, __m128i a, __m128i b)</span><br />
+<span class="intr">__m128i _mm_maskz_subs_epi8(__mmask16 k, __m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_23860.png?v=1" /><br />
+<span style="padding-left: 110px">For each BYTE, calculate (1) - (2) with signed saturation and set the result to (3).   Set -128 / 127 on overflow.</span><br />
+<div style="height: 30px"></div>
+VPSUBSB<span class="operand"> ymm1, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V2<br />
+<span class="intr">__m256i _mm256_subs_epi8(__m256i a, __m256i b)</span><br />
+VPSUBSB<span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW+VL<br />
+<span class="intr">__m256i _mm256_mask_subs_epi8(__m256i s, __mmask32 k, __m256i a, __m256i b)</span><br />
+<span class="intr">__m256i _mm256_maskz_subs_epi8(__mmask32 k, __m256i a, __m256i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_3.png" /><br />
+<span style="padding-left: 110px">For each BYTE, calculate (1) - (2) with signed saturation and set the result to (3).   Set -128 / 127 on overflow.</span><br />
+<div style="height: 30px"></div>
+VPSUBSB<span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+BW<br />
+<span class="intr">__m512i _mm512_subs_epi8(__m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_mask_subs_epi8(__m512i s, __mmask64 k, __m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_maskz_subs_epi8(__mmask64 k, __m512i a, __m512i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_byte_4.png" /><br />
+<span style="padding-left: 110px">For each BYTE, calculate (1) - (2) with signed saturation and set the result to (3).   Set -128 / 127 on overflow.</span><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=psubsb" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binop.php?f=psubsb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:17 GMT -->
+</html>

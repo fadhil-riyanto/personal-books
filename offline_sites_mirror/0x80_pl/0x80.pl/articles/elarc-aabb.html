@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/elarc-aabb.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:55 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>AABB obróconego łuku eliptycznego</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="aabb-obroconego-luku-eliptycznego">
+<h1 class="title">AABB obróconego łuku eliptycznego</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">25.03.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Łuk eliptyczny o środku <span class="math">(0, 0)</span> dany jest parametrami:</p>
+<ul class="simple">
+<li><span class="math"><i>r</i><sub><i>x</i></sub></span>   &mdash; promień na osi X</li>
+<li><span class="math"><i>r</i><sub><i>y</i></sub></span>   &mdash; promień na osi Y</li>
+<li><span class="math"><i>rot</i></span>   &mdash; kąt obrotu</li>
+<li><span class="math"><i>start</i></span> &mdash; początkowy kąt łuku</li>
+<li><span class="math"><i>end</i></span>   &mdash; końcowy kąt łuku (<span class="math"><i>start</i> &le; <i>end</i></span>)</li>
+</ul>
+<img alt="img/elarc-bbox.png" class="align-center" src="img/elarc-bbox.png" />
+<p>Postać parametryczna <strong>nieobróconego</strong> łuku
+<span class="math">P(<i>t</i>) = (<i>x</i>, <i>y</i>) = (<i>rx</i> &sdot; cos<i>t</i>, <i>ry</i> &sdot; sin<i>t</i>)</span>, gdzie
+<span class="math"><i>t</i>&isin;[<i>start</i>, <i>end</i>]</span></p>
+<p>Żeby wyznaczyć pudełko otaczające potrzebne są następujące punkty:</p>
+<ol class="arabic simple">
+<li><span class="math">P(<i>start</i>)</span></li>
+<li><span class="math">P(<i>end</i>)</span></li>
+<li>punkty <span class="math">P(<i>t</i><sub><i>x</i><sub>max</sub></sub>)</span> i <span class="math">P(<i>t</i><sub><i>y</i><sub>max</sub></sub>)</span>, tj punkty o
+maksymalnej współrzędnej x i y (punkty o minimalnych współrzędnych
+są odbite symetrycznie, przesunięte o <span class="math"><i>pi</i></span>)</li>
+</ol>
+<p><strong>Problem</strong>: jak wyznaczyć <span class="math"><i>t</i><sub><i>x</i><sub>max</sub></sub></span> i <span class="math"><i>t</i><sub><i>y</i><sub>max</sub></sub></span>?</p>
+<p><strong>Rozwiązanie</strong>: należy wyznaczyć kąty <cite>t</cite> punktów styczności obróconej
+elipsy ze stycznymi równoległymi do osi układu współrzędnych i wziąć
+tylko te, które leżą w przedziale <span class="math"><i>start</i>&hellip;<i>end</i></span>.</p>
+<dl class="docutils">
+<dt>Punkt styczności nieobróconej elipsy i prostej o zadanej normalnej</dt>
+<dd>Prosta dana jest wzorem <span class="math"><i>ax</i> + <i>by</i> + <i>c</i> = 0</span>, gdzie
+dana jest normalna <span class="math">N = [<i>a</i>, <i>b</i>]</span>, <span class="math"><i>c</i></span> jest nieważne.
+Promienie elipsy to odpowiednio <span class="math"><i>r</i><sub><i>x</i></sub></span> i <span class="math"><i>r</i><sub><i>y</i></sub></span>.
+Elipsa jest przekształcana w okrąg o promieniu <span class="math"><i>r</i><sub><i>x</i></sub></span> (można
+oczywiście w okrąg o dowolnym promieniu, np. jednostkowy), tj.
+współczynniki skalowania wynoszą odpowiednio <span class="math"><i>sx</i> = 1</span> i
+<span class="math"><i>sy</i> = <i>r</i><sub><i>x</i></sub>/<i>r</i><sub><i>y</i></sub></span>.  Przy skalowaniu wektory normalne są
+skalowane przez odwrotności współczynników, tj.
+<span class="math">N' = [<i>a</i>/<i>sx</i>, <i>b</i>/<i>sy</i>] = [<i>a</i>, <i>b</i> &sdot; <i>r</i><sub><i>x</i></sub>/<i>r</i><sub><i>y</i></sub>]</span>.  Stąd kąt
+odpowiadający punktowi styczności wynosi
+<span class="math">atan((<i>b</i> &sdot; <i>r</i><sub><i>x</i></sub>/<i>r</i><sub><i>y</i></sub>)/<i>a</i>)</span>.</dd>
+<dt>Pudełko otaczające obróconej elipsy</dt>
+<dd>Granice pudełka otaczającego wyznaczają proste równoległe
+do osi układu współrzędnych.  Gdy kąt obrotu =0, wówczas
+normalne do tych prostych to <span class="math">N<sub><i>x</i></sub> = [1, 0]</span>
+i <span class="math">N<sub><i>y</i></sub> = [0, 1]</span>.  Po obróceniu o kąt <span class="math"><i>rot</i></span>
+normalne są dane jako <span class="math">N<sub><i>x</i></sub> = [sin(<i>rot</i>), cos(<i>rot</i>)]</span>
+oraz <span class="math">N<sub><i>y</i></sub> = [ &minus; cos(<i>rot</i>), sin(<i>rot</i>)]</span>.  Wystarczy teraz
+wyznaczyć punkty styczności obróconych normalnych
+i nieobróconej elipsy, a to już wiadomo jak zrobić.</dd>
+</dl>
+<p>Ostatecznie funkcja wyznaczająca pudełko otaczające ma postać:</p>
+<pre class="code python literal-block">
+<span class="kn">from</span> <span class="nn">math</span> <span class="kn">import</span> <span class="n">sin</span><span class="p">,</span> <span class="n">cos</span><span class="p">,</span> <span class="n">pi</span><span class="p">,</span> <span class="n">atan2</span><span class="w">
+
+</span><span class="k">def</span> <span class="nf">ellipse_tp</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">dx</span><span class="p">,</span> <span class="n">dy</span><span class="p">):</span><span class="w">
+</span>    <span class="k">return</span> <span class="n">atan2</span><span class="p">(</span><span class="n">dy</span><span class="o">*</span><span class="n">b</span><span class="o">/</span><span class="n">a</span><span class="p">,</span> <span class="n">dx</span><span class="p">)</span><span class="w">
+
+
+</span><span class="k">def</span> <span class="nf">elliptical_arc_bbox</span><span class="p">(</span><span class="n">x0</span><span class="p">,</span> <span class="n">y0</span><span class="p">,</span> <span class="n">rx</span><span class="p">,</span> <span class="n">ry</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="mi">2</span><span class="o">*</span><span class="n">pi</span><span class="p">,</span> <span class="n">rot</span><span class="o">=</span><span class="mf">0.0</span><span class="p">):</span><span class="w">
+</span>    <span class="n">cr</span> <span class="o">=</span> <span class="n">cos</span><span class="p">(</span><span class="n">rot</span><span class="p">)</span><span class="w">
+</span>    <span class="n">sr</span> <span class="o">=</span> <span class="n">sin</span><span class="p">(</span><span class="n">rot</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">def</span> <span class="nf">P</span><span class="p">(</span><span class="n">a</span><span class="p">):</span><span class="w">
+</span>        <span class="n">x</span> <span class="o">=</span> <span class="n">cos</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="o">*</span><span class="n">rx</span><span class="w">
+</span>        <span class="n">y</span> <span class="o">=</span> <span class="n">sin</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="o">*</span><span class="n">ry</span><span class="w">
+</span>        <span class="k">return</span> <span class="p">(</span><span class="n">x</span><span class="o">*</span><span class="n">cr</span> <span class="o">-</span> <span class="n">y</span><span class="o">*</span><span class="n">sr</span><span class="p">,</span> <span class="n">x</span><span class="o">*</span><span class="n">sr</span> <span class="o">+</span> <span class="n">y</span><span class="o">*</span><span class="n">cr</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">def</span> <span class="nf">angle</span><span class="p">(</span><span class="n">a</span><span class="p">):</span><span class="w">
+</span>        <span class="k">if</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="mf">0.0</span><span class="p">:</span><span class="w">
+</span>            <span class="k">return</span> <span class="n">a</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">pi</span><span class="w">
+</span>        <span class="k">elif</span> <span class="n">a</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="o">*</span><span class="n">pi</span><span class="p">:</span><span class="w">
+</span>            <span class="k">return</span> <span class="n">a</span> <span class="o">-</span> <span class="mi">2</span><span class="o">*</span><span class="n">pi</span><span class="w">
+</span>        <span class="k">else</span><span class="p">:</span><span class="w">
+</span>            <span class="k">return</span> <span class="n">a</span><span class="w">
+
+</span>    <span class="n">X</span> <span class="o">=</span> <span class="p">[</span><span class="n">P</span><span class="p">(</span><span class="n">start</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="n">P</span><span class="p">(</span><span class="n">end</span><span class="p">)[</span><span class="mi">0</span><span class="p">]]</span><span class="w">
+</span>    <span class="n">Y</span> <span class="o">=</span> <span class="p">[</span><span class="n">P</span><span class="p">(</span><span class="n">start</span><span class="p">)[</span><span class="mi">1</span><span class="p">],</span> <span class="n">P</span><span class="p">(</span><span class="n">end</span><span class="p">)[</span><span class="mi">1</span><span class="p">]]</span><span class="w">
+
+</span>    <span class="n">start</span> <span class="o">=</span> <span class="n">angle</span><span class="p">(</span><span class="n">start</span><span class="p">)</span><span class="w">
+</span>    <span class="n">end</span>   <span class="o">=</span> <span class="n">angle</span><span class="p">(</span><span class="n">end</span><span class="p">)</span><span class="w">
+</span>    <span class="n">a1</span>    <span class="o">=</span> <span class="n">ellipse_tp</span><span class="p">(</span><span class="n">rx</span><span class="p">,</span> <span class="n">ry</span><span class="p">,</span> <span class="n">sr</span><span class="p">,</span> <span class="n">cr</span><span class="p">)</span><span class="w">
+</span>    <span class="n">a2</span>    <span class="o">=</span> <span class="n">ellipse_tp</span><span class="p">(</span><span class="n">rx</span><span class="p">,</span> <span class="n">ry</span><span class="p">,</span> <span class="o">-</span><span class="n">cr</span><span class="p">,</span> <span class="n">sr</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="nb">map</span><span class="p">(</span><span class="n">angle</span><span class="p">,</span> <span class="p">[</span><span class="n">a1</span><span class="p">,</span> <span class="n">a2</span><span class="p">,</span> <span class="n">a1</span><span class="o">+</span><span class="n">pi</span><span class="p">,</span> <span class="n">a2</span><span class="o">+</span><span class="n">pi</span><span class="p">]):</span><span class="w">
+</span>        <span class="k">if</span> <span class="n">start</span> <span class="o">&lt;</span> <span class="n">end</span><span class="p">:</span><span class="w">
+</span>            <span class="k">if</span> <span class="n">start</span> <span class="o">&lt;=</span> <span class="n">a</span> <span class="o">&lt;=</span> <span class="n">end</span><span class="p">:</span><span class="w">
+</span>                <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="w">
+</span>                <span class="n">X</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w">
+</span>                <span class="n">Y</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="w">
+</span>        <span class="k">else</span><span class="p">:</span><span class="w">
+</span>            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">end</span> <span class="o">&lt;</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">start</span><span class="p">):</span><span class="w">
+</span>                <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">P</span><span class="p">(</span><span class="n">a</span><span class="p">)</span><span class="w">
+</span>                <span class="n">X</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w">
+</span>                <span class="n">Y</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="p">(</span><span class="n">x0</span> <span class="o">+</span> <span class="nb">min</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="n">y0</span> <span class="o">+</span> <span class="nb">min</span><span class="p">(</span><span class="n">Y</span><span class="p">)),</span> <span class="p">(</span><span class="n">x0</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="n">X</span><span class="p">),</span> <span class="n">y0</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="n">Y</span><span class="p">))</span>
+</pre>
+<p>Jest również dostępne demko SVG+JavaScript, należy <a class="reference external" href="img/elarc_aabb-demo.svg">klikać</a>.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/elarc-aabb.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:57 GMT -->
+</html>

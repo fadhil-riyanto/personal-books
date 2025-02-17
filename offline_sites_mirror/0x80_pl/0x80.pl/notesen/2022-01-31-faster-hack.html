@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2022-01-31-faster-hack.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Faster hack</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="faster-hack">
+<h1 class="title">Faster hack</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2022-01-31</td>
+</tr>
+</tbody>
+</table>
+<p>The other day I came across the following line:</p>
+<pre class="code cpp literal-block">
+<span class="n">len</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;11124811248484&quot;</span><span class="p">[</span><span class="n">type</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">14</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">type</span><span class="o">:</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span>
+</pre>
+<p>My first reaction was &quot;WTF&quot;, but later I realized that such a hackish code
+has to be a response to poor compiler optimizations. And taking into account
+that the code might be quite old, this is a perfect solution. Only
+a bit unreadable.</p>
+<p>In fact we have something like <tt class="docutils literal">len * coefficient(type) &gt; 4</tt>, where
+<tt class="docutils literal">coefficient</tt> is a value from the set {1, 2, 4, 8}.</p>
+<p>I want to show that this problem can be solved not only cleaner but also
+faster.</p>
+<p>First, let's examine the compiler output for the original expression. We
+assume both variables are unsigned integers.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">fun1</span><span class="p">(</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">len</span><span class="p">,</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">len</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="s">&quot;11124811248484&quot;</span><span class="p">[</span><span class="n">type</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">14</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">type</span><span class="o">:</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>And the output from <tt class="docutils literal">gcc <span class="pre">-O3</span> <span class="pre">-march=skylake</span> <span class="pre">-s</span></tt>; GCC version is 10.2.1.:</p>
+<pre class="literal-block">
+    cmpl    $13, %esi
+    ja      .L2
+    movl    %esi, %esi
+    leaq    .LC0(%rip), %rax        # coef = &quot;11124811248484&quot;[type] if type &lt; 14
+    movsbl  (%rax,%rsi), %eax
+    subl    $48, %eax               # coef -= '0'
+    imull   %eax, %edi              # edi = len * coef
+.L2:
+    cmpl    $4, %edi                # len * coef &gt; 4
+    seta    %al
+    ret
+</pre>
+<p>It's worth to note that the compiler knows that for <tt class="docutils literal">type &gt;= 14</tt>, we
+always fetch the value <tt class="docutils literal"><span class="pre">&quot;11124811248484&quot;[0]</span> - '0'</tt> that equals one. Thus,
+jumps instantly to the comparison.</p>
+<p><strong>Optimization #1</strong></p>
+<p>We may omit subtraction of constant <tt class="docutils literal">'0'</tt>, if we don't use ASCII
+digits, but hex strings. Maybe for older compiler we need to use
+octal digits. Either way, we avoid a subtraction.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">fun2</span><span class="p">(</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">len</span><span class="p">,</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">14</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="n">coef</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;</span><span class="se">\x01\x01\x01\x02\x04\x08\x01\x01\x02\x04\x08\x04\x08\x04</span><span class="s">&quot;</span><span class="p">[</span><span class="n">type</span><span class="p">];</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">len</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">coef</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The assembly code:</p>
+<pre class="literal-block">
+    cmpl    $13, %esi
+    ja      .L5
+    movl    %esi, %esi
+    leaq    .LC1(%rip), %rax
+    movsbl  (%rax,%rsi), %eax
+    imull   %eax, %edi
+.L5:
+    cmpl    $4, %edi
+    seta    %al
+    ret
+</pre>
+<p><strong>Optimization #2</strong></p>
+<p>We removed one instruction. Can we do it better? The comparison <tt class="docutils literal">type &lt; 14</tt>
+cannot be avoided,b ut the constants are {1, 2, 4, 8}. All are powers of two,
+thus we can replace the multiplication with a binary shift left just by
+adjusting the constants.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">fun3</span><span class="p">(</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">len</span><span class="p">,</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">14</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="n">shift</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;</span><span class="se">\x00\x00\x00\x01\x02\x03\x00\x00\x00\x01\x02\x03\x02\x03\x02</span><span class="s">&quot;</span><span class="p">[</span><span class="n">type</span><span class="p">];</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">len</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">shift</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The assembly code:</p>
+<pre class="literal-block">
+    cmpl    $13, %esi
+    ja      .L7
+    movl    %esi, %esi
+    leaq    .LC2(%rip), %rax
+    movsbl  (%rax,%rsi), %eax
+    shlx    %eax, %edi, %edi
+.L7:
+    cmpl    $4, %edi
+    seta    %al
+    ret
+</pre>
+<p>Since we are targeting the Skylake, it was possible to use the instruction
+<tt class="docutils literal">SHLX</tt> from the BMI extensions.  The instruction performs shift left, but
+does not alter the CPU flags register. By not doing this, it does not create
+any indirect dependencies between instructions.</p>
+<p><strong>Optimization #3</strong></p>
+<p>Seems we reached the end? Not really. We are calculating four cases:</p>
+<pre class="literal-block">
+len * 1 &gt; 4
+len * 2 &gt; 4
+len * 4 &gt; 4
+len * 8 &gt; 4
+</pre>
+<p>Remembering that <tt class="docutils literal">len</tt> is an unsigned integer, we may rewrite the
+expressions:</p>
+<pre class="literal-block">
+len &gt; 5     # 5 * 1 &gt; 4
+len &gt; 3     # 3 * 2 &gt; 4
+len &gt; 2     # 2 * 4 &gt; 4
+len &gt; 1     # 1 * 8 &gt; 4
+</pre>
+<p>We just figured out the minimum value of <tt class="docutils literal">len</tt> for which the expression <tt class="docutils literal">len
+* coefficient &gt; 4</tt> is true. As a result, we may get rid of
+multiplication/shift.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">fun4</span><span class="p">(</span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">len</span><span class="p">,</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">type</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">14</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="n">bound</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;</span><span class="se">\x05\x05\x05\x03\x02\x01\x05\x05\x03\x02\x01\x02\x01\x02</span><span class="s">&quot;</span><span class="p">[</span><span class="n">type</span><span class="p">];</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">len</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">bound</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The compiler output:</p>
+<pre class="literal-block">
+    movl    $5, %eax            # bound = lookup[0]
+    cmpl    $13, %esi           # type &gt;= 14
+    ja      .L9
+    movl    %esi, %esi
+    leaq    .LC3(%rip), %rax
+    movsbl  (%rax,%rsi), %eax   # bound = lookup[type]
+.L9:
+    cmpl    %eax, %edi          # len &gt; cond
+    seta    %al
+    ret
+</pre>
+<p>Conclusions:</p>
+<ol class="arabic simple">
+<li>All in all, the trick with subscripting a string is neat. This is
+what a compiler <strong>may</strong> do underneath for <tt class="docutils literal">switch</tt> statements,
+but it is not guaranteed.</li>
+<li>Clang uses conditional moves instead of jumps.</li>
+</ol>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2022-01-31-faster-hack.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

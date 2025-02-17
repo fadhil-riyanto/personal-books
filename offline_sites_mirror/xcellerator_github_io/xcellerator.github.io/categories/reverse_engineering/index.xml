@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>reverse_engineering on TheXcellerator</title>
+    <link>/categories/reverse_engineering/</link>
+    <description>Recent content in reverse_engineering on TheXcellerator</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en</language>
+    <copyright>Harvey Phillips 2020 - London, England</copyright>
+    <lastBuildDate>Sat, 23 Sep 2023 12:00:00 +0100</lastBuildDate><atom:link href="/categories/reverse_engineering/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>BGGP 4: How Low Can You Go?</title>
+      <link>/posts/bggp4/</link>
+      <pubDate>Sat, 23 Sep 2023 12:00:00 +0100</pubDate>
+      
+      <guid>/posts/bggp4/</guid>
+      <description>Guess who&amp;rsquo;s back? The Binary Golf Grand Prix is back for it&amp;rsquo;s fourth annual outing! Sadly, after getting nerdsniped last year by the one and only @netspooky, I ended up not submitting an entry for last year&amp;rsquo;s competition (you can see what I got up to instead here).
+This year, the theme was self replication. To avoid being sent active virii, the Binary Golf Association required that the entry created only a single copy of itself, and did not re-execute itself.</description>
+    </item>
+    
+    <item>
+      <title>Tetsuji: Remote Code Execution on a GameBoy Colour 22 Years Later</title>
+      <link>/posts/tetsuji/</link>
+      <pubDate>Sat, 27 Aug 2022 02:00:00 +0100</pubDate>
+      
+      <guid>/posts/tetsuji/</guid>
+      <description>Introduction It&amp;rsquo;s that time of year again - the Binary Golf Grand Prix is back for a third year running! You can also check out my entries to the first and second times this amazing competition ran.
+The theme this year was to produce a binary that crashes a given program. Bonus points for hijacking execution, and submitting a patch to the project that fixes the vulnerability. Coinciding with the announcement of this year&amp;rsquo;s competition, @netspooky told me about a little-known accessory for the GameBoy/GameBoy Colour/GameBoy Advance called the Mobile Adapter GB, which let players connect their console to the internet via their mobile phone.</description>
+    </item>
+    
+    <item>
+      <title>Janus: A Polyglot Binary for BGGP 2021</title>
+      <link>/posts/bggp21/</link>
+      <pubDate>Thu, 16 Sep 2021 12:00:00 +0100</pubDate>
+      
+      <guid>/posts/bggp21/</guid>
+      <description>This year, @netspooky announced another round of the Binary Golf Grand Prix. If you missed it last year, the challenge was to create a palindromic binary - you can see the writeup of my entry, BootNoodle, here. This time around, the theme was polyglots, i.e. the challenge was to create a binary (as small as possible - hence the Golf part&amp;hellip;) that was simulateously another filetype.
+The rules were laid out very clearly into 2 categories: first - the smallest file that satisfied all the rules wins; second - rack up points by overlapping more and more filetypes with the bytes of your host binary.</description>
+    </item>
+    
+    <item>
+      <title>Bleeding Tooth Deep Dive</title>
+      <link>/posts/bleeding_tooth/</link>
+      <pubDate>Sat, 17 Oct 2020 15:00:00 +0100</pubDate>
+      
+      <guid>/posts/bleeding_tooth/</guid>
+      <description>A few days ago, Google&amp;rsquo;s research team published an information leak vulnerability in the Linux bluetooth stack along with a very nice poc.
+In this post, I want to go through and dissect this poc to identify exactly what the vulnerability is and how it&amp;rsquo;s been fixed. This is the first kernel vulnerability that I&amp;rsquo;ve dove into deeply and I&amp;rsquo;ve found it to be surprisingly simple and straightforward.
+The vulnerability itself, dubbed Bleeding Tooth by Google, is able to leak values from the kernel&amp;rsquo;s stack memory.</description>
+    </item>
+    
+    <item>
+      <title>BootNoodle: A Palindromic Bootloader for BGGP</title>
+      <link>/posts/bggp/</link>
+      <pubDate>Tue, 23 Jun 2020 20:37:00 +0100</pubDate>
+      
+      <guid>/posts/bggp/</guid>
+      <description>You can find the git repo with the finished submission here: BootNoodle
+A few days ago (as of writing), @netspooky announced the first (hopefully annual!) Binary Golf Grand Prix on Twitter. The objective was to create a binary of any sort that is the same forwards as it is byte-reversed, but with an emphasis on creating as small a binary as possible, hence golfing.
+This was one of those challenges where I thought that I had no chance of even creating a qualifying submission, so it&amp;rsquo;s better to just wait for the results and admire the work of everyone else.</description>
+    </item>
+    
+    <item>
+      <title>Reversing Yubikey&#39;s Static Password</title>
+      <link>/posts/yubikey/</link>
+      <pubDate>Tue, 11 Jun 2019 14:35:00 +0100</pubDate>
+      
+      <guid>/posts/yubikey/</guid>
+      <description>One of the functions that that Yubikey can provide is the option to &amp;ldquo;store&amp;rdquo; a static password on the token which will be &amp;ldquo;typed&amp;rdquo; out on the host whenever you press the button. Having already done quite of a lot of work on the USB HID implementation, I was curious to know how Yubico had decided to emulate the keyboard functionality. Ultimately, I was hoping that I&amp;rsquo;d be able to set all kinds of different modifiers like Ctrl+Alt+Del and Super+R to have a little more fun with it (BadUSB/Rubber Ducky style).</description>
+    </item>
+    
+  </channel>
+</rss>

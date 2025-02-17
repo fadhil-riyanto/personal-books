@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/stud/index.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:50:09 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Studia</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="studia">
+<h1 class="title">Studia</h1>
+
+<p>Ostatnio uaktualniane: 3.04.2006</p>
+<p><a class="reference external" href="../index-2.html">Strona główna</a></p>
+<div class="contents topic" id="spis-tresci">
+<p class="topic-title">Spis treści</p>
+<ul class="simple">
+<li><a class="reference internal" href="#latex" id="toc-entry-1">LaTeX</a></li>
+<li><a class="reference internal" href="#sztuczna-inteligencja" id="toc-entry-2">Sztuczna inteligencja</a></li>
+<li><a class="reference internal" href="#podstawy-programowania-funkcjonalnego-i-weryfikacji" id="toc-entry-3">Podstawy programowania funkcjonalnego i weryfikacji</a></li>
+<li><a class="reference internal" href="#elektronika" id="toc-entry-4">Elektronika</a></li>
+<li><a class="reference internal" href="#algorytmy-i-struktury-danych" id="toc-entry-5">Algorytmy i struktury danych</a></li>
+<li><a class="reference internal" href="#architektura-komputerow" id="toc-entry-6">Architektura komputerów</a></li>
+<li><a class="reference internal" href="#teoretyczne-podstawy-informatyki" id="toc-entry-7">Teoretyczne podstawy informatyki</a></li>
+<li><a class="reference internal" href="#metody-obliczeniowe" id="toc-entry-8">Metody obliczeniowe</a></li>
+<li><a class="reference internal" href="#elementy-logiki-i-arytmetyki-komputerow" id="toc-entry-9">Elementy Logiki i Arytmetyki Komputerów</a><ul>
+<li><a class="reference internal" href="#sprawozdania" id="toc-entry-10">Sprawozdania</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="latex">
+<h1>LaTeX</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="LaTeX.txt">LaTeX</a> (15.11.2003)</dt>
+<dd>Notatki związane z LaTeX-em; zobacz też <a class="reference external" href="http://gust.org.pl/">FAQ Polskiej
+Grupy Użytkowników Systemu TeX</a></dd>
+</dl>
+<dl class="docutils">
+<dt><a class="reference external" href="report_template.latex">Wzór sprawozdania w LaTeX-u</a> (15.11.2003)</dt>
+<dd>Większość prowadzących właśnie takie sobie życzyła.
+(Pierwszą wersję napisałem w plain-TeX-u... w ogóle go nie znając).</dd>
+</dl>
+</div>
+<div class="section" id="sztuczna-inteligencja">
+<h1>Sztuczna inteligencja</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="fuzzy_set.html">Zbiory rozmyte</a></dt>
+<dd>pythonowa klasa plus mała demonstracja (wykresy dostępne
+przez GNUplota)</dd>
+</dl>
+</div>
+<div class="section" id="podstawy-programowania-funkcjonalnego-i-weryfikacji">
+<h1>Podstawy programowania funkcjonalnego i weryfikacji</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="ram/ram_machine.sml">Emulator maszyny RAM</a> (23.01.2005)</dt>
+<dd>Program konsolowy.</dd>
+</dl>
+<dl class="docutils">
+<dt><a class="reference external" href="SML/procesor.sml">Procesor</a></dt>
+<dd>Prosty procesor, który interpretuje rozkazy <tt class="docutils literal">ADD</tt>, <tt class="docutils literal">SUB</tt>,
+<tt class="docutils literal">MULT</tt>, <tt class="docutils literal">DIV</tt>, <tt class="docutils literal">SQRT</tt>, <tt class="docutils literal">SET</tt>, <tt class="docutils literal">LOAD</tt> oraz <tt class="docutils literal">STORE</tt>.</dd>
+</dl>
+<dl class="docutils">
+<dt><a class="reference external" href="SML/lists.sml">SML: moje wersja operacji na listach</a> (14.11.2004)</dt>
+<dd><p class="first">Zostały zdefiniowane następujące funkcje:</p>
+<ul class="last simple">
+<li><tt class="docutils literal">&#64;</tt>      &mdash; łączenie list</li>
+<li><tt class="docutils literal">rev</tt>    &mdash; odwrócenie listy</li>
+<li><tt class="docutils literal">length</tt> &mdash; długość listy</li>
+<li><tt class="docutils literal">maxint</tt> &mdash; maksymalna wartość całkowitoliczbowa na liście</li>
+<li><tt class="docutils literal">map</tt>    &mdash; aplikacja funkcji dla każdego elementu listy</li>
+<li><tt class="docutils literal">head</tt>   &mdash; pierwszy element listy</li>
+<li><tt class="docutils literal">tail</tt>   &mdash; pominięty pierwszy element</li>
+<li><tt class="docutils literal">nth</tt>    &mdash; n-ty element listy</li>
+<li><tt class="docutils literal">last</tt>   &mdash; ostatni element listy</li>
+<li><tt class="docutils literal">take</tt>   &mdash; n-pierwszych elementów listy</li>
+<li><tt class="docutils literal">drop</tt>   &mdash; pominięte n pierwszych elementów</li>
+<li><tt class="docutils literal">concat</tt> &mdash; połączenie dwóch list</li>
+<li><tt class="docutils literal">member</tt> &mdash; sprawdza czy coś należy do listy</li>
+<li><tt class="docutils literal">filter</tt> &mdash; zwraca te elementy listy, dla których predykat jest prawdziwy</li>
+<li><tt class="docutils literal">partition</tt>  &mdash; rozdziela listę na dwie, według predykatu</li>
+<li><tt class="docutils literal">partition2</tt> &mdash; szybsza wersja</li>
+<li><tt class="docutils literal">zip</tt>        &mdash; łączy dwie listy w listę par</li>
+<li><tt class="docutils literal">unzip</tt>      &mdash; rozdziela listę par na dwie listy</li>
+<li><tt class="docutils literal">foldl</tt></li>
+<li><tt class="docutils literal">remove</tt>     &mdash; usuwa podany elementy z listy</li>
+<li><tt class="docutils literal">removedup</tt>  &mdash; usuwa powtarzające się elementy</li>
+</ul>
+</dd>
+</dl>
+<dl class="docutils">
+<dt><a class="reference external" href="SML/list2.sml">Liczy słabo rosnące</a></dt>
+<dd><p class="first">Następujące funkcje zostały zdefiniowane:</p>
+<ul class="last simple">
+<li><tt class="docutils literal">isok</tt>   &mdash; sprawdza czy lista jest słabo rosnąca</li>
+<li><tt class="docutils literal">insert</tt> &mdash; dołącza do listy element</li>
+<li><tt class="docutils literal">merge</tt>  &mdash; łączy dwie listy słabo rosnące</li>
+</ul>
+</dd>
+</dl>
+<p>Pozostałe funkcje</p>
+<blockquote>
+<ul class="simple">
+<li><a class="reference external" href="SML/prefix.sml">prefix</a>          &mdash; sprawdza, czy jedna lista jest prefiksem drugiej listy</li>
+<li><a class="reference external" href="SML/collect_dup.sml">collect_dup</a>     &mdash; zwraca tylko te elementy, które występują na liście 2 lub więcej razy</li>
+<li><a class="reference external" href="SML/collect_singles.sml">collect_singles</a> &mdash; zwraca tylko te elementy, które występują na liście dokładnie raz</li>
+<li><a class="reference external" href="SML/remove_odd.sml">remove_odd</a>      &mdash; usuwa co drugi element listy</li>
+<li><a class="reference external" href="SML/int2real.sml">int2real</a>        &mdash; zamienia liczbę typu integer na real</li>
+<li><a class="reference external" href="SML/intpow.sml">intpow</a>          &mdash; potęgowanie liczb całkowitych</li>
+</ul>
+</blockquote>
+</div>
+<div class="section" id="elektronika">
+<h1>Elektronika</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="elektronika/4pt/4pt.html">Pomiar rezystancji metodą 4-punktową</a></dt>
+<dd>Krótki opis</dd>
+<dt><a class="reference external" href="elektronika/spice.html.gz">Dokumentacja dla programu SPICE 3f5 w formacie HTML</a> [gz]</dt>
+<dd>Utworzona z oryginalnego, tekstowego formatu
+(<a class="reference external" href="elektronika/spice_html.tar.gz">skrypt shellowy do tworzenia ww dokumentacji</a> [tgz])</dd>
+<dt><a class="reference external" href="elektronika/index.html">Symulacje różnych układów elektronicznych w SPICE</a></dt>
+<dd>Pliki .spice zostały przetestowane w <a class="reference external" href="http://ngspice.sf.net/">ngspice</a>; schematy
+elektryczne zostały narysowane w <a class="reference external" href="http://opencircuitdesign.com/xcircuit/">XCircuit</a>.</dd>
+</dl>
+</div>
+<div class="section" id="algorytmy-i-struktury-danych">
+<h1>Algorytmy i struktury danych</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="ram/index.html">Emulator maszyny RAM</a> [HTML] (kwiecień 2003, <a class="reference external" href="ram/doc/history.html">27.10.2008</a>)</dt>
+<dd>Dostępna jest wersja napisana w JavaScript, którą uruchamia się
+bezpośrednio w przeglądarce. Istnieje także wersje konsolowe napisane
+w Pythonie i SML-u, aczkolwiek obie nie tak bardzo rozbudowane jak ta
+Javascriptowa.</dd>
+</dl>
+</div>
+<div class="section" id="architektura-komputerow">
+<h1>Architektura komputerów</h1>
+<p>Programy należy kompilować w Borland C, wersja 3.:</p>
+<ul class="simple">
+<li><a class="reference external" href="ak/rtc.c">Odczyt pamięci CMOS, interpretacja danych RTC</a> (22.03.2004)</li>
+<li><a class="reference external" href="ak/int_1c.c">Przerwanie zegarowe; stoper</a> (16.04.2004)</li>
+<li><a class="reference external" href="ak/sound.c">Programowanie głośniczka</a> (23.03.2004)</li>
+</ul>
+<dl class="docutils">
+<dt><a class="reference external" href="ak/maze.zip">Projekt zaliczeniowy &mdash; labirynt 3D</a> (źródło + .exe) (16.05.2004)</dt>
+<dd>W programie zwiedza się wylosowany labirynt, sterowanie jest
+takie, jak w większości gier FPP. Istnieje wersja tylko pod
+DOS, aczkolwiek praktycznie całość została napisana i
+przetestowana w Linuksie, w X Window System.</dd>
+</dl>
+<img alt="zrzut ekranu: Cieniowanie płaskie" src="ak/maze1.png" />
+<img alt="zrzut ekranu: Cieniowanie gourauda" src="ak/maze2.png" />
+<img alt="zrzut ekranu: Teksturowanie" src="ak/maze3.png" />
+<img alt="zrzut ekranu: Przezroczyste ściany" src="ak/maze4.png" />
+</div>
+<div class="section" id="teoretyczne-podstawy-informatyki">
+<h1>Teoretyczne podstawy informatyki</h1>
+<dl class="docutils">
+<dt><a class="reference external" href="tpi/cook_younger_kasami.html">Program</a> w Pythonie sprawdzający <a class="reference external" href="http://pl.wikipedia.org/wiki/Algorytm_CYK">algorytmem Cooke'a-Youngera-Kasamiego</a> przynależność słowa do języka bezkontekstowego. (26-27.03.2004)</dt>
+<dd><p class="first">Użycie:</p>
+<pre class="literal-block">
+$ python2 cook_younger_kasami.py -f=plik -w=słowo
+</pre>
+<p class="last">Plik powinien zawierać reguły produkcji, zobacz <a class="reference external" href="tpi/gbk_baaba.txt">przykład 1</a> (słowo
+'baaba') lub <a class="reference external" href="tpi/gbk_aababa.txt">przykład 2</a> (słowo 'aababa'). Na bazie tego programu
+powstały dwa inne, które na standardowe wyjście wypisują kolejne kroki
+algorytmu, bądź to w formacie <a class="reference external" href="tpi/cook_younger_kasami.latex.html">LaTeX</a>, bądź <a class="reference external" href="tpi/cook_younger_kasami.html.html">HTML</a>; zobacz <a class="reference external" href="tpi/sample.html">plik
+HTML</a> wygenerowany dla danych z przykładu nr 1.</p>
+</dd>
+</dl>
+<p>Poniżej zamieszczam prawie wszystkie projekty z tego przedmiotu. Grafy
+[pliki <tt class="docutils literal">.dot</tt>] były generowane przez program <a class="reference external" href="http://www.graphviz.org/">Graphviz</a>.</p>
+<dl class="docutils">
+<dt>Projekt 2 [<a class="reference external" href="tpi/p2.ps.gz">ps.gz</a>] [<a class="reference external" href="tpi/p2.tar.gz">tar.gz</a>]</dt>
+<dd>Przekształcenie gramatyki bezkontekstowej
+do postaci normalnej Greibach, oraz postaci normalnej Chomsky'ego.</dd>
+<dt>Projekt 3 [<a class="reference external" href="tpi/p3.ps.gz">ps.gz</a>] [<a class="reference external" href="tpi/p3.tar.gz">tar.gz</a>]</dt>
+<dd>Sprawdzenie <a class="reference external" href="http://pl.wikipedia.org/wiki/Algorytm_CYK">algorytmem CYK</a> przynależność
+słowa do języka bezkontekstowego.</dd>
+<dt>Projekt 4 [<a class="reference external" href="tpi/p4.ps.gz">ps.gz</a>] [<a class="reference external" href="tpi/p4.tar.gz">tar.gz</a>]</dt>
+<dd>Przekształcenie gramatyki regularnej niedeterministycznej
+i niezupełnej w &mdash; kolejno &mdash; deterministyczną i zupełną.</dd>
+<dt>Projekt 5 [<a class="reference external" href="tpi/p5.ps.gz">ps.gz</a>] [<a class="reference external" href="tpi/p5.tar.gz">tar.gz</a>]</dt>
+<dd>Równania lingwistyczne &mdash; znalezienie wyrażenia regularnego,
+opisującego słowa, które podane automatowi Mealy'ego
+(znajdującemu się w podanym stanie wewnętrznym), spowodują,
+że na wyjściu pojawi się określony stan.</dd>
+<dt>Projekt 6 [<a class="reference external" href="tpi/p6.ps.gz">ps.gz</a>] [<a class="reference external" href="tpi/p6.tar.gz">tar.gz</a>]</dt>
+<dd><a class="reference external" href="http://www.daimi.au.dk/PetriNets/">Sieci Petriego</a> &mdash; utworzyć reprezentację algebraiczną
+podanej sieci, wyznaczyć dwa kolejne znakowanie następnicze,
+narysować graf znakowań osiągalnych, określić własności
+dynamiczne i statyczne sieci.</dd>
+</dl>
+</div>
+<div class="section" id="metody-obliczeniowe">
+<h1>Metody obliczeniowe</h1>
+<dl class="docutils">
+<dt>Projekt [<a class="reference external" href="mo4/m.tar.gz">m-pliki</a>] [<a class="reference external" href="mo4/doc.pdf">PDF</a>] [<a class="reference external" href="mo4/doc.tar.gz">TeX, rysunki</a>] (4.07.2004)</dt>
+<dd><p class="first">Sformułować, przy użyciu metody Lagrange'a II rodzaju,
+równania różniczkowe dla podanego układu mechanicznego.</p>
+<img alt="ekran programu w Matlabie (interfejs graficzny stworzony w GUILE)" class="last" src="mo4/screen.png" />
+</dd>
+</dl>
+</div>
+<div class="section" id="elementy-logiki-i-arytmetyki-komputerow">
+<h1>Elementy Logiki i Arytmetyki Komputerów</h1>
+<p>Pliki dla programu <a class="reference external" href="http://www.tkgate.org/">TkGate</a>.</p>
+<dl class="docutils">
+<dt><a class="reference external" href="eliak/flipflop.html">flipflop.v</a></dt>
+<dd>przerzutnik typu T, JK i JK jako dwójka licząca</dd>
+<dt><a class="reference external" href="eliak/92.html">92.v</a></dt>
+<dd>licznik scalony serii '92 (mod12)</dd>
+<dt><a class="reference external" href="eliak/mod12_1.html">mod12_1.v</a></dt>
+<dd>mod 12 zrealizowany za pomocą mod3 i mod4 połączonych kaskadowo</dd>
+<dt><a class="reference external" href="eliak/mod12_2.html">mod12_2.v</a></dt>
+<dd>mod 12 zrealizowany za pomocą licznika mod16</dd>
+<dt><a class="reference external" href="eliak/ahead.html">ahead.v</a></dt>
+<dd><a class="reference external" href="http://pl.wikipedia.org/wiki/sumator">sumator</a> 4-bitowy z przeniesieniami
+równoległymi (carry-look-ahead)</dd>
+<dt><a class="reference external" href="eliak/ahead_vs_ripple.html">ahead_vs_ripple.v</a></dt>
+<dd>porównanie szybkości działania sumatora z przeniesieniami
+równoległymi z sumatorem z przeniesieniami szeregowymi</dd>
+<dt><a class="reference external" href="eliak/ahead_vs_ripple-2.html">ahead_vs_ripple.gss</a></dt>
+<dd>skrypt inicjujący powyższą symulację (rozmieszczane
+są próbniki dla najważniejszych sygnałów)</dd>
+</dl>
+<div class="section" id="sprawozdania">
+<h2>Sprawozdania</h2>
+<dl class="docutils">
+<dt>Ćwicznie 2 i 3 [<a class="reference external" href="eliak/2-3.ps.gz">ps.gz</a>] [<a class="reference external" href="eliak/2-3.tar.gz">src.gz</a>] (4, 4.5)</dt>
+<dd>Ćwiczenie 2 &mdash; Synteza przerzutników synchronicznych,
+ćwiczenie 3 &mdash; Analiza i synteza układów synchronicznych</dd>
+<dt>Ćwicznie 4 [<a class="reference external" href="eliak/4.ps.gz">ps.gz</a>] [<a class="reference external" href="eliak/4.tar.gz">src.gz</a>] (5)</dt>
+<dd>Liczniki asynchroniczne: realizacja licznika
+asynchronicznego na kilka sposobów</dd>
+<dt>Ćwicznie 5 [<a class="reference external" href="eliak/5.ps.gz">ps.gz</a>] [<a class="reference external" href="eliak/5.tar.gz">src.gz</a>] (5)</dt>
+<dd>Liczniki synchroniczne: realizacja licznika
+synchronicznego, zliczającego w podanym kodzie
+(tutaj: 5-bitowy Johnsona)</dd>
+<dt>Ćwicznie 6 [<a class="reference external" href="eliak/6.ps.gz">ps.gz</a>] [<a class="reference external" href="eliak/6.tar.gz">src.gz</a>] (5)</dt>
+<dd>ALU Sumatory: porównanie sumatorów z przeniesieniami
+szeregowymi i równoległymi</dd>
+<dt>Projekt końcowy [<a class="reference external" href="eliak/prj.ps.gz">ps.gz</a>] [<a class="reference external" href="eliak/prj.tar.gz">src.gz</a>] (chyba 4)</dt>
+<dd>Zaprojektowanie licznika zliczającego w kodzie 1 z 5</dd>
+</dl>
+<hr class="docutils" />
+<p>Dokument utworzony przez <a class="reference external" href="../roles.html">rozszerzony</a> <a class="reference external" href="http://docutils.sourceforge.net/">rst2html</a>.</p>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/stud/index.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:50:09 GMT -->
+</html>

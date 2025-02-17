@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-21-loongarch64-highlights.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:18 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>LoongArch64 subjective higlights</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="loongarch64-subjective-higlights">
+<h1 class="title">LoongArch64 subjective higlights</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2025-01-19</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>I get back to work on <a class="reference external" href="https://github.com/simdutf/simdutf">simdutf</a> recently, and noticed that the library gained
+support for <a class="reference external" href="http://en.wikipedia.org/wiki/Loongson">LoongArch64</a>. This is a custom design and
+<strong>custom ISA</strong> by Loongson from China. They provide documentation for scalar
+ISA, but not for the vector extension. Despite that, GCC, binutils, QEMU and
+other tools already support the ISA. To our luck, <strong>Jiajie Chen</strong> did an
+impressive work of reverse engineering the vector stuff and published results
+online as <a class="reference external" href="https://jia.je/unofficial-loongarch-intrinsics-guide/">The Unofficial LoongArch Intrinsics Guide</a>.</p>
+<p>LoongArch comes with two vector extensions:</p>
+<ul class="simple">
+<li>LSX, having 128-bit vector registers,</li>
+<li>LSAX, having 256-bit vector registers.</li>
+</ul>
+<p>These extensions are similar, especially most instructions present in LSX
+exist in LSAX. According to the Wikipedia entry, the ISA is mixture of
+RISC-V and MIPS.</p>
+<p>ISA supports both integer and floating point instructions. There's support
+for 8-bit, 16-bit, 32-bit, 64-bit and also 128-bit integers. Floating point
+instructions cover single precision, double precision and half precision
+numbers.</p>
+<p>Comparisons yield byte-masks, similarly to SSE.</p>
+<p>Integer instructions are defined for most integer types, this makes
+the ISA regular.</p>
+<p>My impression is that the ISA is well designed, but have not vectorized
+any code for that architecture. Below is the list of features I found
+interesting while browsing the intrinsics guide.</p>
+</div>
+<div class="section" id="personal-highlights">
+<h1>Personal highlights</h1>
+<div class="section" id="conditional-branches">
+<h2>Conditional branches</h2>
+<p>It's possible to control the program flow based on two predicates:</p>
+<ul class="simple">
+<li>if any element of a vector is zero,</li>
+<li>if all elements of a vector are non-zero.</li>
+</ul>
+<p>Similar solution exists in SSE (<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PTEST.html">PTEST</a>), but it works on the whole
+vector, not vector elements.</p>
+</div>
+<div class="section" id="bit-operations">
+<h2>Bit operations</h2>
+<p>There are vector instructions that allow to alter individual bits
+of a word:</p>
+<ul class="simple">
+<li>set a bit,</li>
+<li>reset a bit,</li>
+<li>toggle a bit.</li>
+</ul>
+<p>That's just cool (easily doable in SIMD ISAs having variable shifts).</p>
+</div>
+<div class="section" id="counting-bits">
+<h2>Counting bits</h2>
+<p>The following counting ops are defined:</p>
+<ul class="simple">
+<li>counting leading zeros,</li>
+<li>counting leading ones,</li>
+<li>population count (counting ones).</li>
+</ul>
+<p>Counting leading zeros and population count are present only in AVX-512.</p>
+</div>
+<div class="section" id="bit-arithmetic">
+<h2>128-bit arithmetic</h2>
+<ul class="simple">
+<li>There are addition and subtraction for 128-bit numbers. Very nice!</li>
+<li>There is a selection of any 64-bit subword from a 128-bit word.</li>
+</ul>
+</div>
+<div class="section" id="integer-absolute-values">
+<h2>Integer absolute values</h2>
+<p>There are two instructions related to absolute values.</p>
+<ol class="arabic">
+<li><p class="first">calculate absolute value of difference:</p>
+<pre class="code cpp literal-block">
+<span class="n">dst</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
+</pre>
+</li>
+<li><p class="first">the sum of absolute values:</p>
+<pre class="code cpp literal-block">
+<span class="n">dst</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">abs</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">abs</span><span class="p">(</span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="widening-addition">
+<h2>Widening addition</h2>
+<p>Add even (or odd) element of given width and produce vector
+of wider elements. For instance we may add two vectors
+of 32-bit elements and get a vector of 64-bit sums.</p>
+</div>
+<div class="section" id="integer-division">
+<h2>Integer division</h2>
+<p>There are an integer division &amp; modulo of 8-, 16-, 32- and 64-bit integers.</p>
+</div>
+<div class="section" id="logical-operations">
+<h2>Logical operations</h2>
+<p>There is no ternary logic, but the set of binary operations
+is rich:</p>
+<ul class="simple">
+<li>and</li>
+<li>or</li>
+<li>xor</li>
+<li>and-not (<tt class="docutils literal">a and not b</tt>)</li>
+<li>not-or (<tt class="docutils literal">not (a or b)</tt>)</li>
+<li>or-not (<tt class="docutils literal">a or not b)</tt>)</li>
+</ul>
+<p>There is also a bit-select operation: <tt class="docutils literal">(a and c) or (b and not c)</tt>.</p>
+</div>
+<div class="section" id="accessing-individual-elements-of-vector">
+<h2>Accessing individual elements of vector</h2>
+<p>The following operations related to elements of vectors
+are possible:</p>
+<ul class="simple">
+<li>Store into memory the selected element; element index is given
+as <strong>an immediate</strong>.</li>
+<li>Copy i-th element from source vector to j-th element of
+destination; again, indices <em>i</em> &amp; <em>j</em> are encoded as <strong>an immediate</strong>.</li>
+<li>Broadcast selected element; in this case index is read from
+generic purpose register.</li>
+</ul>
+</div>
+<div class="section" id="integer-clamping">
+<h2>Integer clamping</h2>
+<p>It's possible to clamp integer values, both signed and unsigned,
+to the given range. The range is given as power of two: in the
+case of unsigned number the range is given as <span class="math">[0&hellip;2<sup><i>n</i></sup> &minus; 1]</span>,
+in the case of signed number the range is <span class="math">[ &minus; 2<sup><i>n</i></sup>&hellip;2<sup><i>n</i></sup> &minus; 1]</span>,
+where parameter <em>n</em> is given as <strong>an immediate</strong>.</p>
+</div>
+<div class="section" id="shuffling">
+<h2>Shuffling</h2>
+<p>In-register shuffling reads data from <strong>two registers</strong>, it's something
+we know from AMD XOP extension.</p>
+</div>
+<div class="section" id="byte-lanes-shuffling">
+<h2>4-byte-lanes shuffling</h2>
+<p>There's an instruction that allows to set arbitrary permutation of bytes
+within 4-byte lanes. The permutation is given as <strong>an immediate</strong>.</p>
+</div>
+<div class="section" id="horizontal-integer-scanning">
+<h2>Horizontal integer scanning</h2>
+<p>The instruction finds the first negative number and stores its index
+to the selected lane of destination.</p>
+<p>That is a pretty complex one.</p>
+</div>
+<div class="section" id="integer-copy-sign">
+<h2>Integer copy sign</h2>
+<p>The instruction performs the following operation:</p>
+<pre class="code cpp literal-block">
+<span class="k">if</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">dst</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">a</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">dst</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">dst</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>If arguments <em>a</em> and <em>b</em> are the same vector, this instruction
+calculate the absolute value of the vector elemnets.</p>
+</div>
+<div class="section" id="broadcast-immediate-to-vector">
+<h2>Broadcast immediate to vector</h2>
+<p>There is a powerful instruction that allows to initialize
+a vector from an immediate:</p>
+<ul class="simple">
+<li>broadcast an 8-bit immediate to all bytes;</li>
+<li>broadcast a <strong>sign-extended</strong> 10-bit immediate as 16-, 32- or 64-bit elements;</li>
+<li>broadcast an 8-bit immediate to 16-bit elements,</li>
+<li>broadcast an 8-bit immediate shifted left by 8 bits to 16-bit elements;</li>
+<li>broadcast an 8-bit immediate to 32-bit elements,</li>
+<li>broadcast an 8-bit immediate shifted left by 8 bits to 32-bit elements;</li>
+<li>broadcast an 8-bit immediate shifted left by 16 bits to 32-bit elements;</li>
+<li>broadcast an 8-bit immediate shifted left by 24 bits to 32-bit elements;</li>
+<li>broadcast an 8-bit immediate shifted left by 8 bits and or-ed with 0xff to 32-bit elements (<tt class="docutils literal">(imm &lt;&lt; 8) | 0xff</tt>);</li>
+<li>broadcast an 8-bit immediate shifted left by 16 bits and or-ed with 0xffff to 32-bit elements (<tt class="docutils literal">(imm &lt;&lt; 16) | 0xffff</tt>);</li>
+<li>convert an 8-bit value into a byte mask (64-bit value) and broadcast that value;</li>
+<li>convert an 8-bit immediate into a floating-point number (single or double precision)
+in range <span class="math"> &plusmn; 0.125&hellip;7.75</span>.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<p><a class="reference external" href="2024-11-09-riscv-vector-extension.html">RISC-V Vector Extension overview</a></p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2025-01-21-loongarch64-highlights.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:18 GMT -->
+</html>

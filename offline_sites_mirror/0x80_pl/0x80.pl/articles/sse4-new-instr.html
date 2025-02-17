@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse4-new-instr.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE4 &mdash; nowe rozkazy</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse4-nowe-rozkazy">
+<h1 class="title">SSE4 &mdash; nowe rozkazy</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">4.09.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Intel przymierza się do <a class="reference external" href="http://pl.wikipedia.org/wiki/SSE4">SSE4</a> (a właściwie 4.1 i 4.2), już
+nawet opublikował na swoich stronach specyfikację (dopisek z 30.04.2008:
+już są procesory z SSE 4.1).  Są to rozkazy stałoprzecinkowe stanowiące
+uzupełnienia dla istniejących rozkazów <a class="reference external" href="http://pl.wikipedia.org/wiki/SSE3">SSE3</a>/<a class="reference external" href="http://pl.wikipedia.org/wiki/SSSE3">SSSE3</a>,
+ale jest także kilka specjalizowanych instrukcji:</p>
+<ol class="arabic">
+<li><p class="first"><tt class="docutils literal">PCMPxSTRx</tt> &mdash; rozkazy działające na łańcuchach (i modyfikujące
+rejestr flag!), chyba najbardziej złożone;  w dokumentacji są opisane
+w dość zagmatwany sposób, dlatego na własny użytek <a class="reference external" href="sse4-string-instr.html">napisałem w miarę
+obszerne wprowadzenie</a> i pokusiłem się o kilka, teoretycznie
+poprawnych, <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/sse/sse4-string-instr.S">przykładów użycia</a>.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">MPSADBW</tt> &mdash; oblicza 8 sum modułów różnic (<tt class="docutils literal">SAD4</tt>) na
+4-elementowych wektorach bajtów bez znaku, tj.:</p>
+<pre class="literal-block">
++--------+--------+--------+--------+
+|a b c d |e f g h |i h j k |m n o p |  xmm1
++--------+--------+--------+--------+
+    0         1       2        3       &lt;-- nr podwójnego słowa
++--------+--------+--------+--------+
+|w x y z |        |        |        |  xmm2
++--------+--------+--------+--------+
+
+SAD4(x1,x2,x3,x4, y1,y2,y3,y4) := |x1-y1| + |x2-y2| + |x3-y3| + |x4-y4|
+</pre>
+<p>Wynikiem jest 8 elementowy wektor słów:</p>
+<pre class="literal-block">
+[0] = SAD4(w,x,y,z, a,b,c,d)
+[1] = SAD4(w,x,y,z, b,c,d,e)
+[2] = SAD4(w,x,y,z, c,d,e,f)
+[3] = SAD4(w,x,y,z, d,e,f,g)
+[4] = SAD4(w,x,y,z, e,f,g,h)
+[5] = SAD4(w,x,y,z, f,g,h,i)
+[6] = SAD4(w,x,y,z, g,h,i,j)
+[7] = SAD4(w,x,y,z, h,i,j,k)
+</pre>
+<p>przy czym można wybrać, za pomocą stałej natychmiastowej, który
+wektor z <tt class="docutils literal">xmm2</tt> jest brany do obliczeń (0, 1, 2 lub 3) oraz na jakim
+zakresie podwójnych słów w <tt class="docutils literal">xmm1</tt> mają zostać przeprowadzone (tj.
+albo 0-1-2, albo 1-2-3).</p>
+</li>
+<li><p class="first"><tt class="docutils literal">PHMINPOSUW</tt> &mdash; wyszukuje w rejestrze XMM najmniejsze słowo
+bez znaku, zwraca jego <strong>wartość</strong> oraz <strong>indeks</strong>.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">CRC32</tt> &mdash; obliczanie sum kontrolnych.</p>
+</li>
+<li><p class="first"><tt class="docutils literal">POPCNT</tt> &mdash; zliczanie ustawionych bitów.</p>
+</li>
+</ol>
+<p>Ciekawe tylko, szczególnie jeśli chodzi o instrukcje łańcuchowe i
+obliczające <tt class="docutils literal">SAD4</tt>, jakie będą opóźnienia (myślę, że będzie
+przynajmniej kilka, jeśli nie kilkanaście cykli).</p>
+<p>I na koniec bardzo miły akcent, żaden <em>high-end</em>, ale rzecz bardzo
+przydatna, mianowicie instrukcja <tt class="docutils literal">PTEST</tt>, która działa podobnie do
+<tt class="docutils literal">TEST</tt>, tj. wykonuje iloczyn logiczny, ale oczywiście na rejestrach
+XMM i na postawie wyniku ustawia flagi <strong>ZF</strong> oraz <strong>CF</strong> (nie
+modyfikuje argumentów!).  Rozkaz <tt class="docutils literal">ptest %xmm2, %xmm1</tt> działa
+następująco:</p>
+<pre class="literal-block">
+tmp1 :=     xmm1 AND xmm2
+tmp2 := NOT xmm1 AND xmm2
+
+CF = ZF = AF = OF = SF = PF := 0
+
+if (tmp1 = 0) then
+   ZF := 1
+
+if (tmp2 = 0) then
+   CF := 1
+</pre>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse4-new-instr.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

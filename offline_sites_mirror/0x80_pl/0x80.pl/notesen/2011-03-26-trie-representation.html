@@ -1,0 +1,1935 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2011-03-26-trie-representation.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:07 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Efficient trie representation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="efficient-trie-representation">
+<h1 class="title">Efficient trie representation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="last-update field"><th class="docinfo-name">Last update:</th><td class="field-body">2011-03-31</td>
+</tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2011-03-26</td>
+</tr>
+</tbody>
+</table>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/Trie">Trie</a> is a multi-way tree, where each edge is labelled with
+a single letter. In this text several trie representations are shown.</p>
+<p>The article is the side effect of work on the <a class="reference external" href="https://github.com/WojciechMula/pyahocorasick">pyahocorasic module</a>.</p>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#simple-layouts" id="toc-entry-2">Simple layouts</a><ul>
+<li><a class="reference internal" href="#array-of-all-possible-edges-version-1" id="toc-entry-3">Array of all possible edges [version 1]</a></li>
+<li><a class="reference internal" href="#pointer-to-array-of-all-possible-edges-version-1a" id="toc-entry-4">Pointer to array of all possible edges [version 1a]</a></li>
+<li><a class="reference internal" href="#pointer-to-array-of-limited-set-of-edges-version-1b" id="toc-entry-5">Pointer to array of limited set of edges [version 1b]</a></li>
+<li><a class="reference internal" href="#pointer-to-array-of-limited-set-of-edges-lookup-tables" id="toc-entry-6">Pointer to array of limited set of edges &mdash; lookup tables</a></li>
+<li><a class="reference internal" href="#dynamic-table-of-pointers-version-2" id="toc-entry-7">Dynamic table of pointers [version 2]</a></li>
+<li><a class="reference internal" href="#linked-list-of-pointers-version-2b" id="toc-entry-8">Linked list of pointers [version 2b]</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#dynamic-table-modifications" id="toc-entry-9">Dynamic table modifications</a><ul>
+<li><a class="reference internal" href="#table-of-letters-and-pointers-version-3" id="toc-entry-10">Table of letters and pointers [version 3]</a></li>
+<li><a class="reference internal" href="#table-of-letters-children-count-and-pointers-version-3b" id="toc-entry-11">Table of letters, children count and pointers [version 3b]</a></li>
+<li><a class="reference internal" href="#array-of-children-nodes-version-4" id="toc-entry-12">Array of children nodes [version 4]</a></li>
+<li><a class="reference internal" href="#table-of-letter-and-array-of-children-nodes-version-4a" id="toc-entry-13">Table of letter and array of children nodes [version 4a]</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#experiments-results-summary" id="toc-entry-14">Experiments results summary</a></li>
+<li><a class="reference internal" href="#speed" id="toc-entry-15">Speed</a></li>
+<li><a class="reference internal" href="#memory-allocators" id="toc-entry-16">Memory allocators</a><ul>
+<li><a class="reference internal" href="#experiments" id="toc-entry-17">Experiments</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#updates" id="toc-entry-18">Updates</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Each node of a tree store two kinds of data: user data and trie-related
+data. Let say an alphabet has at most 256 letters, thus a letter could be
+saved on a byte.</p>
+<p>During maintaining tree structure following issues appear:</p>
+<ul class="simple">
+<li><strong>Amount of memory</strong> required to store nodes and edges.</li>
+<li><strong>Internal memory fragmentation</strong> in underlying dynamic
+memory allocation routines (<tt class="docutils literal">malloc</tt>/<tt class="docutils literal">free</tt>), that
+makes real size of tree larger. If small object are
+allocated/reallocated fragmentation could be significant.</li>
+<li><strong>Dynamic allocation/reallocation</strong> scatters data on a heap,
+making cache misses visible. Using arrays may improve
+<a class="reference external" href="http://en.wikipedia.org/wiki/memory_locality">memory locality</a>.</li>
+<li><strong>Data alignment</strong> in nowadays CPUs is important, making
+reading and writing memory faster. Structure of node
+could be packed to fill the smallest possible memory at
+cost of speed.</li>
+<li><strong>Time required to retrieve a child node</strong> depending on
+a letter (edge label):<ul>
+<li>const (arrays),</li>
+<li>logarithmic (arrays) or,</li>
+<li>linear (arrays, lists).</li>
+</ul>
+</li>
+</ul>
+<p>In experiments Polish, English, French and German words lists were
+used. User data has got two pointers, i.e. additional 8 bytes per
+node.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="33%" />
+<col width="33%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">list</th>
+<th class="head">words</th>
+<th class="head">trie nodes</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>138 622</td>
+<td>312 855</td>
+</tr>
+<tr><td>german</td>
+<td>162 032</td>
+<td>610 470</td>
+</tr>
+<tr><td>french</td>
+<td>629 420</td>
+<td>1 297 080</td>
+</tr>
+<tr><td>polish</td>
+<td>3 588 729</td>
+<td>5 933 658</td>
+</tr>
+</tbody>
+</table>
+<p>The sample program were linked against GNU libc, and procedure <tt class="docutils literal">malloc_stats</tt>
+from <tt class="docutils literal">malloc.h</tt> was used to obtain statistics about the real memory usage.</p>
+</div>
+<div class="section" id="simple-layouts">
+<h1>Simple layouts</h1>
+<div class="section" id="array-of-all-possible-edges-version-1">
+<h2>Array of all possible edges [version 1]</h2>
+<img alt="[image]" class="align-center" src="2011-03-26-trie-representation/v1.pic.png" />
+<p>The simplest solution is to store all possible pointers to
+children nodes in array of constant size. C-structure:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">children</span><span class="p">[</span><span class="mi">256</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Procedure that returns child node or NULL depending on a letter
+works in constant time:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">[</span><span class="n">letter</span><span class="p">]</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="cons">
+<h3>Cons</h3>
+<ul class="simple">
+<li>Huge memory requirements &mdash; size of node <tt class="docutils literal">256 * size of pointer + size of user data</tt>.</li>
+</ul>
+</div>
+<div class="section" id="pros">
+<h3>Pros</h3>
+<ul class="simple">
+<li>Very simple implementation and use.</li>
+<li>Theoretically constant time addressing, but because of large
+data cache misses may be visible.</li>
+</ul>
+</div>
+<div class="section" id="experiment-results">
+<h3>Experiment results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>1,032</td>
+<td>322,866,360</td>
+<td>1032.00</td>
+<td>325,369,216</td>
+<td>2,502,856</td>
+<td>0.77</td>
+</tr>
+<tr><td>german</td>
+<td>1,032</td>
+<td>630,005,040</td>
+<td>1032.00</td>
+<td>634,888,816</td>
+<td>4,883,776</td>
+<td>0.77</td>
+</tr>
+<tr><td>french</td>
+<td>1,032</td>
+<td>1,338,586,560</td>
+<td>1032.00</td>
+<td>1,348,963,216</td>
+<td>10,376,656</td>
+<td>0.77</td>
+</tr>
+<tr><td>polish</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="pointer-to-array-of-all-possible-edges-version-1a">
+<h2>Pointer to array of all possible edges [version 1a]</h2>
+<p>Instead of a static array of pointers allocate such array only when needed,
+i.e. leaf nodes don't occupy much memory. This cost additional test
+when accessing children.</p>
+<p>Node structure:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="o">**</span><span class="w"> </span><span class="n">children</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Next function:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">[</span><span class="n">letter</span><span class="p">];</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-1">
+<h3>Pros</h3>
+<ul class="simple">
+<li>smaller memory, but still large</li>
+</ul>
+</div>
+<div class="section" id="experiments-results">
+<h3>Experiments results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>12</td>
+<td>232,249,620</td>
+<td>742.36</td>
+<td>235,286,176</td>
+<td>3,036,556</td>
+<td>1.29</td>
+</tr>
+<tr><td>german</td>
+<td>12</td>
+<td>495,588,296</td>
+<td>811.81</td>
+<td>501,844,744</td>
+<td>6,256,448</td>
+<td>1.25</td>
+</tr>
+<tr><td>french</td>
+<td>12</td>
+<td>894,746,784</td>
+<td>689.82</td>
+<td>906,803,728</td>
+<td>12,056,944</td>
+<td>1.33</td>
+</tr>
+<tr><td>polish</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="pointer-to-array-of-limited-set-of-edges-version-1b">
+<h2>Pointer to array of limited set of edges [version 1b]</h2>
+<p>Do not store the array of all possible pointers, but only a continuous
+range between first and last non-null pointer.</p>
+<p>Node structure:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">lo</span><span class="p">;</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">hi</span><span class="p">;</span><span class="w">
+        </span><span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="o">**</span><span class="w"> </span><span class="n">children</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The array has size <tt class="docutils literal">hi - lo + 1</tt>.</p>
+<p>Next function:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">letter</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">lo</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">letter</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">hi</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">[</span><span class="n">letter</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">lo</span><span class="p">];</span><span class="w">
+                </span><span class="k">else</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-2">
+<h3>Pros</h3>
+<ul class="simple">
+<li>much smaller memory (but still quite large and in degenerated cases
+allocated memory could be as large as in version 1a)</li>
+</ul>
+</div>
+<div class="section" id="cons-1">
+<h3>Cons</h3>
+<ul class="simple">
+<li>more tests in order to retrieve a child node</li>
+<li>inserting/deleting nodes require more operations</li>
+</ul>
+</div>
+<div class="section" id="experiments-results-1">
+<h3>Experiments results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>16</td>
+<td>12,688,512</td>
+<td>40.56</td>
+<td>17,552,000</td>
+<td>4,863,488</td>
+<td>27.71</td>
+</tr>
+<tr><td>german</td>
+<td>16</td>
+<td>18,303,588</td>
+<td>29.98</td>
+<td>28,461,208</td>
+<td>10,157,620</td>
+<td>35.69</td>
+</tr>
+<tr><td>french</td>
+<td>16</td>
+<td>44,657,336</td>
+<td>34.43</td>
+<td>63,965,320</td>
+<td>19,307,984</td>
+<td>30.19</td>
+</tr>
+<tr><td>polish</td>
+<td>16</td>
+<td>312,236,524</td>
+<td>52.62</td>
+<td>393,812,632</td>
+<td>81,576,108</td>
+<td>20.71</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="pointer-to-array-of-limited-set-of-edges-lookup-tables">
+<h2>Pointer to array of limited set of edges &mdash; lookup tables</h2>
+<p>This method extends 1b approach. The size of chars set stored in entire
+trie may be smaller than 256, for example words in english dictionary
+contains small and big letters and apostrophe, i.e. about 53 chars.
+Thus the size of array in each node could be much smaller, with cost
+of additional translation table(s).</p>
+<p>Such translation tables can be applied for all nodes or be
+specific for nodes at the same depth. Sample functions
+retrieving a child node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">trie</span><span class="o">-&gt;</span><span class="n">translate</span><span class="p">[</span><span class="n">letter</span><span class="p">];</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">L</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">trie</span><span class="o">-&gt;</span><span class="n">INVALID_LETTER</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">[</span><span class="n">L</span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+
+</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* depth could be parameter of function! */</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">get_depth</span><span class="p">(</span><span class="n">node</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">L</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">trie</span><span class="o">-&gt;</span><span class="n">translate</span><span class="p">[</span><span class="n">depth</span><span class="p">][</span><span class="n">letter</span><span class="p">];</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">L</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">trie</span><span class="o">-&gt;</span><span class="n">INVALID_LETTER</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+        </span><span class="k">else</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">[</span><span class="n">L</span><span class="p">]</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-3">
+<h3>Pros</h3>
+<ul class="simple">
+<li>even less memory (but still large)</li>
+</ul>
+</div>
+<div class="section" id="cons-2">
+<h3>Cons</h3>
+<ul class="simple">
+<li>3 or 4 memory accesses, additional tests</li>
+<li>translation tables can be constructed when a trie already exists</li>
+<li>adding new words containing invalid characters forces to rebuild
+lookup tables</li>
+</ul>
+</div>
+<div class="section" id="experiments-results-2">
+<h3>Experiments results</h3>
+<p>Global translation table has 54 elements, while size of translation tables
+created for each depth vary from 1 to 53:</p>
+<p>Results for tries with additional lookups.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">method</th>
+<th class="head">node struct size</th>
+<th class="head">total size</th>
+<th class="head">bytes/node</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>All possible edges</td>
+<td>1036</td>
+<td>324,117,780</td>
+<td>1036.00</td>
+</tr>
+<tr><td>Global translation table</td>
+<td>16</td>
+<td>72,582,360</td>
+<td>232.00</td>
+</tr>
+<tr><td>Depth-local translation table</td>
+<td>16</td>
+<td>41,797,316</td>
+<td>133.60</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="dynamic-table-of-pointers-version-2">
+<h2>Dynamic table of pointers [version 2]</h2>
+<img alt="2011-03-26-trie-representation/v2.pic.png" class="align-center" src="2011-03-26-trie-representation/v2.pic.png" />
+<p>Dynamic table of pointers &mdash; store only non-null pointers.
+This require store also size of a table and a edge label.</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">;</span><span class="w"> </span><span class="c1">// edge label
+</span><span class="w">        </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">             </span><span class="c1">// array size
+</span><span class="w">        </span><span class="n">TrieNode</span><span class="o">**</span><span class="w"> </span><span class="n">children</span><span class="p">;</span><span class="w">    </span><span class="c1">// array
+</span><span class="p">}</span>
+</pre>
+<p>Procedure returns next node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">g</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">child</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">-&gt;</span><span class="n">letter</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">child</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-4">
+<h3>Pros</h3>
+<ul class="simple">
+<li>Simple to use, less memory usage than the linked list version.</li>
+</ul>
+</div>
+<div class="section" id="cons-3">
+<h3>Cons</h3>
+<ul class="simple">
+<li>Linear time to obtain a child node.</li>
+<li>Many indirect memory operations.</li>
+<li>Adding/removing require reallocating memory, this brings internal
+fragmentation.</li>
+</ul>
+</div>
+<div class="section" id="improvements">
+<h3>Improvements</h3>
+<ul class="simple">
+<li>Keep a table sorted and thus allow logarithmic time to obtain a child
+(<a class="reference external" href="http://en.wikipedia.org/wiki/binary_search">binary search</a>).</li>
+<li>Or use move-to-front strategy.</li>
+<li>For <tt class="docutils literal">n = 1</tt> do not allocate 1-element table, but save pointer
+directly in a node structure (<strong>version 2a</strong>).</li>
+</ul>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">;</span><span class="w">
+        </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="k">union</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">TrieNode</span><span class="o">*</span><span class="w">       </span><span class="n">single_child</span><span class="p">;</span><span class="w">   </span><span class="c1">// valid when n = 1
+</span><span class="w">                </span><span class="n">TrieNode</span><span class="o">**</span><span class="w">      </span><span class="n">ptr_array</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="experiments-results-3">
+<h3>Experiments results</h3>
+<p>Version 2:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>16</td>
+<td>6,257,096</td>
+<td>20.00</td>
+<td>11,193,376</td>
+<td>4,936,280</td>
+<td>44.10</td>
+</tr>
+<tr><td>german</td>
+<td>16</td>
+<td>12,209,396</td>
+<td>20.00</td>
+<td>22,448,216</td>
+<td>10,238,820</td>
+<td>45.61</td>
+</tr>
+<tr><td>french</td>
+<td>16</td>
+<td>25,941,596</td>
+<td>20.00</td>
+<td>45,420,392</td>
+<td>19,478,796</td>
+<td>42.89</td>
+</tr>
+<tr><td>polish</td>
+<td>16</td>
+<td>118,673,156</td>
+<td>20.00</td>
+<td>201,448,152</td>
+<td>82,774,996</td>
+<td>41.09</td>
+</tr>
+</tbody>
+</table>
+<p>Version 2a:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>16</td>
+<td>5,563,904</td>
+<td>17.78</td>
+<td>8,419,680</td>
+<td>2,855,776</td>
+<td>33.92</td>
+</tr>
+<tr><td>german</td>
+<td>16</td>
+<td>10,607,980</td>
+<td>17.38</td>
+<td>16,040,816</td>
+<td>5,432,836</td>
+<td>33.87</td>
+</tr>
+<tr><td>french</td>
+<td>16</td>
+<td>23,480,024</td>
+<td>18.10</td>
+<td>35,573,008</td>
+<td>12,092,984</td>
+<td>33.99</td>
+</tr>
+<tr><td>polish</td>
+<td>16</td>
+<td>109,473,048</td>
+<td>18.45</td>
+<td>164,644,264</td>
+<td>55,171,216</td>
+<td>33.51</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="linked-list-of-pointers-version-2b">
+<h2>Linked list of pointers [version 2b]</h2>
+<img alt="2011-03-26-trie-representation/v2b.pic.png" class="align-center" src="2011-03-26-trie-representation/v2b.pic.png" />
+<p>Use single-linked list instead of dynamic table. This requires also
+store a letter (label's edge) on a list.</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="n">ListItem</span><span class="o">*</span><span class="w"> </span><span class="n">head</span><span class="p">;</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="n">ListItem</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w">         </span><span class="n">letter</span><span class="p">;</span><span class="w">
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w">       </span><span class="n">child</span><span class="p">;</span><span class="w">
+        </span><span class="n">ListItem</span><span class="o">*</span><span class="w">       </span><span class="n">next</span><span class="p">;</span><span class="w">
+</span><span class="p">};</span>
+</pre>
+<p>Procedure returns next node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">g</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">ListItem</span><span class="o">*</span><span class="w"> </span><span class="n">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">head</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">item</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">item</span><span class="o">-&gt;</span><span class="n">letter</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">item</span><span class="o">-&gt;</span><span class="n">child</span><span class="p">;</span><span class="w">
+                </span><span class="k">else</span><span class="w">
+                        </span><span class="n">item</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">item</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-5">
+<h3>Pros</h3>
+<ul class="simple">
+<li>Store only required links.</li>
+</ul>
+</div>
+<div class="section" id="cons-4">
+<h3>Cons</h3>
+<ul class="simple">
+<li>Linear time to obtain a child node.</li>
+<li>Many indirect memory operations.</li>
+<li>Each node of linked list has small size (2 pointers = 8 bytes on
+32-bit machine), thus large internal memory fragmentation when a
+standard C library routines are used (<tt class="docutils literal">malloc</tt>/<tt class="docutils literal">free</tt>).</li>
+</ul>
+</div>
+<div class="section" id="improvements-1">
+<h3>Improvements</h3>
+<ul class="simple">
+<li>Use move-to-front strategy, i.e. move last found item to the front of a
+list &mdash; next search will find this item faster.</li>
+<li>Use <a class="reference external" href="http://en.wikipedia.org/wiki/memory_pool">memory pools</a> to reduce memory wasting.
+See section <a class="reference internal" href="#memory-allocators">Memory allocators</a></li>
+</ul>
+</div>
+<div class="section" id="experiments-results-4">
+<h3>Experiments results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>12</td>
+<td>7,508,508</td>
+<td>24.00</td>
+<td>10,011,360</td>
+<td>2,502,852</td>
+<td>25.00</td>
+</tr>
+<tr><td>german</td>
+<td>12</td>
+<td>14,651,268</td>
+<td>24.00</td>
+<td>19,535,040</td>
+<td>4,883,772</td>
+<td>25.00</td>
+</tr>
+<tr><td>french</td>
+<td>12</td>
+<td>31,129,908</td>
+<td>24.00</td>
+<td>41,506,560</td>
+<td>10,376,652</td>
+<td>25.00</td>
+</tr>
+<tr><td>polish</td>
+<td>12</td>
+<td>142,407,780</td>
+<td>24.00</td>
+<td>189,877,056</td>
+<td>47,469,276</td>
+<td>25.00</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="section" id="dynamic-table-modifications">
+<h1>Dynamic table modifications</h1>
+<div class="section" id="table-of-letters-and-pointers-version-3">
+<h2>Table of letters and pointers [version 3]</h2>
+<img alt="2011-03-26-trie-representation/v3.pic.png" class="align-center" src="2011-03-26-trie-representation/v3.pic.png" />
+<p>The dynamic table require two memory reads: the first gets a pointer to child,
+then get a letter from a child. In this representation letters are separated
+from the node structure and saved in front of the table of pointers.
+Sample memory layout for node with 3 children:</p>
+<pre class="literal-block">
+|     letters   |       pointers        |
++---+---+---+---+-------+-------+-------+
+| a | b | c | _ | ptr_0 | ptr_1 | ptr_2 |
++---+---+---+---+-------+-------+-------+
+  0   1   2   x     0       1       2     &lt;- index
+</pre>
+<p>Letters area has size rounded to alignment, in this case 4 bytes.</p>
+<p>Structure of node is simple:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">children</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Procedure returns next node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT_v3</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">letters_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">round_up</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="n">aligment</span><span class="p">);</span><span class="w">
+
+        </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">letters</span><span class="w"> </span><span class="o">=</span><span class="w">
+                </span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">pointers</span><span class="w"> </span><span class="o">=</span><span class="w">
+                </span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">letters_size</span><span class="p">);</span><span class="w">
+
+        </span><span class="cm">/* find index */</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">pointers</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-6">
+<h3>Pros</h3>
+<ul class="simple">
+<li>Letters are stored in a single memory area, thus specialized routines
+to locating chars could be used, for example functions that use SSE
+instructions.</li>
+</ul>
+</div>
+<div class="section" id="cons-5">
+<h3>Cons</h3>
+<ul class="simple">
+<li>Linear time to obtain a child node.</li>
+<li>Adding/removing words require reallocating memory.</li>
+<li>Internal memory fragmentation in letters area.</li>
+<li>Because of structure packing size of node don't become smaller.</li>
+</ul>
+</div>
+<div class="section" id="improvements-2">
+<h3>Improvements</h3>
+<ul class="simple">
+<li>Keep a table sorted and thus allow logarithmic time to obtain child
+nodes.</li>
+<li>Or use move-to-front strategy.</li>
+<li>After all structure packing could be ally. If alignment is 4 bytes,
+then there are two free bytes after <tt class="docutils literal">n</tt> element. If <tt class="docutils literal">n == 1</tt> or
+<tt class="docutils literal">n == 2</tt> we don't need to allocate letters part of dynamic table,
+but use these spare bytes. (<strong>version 3a</strong>)</li>
+</ul>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w">  </span><span class="n">byte0</span><span class="p">;</span><span class="w"> </span><span class="c1">// n == 1 or n == 2
+</span><span class="w">        </span><span class="kt">uint8_t</span><span class="w">  </span><span class="n">byte1</span><span class="p">;</span><span class="w"> </span><span class="c1">// n == 2
+</span><span class="w">        </span><span class="kt">void</span><span class="o">*</span><span class="w">    </span><span class="n">children</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Procedure returns next node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">case</span><span class="w"> </span><span class="mi">0</span><span class="p">:</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+
+                </span><span class="k">case</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span><span class="w">
+                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">byte0</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">TrieNode</span><span class="o">**</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">)[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                        </span><span class="k">else</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+
+                </span><span class="k">case</span><span class="w"> </span><span class="mi">2</span><span class="p">:</span><span class="w">
+                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">byte0</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">TrieNode</span><span class="o">**</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">)[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                        </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">byte1</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">TrieNode</span><span class="o">**</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">)[</span><span class="mi">1</span><span class="p">];</span><span class="w">
+                        </span><span class="k">else</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+
+                </span><span class="k">default</span><span class="o">:</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">NEXT_v3</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">letter</span><span class="p">);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="experiments-results-5">
+<h3>Experiments results</h3>
+<p>Version 3:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>16</td>
+<td>7,588,476</td>
+<td>24.26</td>
+<td>11,349,160</td>
+<td>3,760,684</td>
+<td>33.14</td>
+</tr>
+<tr><td>german</td>
+<td>16</td>
+<td>18,070,716</td>
+<td>24.17</td>
+<td>28,197,544</td>
+<td>10,126,828</td>
+<td>35.91</td>
+</tr>
+<tr><td>french</td>
+<td>16</td>
+<td>62,388,760</td>
+<td>24.20</td>
+<td>97,167,832</td>
+<td>34,779,072</td>
+<td>35.79</td>
+</tr>
+<tr><td>polish</td>
+<td>16</td>
+<td>310,656,956</td>
+<td>24.24</td>
+<td>480,136,984</td>
+<td>169,480,028</td>
+<td>35.30</td>
+</tr>
+</tbody>
+</table>
+<p>Version 3a:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>16</td>
+<td>6,406,060</td>
+<td>20.48</td>
+<td>11,349,160</td>
+<td>4,943,100</td>
+<td>43.55</td>
+</tr>
+<tr><td>german</td>
+<td>16</td>
+<td>15,098,296</td>
+<td>20.19</td>
+<td>28,122,600</td>
+<td>13,024,304</td>
+<td>46.31</td>
+</tr>
+<tr><td>french</td>
+<td>16</td>
+<td>52,107,676</td>
+<td>20.21</td>
+<td>96,885,336</td>
+<td>44,777,660</td>
+<td>46.22</td>
+</tr>
+<tr><td>polish</td>
+<td>16</td>
+<td>259,933,364</td>
+<td>20.28</td>
+<td>478,677,552</td>
+<td>218,744,188</td>
+<td>45.70</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="table-of-letters-children-count-and-pointers-version-3b">
+<h2>Table of letters, children count and pointers [version 3b]</h2>
+<img alt="2011-03-26-trie-representation/v3b.pic.png" class="align-center" src="2011-03-26-trie-representation/v3b.pic.png" />
+<p>A modification of the previous scheme &mdash; move counter <tt class="docutils literal">n</tt> to a dynamic
+array. Also type of <tt class="docutils literal">n</tt> could be change to <tt class="docutils literal">uint8_t</tt>. If node
+has no children, then pointer is NULL, and <tt class="docutils literal">n</tt> never get value
+0, so we have values outside range 1..256.</p>
+<p>Structure of node is simple:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">children</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Procedure returns next node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">uint_8</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">letters_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">round_up</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="n">aligment</span><span class="p">);</span><span class="w">
+
+        </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">letters</span><span class="w"> </span><span class="o">=</span><span class="w">
+                </span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">pointers</span><span class="w"> </span><span class="o">=</span><span class="w">
+                </span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">children</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">letters_size</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+        </span><span class="cm">/* find index */</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">pointers</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Sample memory layout for node with 3 children:</p>
+<pre class="literal-block">
+| n |  letters  |       pointers        |
++---+---+---+---+-------+-------+-------+
+| 3 | a | b | c | ptr_0 | ptr_1 | ptr_2 |
++---+---+---+---+-------+-------+-------+
+      0   1   2     0       1       2     &lt;- index
+</pre>
+<div class="section" id="pros-7">
+<h3>Pros</h3>
+<ul class="simple">
+<li>smaller size of a node</li>
+</ul>
+</div>
+<div class="section" id="cons-6">
+<h3>Cons</h3>
+<p><em>see previous section</em></p>
+</div>
+<div class="section" id="experiments-results-6">
+<h3>Experiments results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>12</td>
+<td>6,297,676</td>
+<td>20.13</td>
+<td>8,841,424</td>
+<td>2,543,748</td>
+<td>28.77</td>
+</tr>
+<tr><td>german</td>
+<td>12</td>
+<td>12,267,360</td>
+<td>20.09</td>
+<td>17,782,664</td>
+<td>5,515,304</td>
+<td>31.02</td>
+</tr>
+<tr><td>french</td>
+<td>12</td>
+<td>26,152,132</td>
+<td>20.16</td>
+<td>35,824,896</td>
+<td>9,672,764</td>
+<td>27.00</td>
+</tr>
+<tr><td>polish</td>
+<td>12</td>
+<td>120,114,864</td>
+<td>20.24</td>
+<td>158,666,648</td>
+<td>38,551,784</td>
+<td>24.30</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="array-of-children-nodes-version-4">
+<h2>Array of children nodes [version 4]</h2>
+<img alt="2011-03-26-trie-representation/v4.pic.png" class="align-center" src="2011-03-26-trie-representation/v4.pic.png" />
+<p>Instead of storing pointers to children it's possible to store
+all children nodes in a single array and save only one pointer
+to that array.</p>
+<p>Structure of node:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint16_t</span><span class="w">  </span><span class="n">n</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w">   </span><span class="n">letter</span><span class="p">;</span><span class="w">
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-8">
+<h3>Pros</h3>
+<ul class="simple">
+<li>much smaller memory requirements</li>
+<li>memory locality (spatial locality)</li>
+</ul>
+</div>
+<div class="section" id="cons-7">
+<h3>Cons</h3>
+<ul class="simple">
+<li>adding/removing nodes require reallocation, this bring internal
+memory fragmentation</li>
+</ul>
+</div>
+<div class="section" id="size-improvements">
+<h3>Size improvements</h3>
+<p>If a trie is not modified, then memory could be even more compacted,
+but following constraints are set:</p>
+<ul class="simple">
+<li>all nodes are stored in a continuous area of memory (array)</li>
+<li>there are up to <span class="math">2<sup>23</sup> &minus; 1</span> nodes</li>
+</ul>
+<p>Structure of node:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint32_t</span><span class="w">        </span><span class="n">letter</span><span class="o">:</span><span class="mi">8</span><span class="p">;</span><span class="w">       </span><span class="c1">// 8-bit for letter
+</span><span class="w">        </span><span class="kt">uint32_t</span><span class="w">        </span><span class="n">eol</span><span class="o">:</span><span class="mi">1</span><span class="p">;</span><span class="w">          </span><span class="c1">// 1-bit for End-of-list marker
+</span><span class="w">        </span><span class="kt">uint32_t</span><span class="w">        </span><span class="n">index</span><span class="o">:</span><span class="mi">23</span><span class="p">;</span><span class="w">       </span><span class="c1">// index of subarray of children
+</span><span class="p">}</span>
+</pre>
+<p>Procedure that returns child node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="w"> </span><span class="n">nodes</span><span class="p">[</span><span class="n">k</span><span class="p">];</span><span class="w">
+
+</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">index</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">children</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">&amp;</span><span class="n">nodes</span><span class="p">[</span><span class="n">index</span><span class="p">];</span><span class="w">
+        </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">children</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">letter</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="n">children</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+                </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">children</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">eol</span><span class="p">)</span><span class="w">
+                                </span><span class="c1">// last element of array
+</span><span class="w">                                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+                        </span><span class="k">else</span><span class="w">
+                                </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Such trie takes exactly <tt class="docutils literal">nodes count * sizeof(TrieNode)</tt>.</p>
+</div>
+<div class="section" id="experiments-results-7">
+<h3>Experiments results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>16</td>
+<td>5,005,680</td>
+<td>16.00</td>
+<td>6,814,952</td>
+<td>1,809,272</td>
+<td>26.55</td>
+</tr>
+<tr><td>german</td>
+<td>16</td>
+<td>9,767,520</td>
+<td>16.00</td>
+<td>13,623,080</td>
+<td>3,855,560</td>
+<td>28.30</td>
+</tr>
+<tr><td>french</td>
+<td>16</td>
+<td>20,753,280</td>
+<td>16.00</td>
+<td>27,680,536</td>
+<td>6,927,256</td>
+<td>25.03</td>
+</tr>
+<tr><td>polish</td>
+<td>16</td>
+<td>94,938,528</td>
+<td>16.00</td>
+<td>122,940,568</td>
+<td>28,002,040</td>
+<td>22.78</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="table-of-letter-and-array-of-children-nodes-version-4a">
+<h2>Table of letter and array of children nodes [version 4a]</h2>
+<p>This is merge of version 4 and version 3b &mdash; children nodes are saved
+in an array (v4), a children counter and edge lables are also stored in
+the table (v3b).</p>
+<p>Structure of node:</p>
+<pre class="code cpp literal-block">
+<span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="cm">/* user data */</span><span class="w">
+
+        </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">array</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>(Pseudo)structure od array:</p>
+<pre class="code cpp literal-block">
+<span class="n">pseudostruct</span><span class="w"> </span><span class="n">array</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letters</span><span class="p">[</span><span class="n">n</span><span class="p">];</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">__alignment__</span><span class="p">[</span><span class="o">?</span><span class="p">];</span><span class="w">
+
+        </span><span class="n">TrieNode</span><span class="w"> </span><span class="n">next</span><span class="p">[</span><span class="n">n</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Procedure returns next node:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">NEXT</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">array</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="n">letters_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">round_up</span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">aligment</span><span class="p">);</span><span class="w">
+
+        </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">letters</span><span class="w"> </span><span class="o">=</span><span class="w">
+                </span><span class="p">(</span><span class="kt">char</span><span class="o">*</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">);</span><span class="w">
+
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">next</span><span class="w"> </span><span class="o">=</span><span class="w">
+                </span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="p">)(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">array</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">letters_size</span><span class="p">);</span><span class="w">
+
+        </span><span class="cm">/* find index */</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">letters</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="pros-cons">
+<h3>Pros &amp; cons</h3>
+<p><em>same as for version 4</em></p>
+</div>
+<div class="section" id="experiments-results-8">
+<h3>Experiments results</h3>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">language</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>english</td>
+<td>12</td>
+<td>4'687'400</td>
+<td>14.98</td>
+<td>6'340'624</td>
+<td>1'653'224</td>
+<td>26.07</td>
+</tr>
+<tr><td>german</td>
+<td>12</td>
+<td>9'290'880</td>
+<td>15.22</td>
+<td>12'901'616</td>
+<td>3'610'736</td>
+<td>28.00</td>
+</tr>
+<tr><td>french</td>
+<td>12</td>
+<td>19'209'800</td>
+<td>14.81</td>
+<td>25'460'408</td>
+<td>6'250'608</td>
+<td>25.55</td>
+</tr>
+<tr><td>polish</td>
+<td>12</td>
+<td>86'460'392</td>
+<td>14.57</td>
+<td>111'249'824</td>
+<td>24'789'432</td>
+<td>22.28</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="section" id="experiments-results-summary">
+<h1>Experiments results summary</h1>
+<p>English words:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">layout</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>version 1</td>
+<td>1,032</td>
+<td>322,866,360</td>
+<td>1032.00</td>
+<td>325,369,216</td>
+<td>2,502,856</td>
+<td>0.77</td>
+</tr>
+<tr><td>version 1a</td>
+<td>12</td>
+<td>232,249,620</td>
+<td>742.36</td>
+<td>235,286,176</td>
+<td>3,036,556</td>
+<td>1.29</td>
+</tr>
+<tr><td>version 1b</td>
+<td>16</td>
+<td>12,688,512</td>
+<td>40.56</td>
+<td>17,552,000</td>
+<td>4,863,488</td>
+<td>27.71</td>
+</tr>
+<tr><td>version 2</td>
+<td>16</td>
+<td>6,257,096</td>
+<td>20.00</td>
+<td>11,193,376</td>
+<td>4,936,280</td>
+<td>44.10</td>
+</tr>
+<tr><td>version 2a</td>
+<td>16</td>
+<td>5,563,904</td>
+<td>17.78</td>
+<td>8,419,680</td>
+<td>2,855,776</td>
+<td>33.92</td>
+</tr>
+<tr><td>version 2b</td>
+<td>12</td>
+<td>7,508,508</td>
+<td>24.00</td>
+<td>10,011,360</td>
+<td>2,502,852</td>
+<td>25.00</td>
+</tr>
+<tr><td>version 3</td>
+<td>16</td>
+<td>7,588,476</td>
+<td>24.26</td>
+<td>11,349,160</td>
+<td>3,760,684</td>
+<td>33.14</td>
+</tr>
+<tr><td>version 3a</td>
+<td>16</td>
+<td>6,406,060</td>
+<td>20.48</td>
+<td>11,349,160</td>
+<td>4,943,100</td>
+<td>43.55</td>
+</tr>
+<tr><td>version 3b</td>
+<td>12</td>
+<td>6,297,676</td>
+<td>20.13</td>
+<td>8,841,424</td>
+<td>2,543,748</td>
+<td>28.77</td>
+</tr>
+<tr><td>version 4</td>
+<td>16</td>
+<td>5,005,680</td>
+<td>16.00</td>
+<td>6,814,952</td>
+<td>1,809,272</td>
+<td>26.55</td>
+</tr>
+<tr><td>version 4a</td>
+<td>12</td>
+<td>4'687'400</td>
+<td>14.98</td>
+<td>6'340'624</td>
+<td>1'653'224</td>
+<td>26.07</td>
+</tr>
+</tbody>
+</table>
+<p>German words:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">layout</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>version 1</td>
+<td>1,032</td>
+<td>630,005,040</td>
+<td>1032.00</td>
+<td>634,888,816</td>
+<td>4,883,776</td>
+<td>0.77</td>
+</tr>
+<tr><td>version 1a</td>
+<td>12</td>
+<td>495,588,296</td>
+<td>811.81</td>
+<td>501,844,744</td>
+<td>6,256,448</td>
+<td>1.25</td>
+</tr>
+<tr><td>version 1b</td>
+<td>16</td>
+<td>18,303,588</td>
+<td>29.98</td>
+<td>28,461,208</td>
+<td>10,157,620</td>
+<td>35.69</td>
+</tr>
+<tr><td>version 2</td>
+<td>16</td>
+<td>12,209,396</td>
+<td>20.00</td>
+<td>22,448,216</td>
+<td>10,238,820</td>
+<td>45.61</td>
+</tr>
+<tr><td>version 2a</td>
+<td>16</td>
+<td>10,607,980</td>
+<td>17.38</td>
+<td>16,040,816</td>
+<td>5,432,836</td>
+<td>33.87</td>
+</tr>
+<tr><td>version 2b</td>
+<td>12</td>
+<td>14,651,268</td>
+<td>24.00</td>
+<td>19,535,040</td>
+<td>4,883,772</td>
+<td>25.00</td>
+</tr>
+<tr><td>version 3</td>
+<td>16</td>
+<td>18,070,716</td>
+<td>24.17</td>
+<td>28,197,544</td>
+<td>10,126,828</td>
+<td>35.91</td>
+</tr>
+<tr><td>version 3a</td>
+<td>16</td>
+<td>15,098,296</td>
+<td>20.19</td>
+<td>28,122,600</td>
+<td>13,024,304</td>
+<td>46.31</td>
+</tr>
+<tr><td>version 3b</td>
+<td>12</td>
+<td>12,267,360</td>
+<td>20.09</td>
+<td>17,782,664</td>
+<td>5,515,304</td>
+<td>31.02</td>
+</tr>
+<tr><td>version 4</td>
+<td>16</td>
+<td>9,767,520</td>
+<td>16.00</td>
+<td>13,623,080</td>
+<td>3,855,560</td>
+<td>28.30</td>
+</tr>
+<tr><td>version 4a</td>
+<td>12</td>
+<td>9'290'880</td>
+<td>15.22</td>
+<td>12'901'616</td>
+<td>3'610'736</td>
+<td>28.00</td>
+</tr>
+</tbody>
+</table>
+<p>French words:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">layout</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>version 1</td>
+<td>1,032</td>
+<td>1,338,586,560</td>
+<td>1032.00</td>
+<td>1,348,963,216</td>
+<td>10,376,656</td>
+<td>0.77</td>
+</tr>
+<tr><td>version 1a</td>
+<td>12</td>
+<td>894,746,784</td>
+<td>689.82</td>
+<td>906,803,728</td>
+<td>12,056,944</td>
+<td>1.33</td>
+</tr>
+<tr><td>version 1b</td>
+<td>16</td>
+<td>44,657,336</td>
+<td>34.43</td>
+<td>63,965,320</td>
+<td>19,307,984</td>
+<td>30.19</td>
+</tr>
+<tr><td>version 2</td>
+<td>16</td>
+<td>25,941,596</td>
+<td>20.00</td>
+<td>45,420,392</td>
+<td>19,478,796</td>
+<td>42.89</td>
+</tr>
+<tr><td>version 2a</td>
+<td>16</td>
+<td>23,480,024</td>
+<td>18.10</td>
+<td>35,573,008</td>
+<td>12,092,984</td>
+<td>33.99</td>
+</tr>
+<tr><td>version 2b</td>
+<td>12</td>
+<td>31,129,908</td>
+<td>24.00</td>
+<td>41,506,560</td>
+<td>10,376,652</td>
+<td>25.00</td>
+</tr>
+<tr><td>version 3</td>
+<td>16</td>
+<td>62,388,760</td>
+<td>24.20</td>
+<td>97,167,832</td>
+<td>34,779,072</td>
+<td>35.79</td>
+</tr>
+<tr><td>version 3a</td>
+<td>16</td>
+<td>52,107,676</td>
+<td>20.21</td>
+<td>96,885,336</td>
+<td>44,777,660</td>
+<td>46.22</td>
+</tr>
+<tr><td>version 3b</td>
+<td>12</td>
+<td>26,152,132</td>
+<td>20.16</td>
+<td>35,824,896</td>
+<td>9,672,764</td>
+<td>27.00</td>
+</tr>
+<tr><td>version 4</td>
+<td>16</td>
+<td>20,753,280</td>
+<td>16.00</td>
+<td>27,680,536</td>
+<td>6,927,256</td>
+<td>25.03</td>
+</tr>
+<tr><td>version 4a</td>
+<td>12</td>
+<td>19'209'800</td>
+<td>14.81</td>
+<td>25'460'408</td>
+<td>6'250'608</td>
+<td>25.55</td>
+</tr>
+</tbody>
+</table>
+<p>Polish words:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+<col width="14%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">layout</th>
+<th class="head">node size [bytes]</th>
+<th class="head">trie size [bytes]</th>
+<th class="head">bytes/node</th>
+<th class="head">allocated [bytes]</th>
+<th class="head">wasted [bytes]</th>
+<th class="head">wasted [%]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>version 1</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+</tr>
+<tr><td>version 1a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+</tr>
+<tr><td>version 1b</td>
+<td>16</td>
+<td>312,236,524</td>
+<td>52.62</td>
+<td>393,812,632</td>
+<td>81,576,108</td>
+<td>20.71</td>
+</tr>
+<tr><td>version 2</td>
+<td>16</td>
+<td>118,673,156</td>
+<td>20.00</td>
+<td>201,448,152</td>
+<td>82,774,996</td>
+<td>41.09</td>
+</tr>
+<tr><td>version 2a</td>
+<td>16</td>
+<td>109,473,048</td>
+<td>18.45</td>
+<td>164,644,264</td>
+<td>55,171,216</td>
+<td>33.51</td>
+</tr>
+<tr><td>version 2b</td>
+<td>12</td>
+<td>142,407,780</td>
+<td>24.00</td>
+<td>189,877,056</td>
+<td>47,469,276</td>
+<td>25.00</td>
+</tr>
+<tr><td>version 3</td>
+<td>16</td>
+<td>310,656,956</td>
+<td>24.24</td>
+<td>480,136,984</td>
+<td>169,480,028</td>
+<td>35.30</td>
+</tr>
+<tr><td>version 3a</td>
+<td>16</td>
+<td>259,933,364</td>
+<td>20.28</td>
+<td>478,677,552</td>
+<td>218,744,188</td>
+<td>45.70</td>
+</tr>
+<tr><td>version 3b</td>
+<td>12</td>
+<td>120,114,864</td>
+<td>20.24</td>
+<td>158,666,648</td>
+<td>38,551,784</td>
+<td>24.30</td>
+</tr>
+<tr><td>version 4</td>
+<td>16</td>
+<td>94,938,528</td>
+<td>16.00</td>
+<td>122,940,568</td>
+<td>28,002,040</td>
+<td>22.78</td>
+</tr>
+<tr><td>version 4a</td>
+<td>12</td>
+<td>86'460'392</td>
+<td>14.57</td>
+<td>111'249'824</td>
+<td>24'789'432</td>
+<td>22.28</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="speed">
+<h1>Speed</h1>
+<p>Procedure tests if word is present in trie:</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">exists</span><span class="p">(</span><span class="n">Trie</span><span class="o">*</span><span class="w"> </span><span class="n">trie</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">string</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">string</span><span class="p">;</span><span class="w">
+        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">trie</span><span class="o">-&gt;</span><span class="n">root</span><span class="p">;</span><span class="w">
+        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">c</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">node</span><span class="p">)</span><span class="w">
+                </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">NEXT</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="n">c</span><span class="o">++</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">end_of_word</span><span class="p">)</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>All representations has been tested using similar procedure,
+and there are two conclusion:</p>
+<ul class="simple">
+<li>Any array-based approach is fast, no differences spotted,
+even if large input data and large tries were used.</li>
+<li>Linked list is 80 (eighty) times slower then array-based
+representation.</li>
+</ul>
+</div>
+<div class="section" id="memory-allocators">
+<h1>Memory allocators</h1>
+<p>Experiments clearly shows that internal memory fragmentation is significant,
+at least when GNU libc is used. The answer to this problem are specialized
+allocators.</p>
+<p>All representations require allocate (or free) single nodes, thus memory
+pools could be used. For example GNU libc provides <a class="reference external" href="http://en.wikipedia.org/wiki/obstack">obstacks</a>,
+but such stack-based memory pool is quite simple to write.</p>
+<p>Representations using dynamic arrays require more complex memory pool, thus
+I wrote simple bitmap-based allocator. There is a linked list of arenas:</p>
+<pre class="code cpp literal-block">
+<span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MemPool</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">MemPool</span><span class="o">*</span><span class="w">        </span><span class="n">next_arena</span><span class="p">;</span><span class="w">
+        </span><span class="kt">size_t</span><span class="w">          </span><span class="n">free_count</span><span class="p">;</span><span class="w">
+        </span><span class="kt">uint8_t</span><span class="w">         </span><span class="n">bitmap</span><span class="p">[</span><span class="n">MAX_SIZE</span><span class="o">/</span><span class="mi">8</span><span class="p">];</span><span class="w">
+</span><span class="p">}</span><span class="w"> </span><span class="n">MemPool</span><span class="p">;</span>
+</pre>
+<p>The size of allocated array isn't stored in arena structure, because it's already
+saved in nodes. Thanks to that memory required by allocator is much smaller,
+but API is slightly different and isn't safe:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="nf">mempool_alloc</span><span class="p">(</span><span class="n">MemPool</span><span class="o">**</span><span class="w"> </span><span class="n">pool</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">);</span><span class="w">
+</span><span class="kt">void</span><span class="w">  </span><span class="nf">mempool_free</span><span class="p">(</span><span class="n">MemPool</span><span class="o">*</span><span class="w"> </span><span class="n">pool</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="p">);</span>
+</pre>
+<div class="section" id="experiments">
+<h2>Experiments</h2>
+<p>Two representations were tested with the English dictionary:</p>
+<ul class="simple">
+<li>linked list &mdash; separate stack-based memory pools for nodes and for
+list elements (both served 1024 elements per arena);</li>
+<li>dynamic array &mdash; stack-based memory pool for nodes (1024 elements per arena)
+and bitmap-based allocator for arrays elements (256 elements per arena).</li>
+</ul>
+<div class="section" id="linked-list">
+<h3>Linked list</h3>
+<ul class="simple">
+<li>memory pool for nodes:<ul>
+<li><strong>arenas</strong>: 306</li>
+<li><strong>memory allocated for user</strong>: 3'760'128 bytes (306 * 1024 * 12)</li>
+<li><strong>memory used</strong>: 3'754'260 bytes</li>
+<li><strong>memory consumed by allocator structures</strong>: 4'896 bytes (306 * 16)</li>
+</ul>
+</li>
+<li>memory pool for list elements:<ul>
+<li><strong>arenas</strong>: 306</li>
+<li><strong>memory allocated for user</strong>: 3'760'128 bytes (306 * 1024 * 12)</li>
+<li><strong>memory used</strong>: 3'754'248 bytes</li>
+<li><strong>memory consumed by allocator structures</strong>: 4'896 bytes (306 * 16)</li>
+</ul>
+</li>
+<li><strong>theoretical size of tree</strong>: 7'508'508 bytes</li>
+<li><strong>malloc used bytes</strong>: 7'534'960 bytes</li>
+<li><strong>wasted</strong>: 36'244 bytes, 0.48% (26'452 - malloc, 2 * 4'896 - pools)</li>
+</ul>
+</div>
+<div class="section" id="dynamic-array">
+<h3>Dynamic array</h3>
+<ul class="simple">
+<li>memory pool for nodes:<ul>
+<li><strong>arenas</strong>: 306</li>
+<li><strong>memory allocated for user</strong>: 5'013'504 bytes (305 * 1024 * 16)</li>
+<li><strong>memory used by user</strong>: 5'005'680 bytes</li>
+<li><strong>memory consumed by allocator structures</strong>: 4'896 bytes (306 * 16)</li>
+</ul>
+</li>
+<li>memory pool for arrays:<ul>
+<li><strong>arenas</strong>: 1224</li>
+<li><strong>memory allocated for user</strong>: 1'253'376 bytes (1224 * 256 * 4)</li>
+<li><strong>memory used by user</strong>: 1'251'416 bytes (312854 * 4)</li>
+<li><strong>memory consumed by allocator structures</strong>: 48'960 bytes (1224 * 40)</li>
+</ul>
+</li>
+<li><strong>theoretical size of tree</strong>: 6'257'096 bytes</li>
+<li><strong>malloc used bytes</strong>: 6'332'992 bytes</li>
+<li><strong>wasted</strong>: 129'752 bytes, 2.05% (75'896 - malloc, 4'896 and 48'960 - pools)</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="section" id="updates">
+<h1>Updates</h1>
+<dl class="docutils">
+<dt>2011-03-31</dt>
+<dd>new representation [v4a], info about speed</dd>
+<dt>2011-03-30</dt>
+<dd>added 2 new representations [1a, 1b], reorganization of text</dd>
+<dt>2011-03-28</dt>
+<dd>added experiments results for memory pools</dd>
+</dl>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2011-03-26-trie-representation.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:13 GMT -->
+</html>

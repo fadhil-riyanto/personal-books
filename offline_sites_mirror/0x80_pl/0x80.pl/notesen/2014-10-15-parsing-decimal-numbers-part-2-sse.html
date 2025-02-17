@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-15-parsing-decimal-numbers-part-2-sse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Parsing decimal numbers &mdash; part 2: SSE</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="parsing-decimal-numbers-part-2-sse">
+<h1 class="title">Parsing decimal numbers &mdash; part 2: SSE</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-10-15</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-03-22 (added SSSE3 variant)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#pmaddwd-details" id="toc-entry-1">PMADDWD details</a></li>
+<li><a class="reference internal" href="#algorithm" id="toc-entry-2">Algorithm</a></li>
+<li><a class="reference internal" href="#ssse3" id="toc-entry-3">SSSE3</a></li>
+<li><a class="reference internal" href="#sse4-1" id="toc-entry-4">SSE4.1</a></li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-5">Sample code</a></li>
+<li><a class="reference internal" href="#experiments-results" id="toc-entry-6">Experiments results</a><ul>
+<li><a class="reference internal" href="#core-i5-m540-2-53ghz" id="toc-entry-7">Core i5 M540 &#64; 2.53GHz</a></li>
+<li><a class="reference internal" href="#skylake-core-i7-6700-cpu-3-40ghz" id="toc-entry-8">Skylake Core i7-6700 CPU &#64; 3.40GHz</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-9">See also</a></li>
+</ul>
+</div>
+<p>SSE procedure is able to convert two 8-digit numbers. The main
+instruction used in converting to numeric value is <tt class="docutils literal">PMADDWD</tt>.</p>
+<div class="section" id="pmaddwd-details">
+<h1>PMADDWD details</h1>
+<p>This instruction is specialized and I guess isn't often used.
+<tt class="docutils literal">PMADDWD</tt> operates on <strong>packed words</strong> and performs following
+algorithm:</p>
+<pre class="literal-block">
+temp = array of 8 signed dwords
+
+-- 1. multiply 16-bit signed numbers vertically
+src = packed_word(...)
+dst = packed_word(...)
+
+for i in 0 .. 7 loop
+
+    -- temp is 32-bit signed number
+
+    temp[i] := signed_multiplication(src[i], dst[i])
+
+end loop
+
+-- 2. add adjacent 32-bit words of temp and save result to src
+--    now src has type packed_dword
+for i in 0 .. 3 loop
+
+    src[i] = temp[2 * i] + temp[2 * i + 1]
+
+end loop
+</pre>
+</div>
+<div class="section" id="algorithm">
+<h1>Algorithm</h1>
+<ol class="arabic">
+<li><p class="first">Load 16 ASCII digits in order abcdefghijklmnop, and convert to bytes.
+Each byte a..p is in range 0..9:</p>
+<pre class="literal-block">
+t1 = packed_byte(| p | o | n | m | l | k | j | i | h | g | f | e | d | c | b | a |))
+
+   digit weight  10^0  . . . . . . . . . . . . . . . . . . . . . . . . . . . 10^15
+</pre>
+</li>
+<li><p class="first">Split even and odd digits:</p>
+<pre class="literal-block">
+t2_even = packed_byte(| 0 | o | 0 | m | 0 | k | 0 | i | 0 | g | 0 | e | 0 | c | 0 | a |))
+t2_odd  = packed_byte(| 0 | p | 0 | n | 0 | l | 0 | j | 0 | h | 0 | f | 0 | d | 0 | b |))
+</pre>
+</li>
+<li><p class="first">Calculate partial values of even digits:</p>
+<pre class="literal-block">
+t3_even = pmaddwd(t2_even, {1000, 10, 1000, 10, 1000, 10, 1000, 10})
+        = packed_dword(| 1000*m + 10*o | 1009*i + 10*k | 1000*e + 10*g | 1000*a + 10*c |)
+</pre>
+<p>as 4-digit decimals:</p>
+<pre class="literal-block">
+t3_even = packed_dword(| m0o0 | i0k0 | e0g0 | a0c0 |)
+</pre>
+</li>
+<li><p class="first">Similarly calculate partial values of odd digit:</p>
+<pre class="literal-block">
+t4_odd  = pmaddwd(t2_odd,  {100, 1, 100, 1, 100, 1, 100, 1})
+        = packed_dword(| 100*n + p | 100*j + l | 100*f + h | 100*b + d |)
+</pre>
+<p>as 4-digit decimals:</p>
+<pre class="literal-block">
+t4_odd  = packed_dword(| 0n0p | 0j0l | 0f0h | 0b0d |)
+</pre>
+</li>
+<li><p class="first">Add partial results from step 3 and 4 (shown as decimals):</p>
+<pre class="literal-block">
+t5 = t3_even + t4_odd =
+
+   = packed_dword(| m0o0 | i0k0 | e0g0 | a0c0 |)
+   + packed_dword(| 0n0p | 0j0l | 0f0h | 0b0d |)
+
+   = packed_dword(| mnop | ijkl | efgh | abcd |)
+</pre>
+</li>
+<li><p class="first">Last step is to form 8-digits partial results. Since numbers are less
+than 10000, higher words of <tt class="docutils literal">t5</tt> are zero:</p>
+<pre class="literal-block">
+t5 = packed_dword(| 0000 | mnop | 0000 | ijkl | 0000 | efgh | 0000 | abcd |)
+
+t6 = t5 | (t5 &gt;&gt; 16)
+   = packed_dword(| 0000 | mnop | mnop | ijkl | ijkl | efgh | efgh | abcd |)
+                                  ^^^^^^^^^^^                 ^^^^^^^^^^^
+                                     these dwords are processed later
+</pre>
+</li>
+<li><p class="first">Calculate results:</p>
+<pre class="literal-block">
+t7 = pmaddwd(t6, {10000, 1, 0, 0, 10000, 1, 0, 0})
+   = packed_dword(|      0      |   ijklmnop  |      0      |   abcdefgh  |)
+</pre>
+</li>
+</ol>
+<p>64-bit multiplication is available in SSE starting from SSE4.1, so portable
+way to get final 64-bit value requires a CPU multiplication.</p>
+</div>
+<div class="section" id="ssse3">
+<h1>SSSE3</h1>
+<p>SSSE3 introduced instruction <tt class="docutils literal">PMADDUBSW</tt> that works similarly to <tt class="docutils literal">PMADDWD</tt>
+but operates on <strong>packed bytes</strong>. The instruction treats numbers in one vector
+as signed and, in another vector, as unsigned. This limits a little bit usage,
+but fortunately not in this case.</p>
+<p>Algorithm for SSSE3 can convert 16-digit numbers and works as follows:</p>
+<ol class="arabic">
+<li><p class="first">Load 16 ASCII digits in order abcdefghijklmnop, and convert to bytes.
+Each byte a..p is in range 0..9:</p>
+<pre class="literal-block">
+t0 = packed_byte (| p | o | n | m | l | k | j | i | h | g | f | e | d | c | b | a |))
+
+    digit weight   10^0  . . . . . . . . . . . . . . . . . . . . . . . . . . . 10^15
+</pre>
+</li>
+<li><p class="first">Calculate partial values of adjacent digits using <tt class="docutils literal">PMADDUBSW</tt>. After this step
+each 16-bit element contains a 2-digit number:</p>
+<pre class="literal-block">
+t1 = pmaddubsw(t0, {10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1})
+   = packed_word (|   po  |   nm  |   lk  |   ji  |   hg  |   fe  |   dc  |   ba  |)
+</pre>
+</li>
+<li><p class="first">Calculate partial values from adjacent 2-digit numbers using <tt class="docutils literal">PMADDWD</tt>. After
+this step each 32-bit element contains a 4-digit number. Please note that a 32-bit
+number can hold an 8-digit decimal number.:</p>
+<pre class="literal-block">
+t2 = pmaddwd(t1, {100, 1, 100, 1, 100, 1, 100, 1})
+   = packed_dword(|      ponm     |      lkji     |      hgfe     |      dcba     |)
+</pre>
+</li>
+<li><p class="first">Convert into vector of words (16-bit words can hold 4-digit numbers):</p>
+<pre class="literal-block">
+t3 = packusdw(t2, t2)
+   = packed_word (|  ponm |  lkji |  hgfe |  dcba |  ponm |  lkji |  hgfe |  dcba |)
+</pre>
+</li>
+<li><p class="first">Build 8-digit numbers using <tt class="docutils literal">PMADDWD</tt>:</p>
+<pre class="literal-block">
+t4 = pmaddwd(t3, {10000, 1, 10000, 1})
+   = packed_dword(|    ponmlkji   |    hgfedcba   |    ponmlkji   |    hgfedcba   |)
+</pre>
+</li>
+<li><p class="first">Get two lowest dwords from <tt class="docutils literal">t4</tt> and convert into 16-digit number using scalar
+instructions.</p>
+</li>
+</ol>
+</div>
+<div class="section" id="sse4-1">
+<h1>SSE4.1</h1>
+<p>In SSE4.1 conversion of <strong>32-digit</strong> numbers is very easy. String is split to
+16-digit substrings and each substring is processed in steps 1 .. 5 of the
+algorithm. After 5th step we have two values:</p>
+<pre class="literal-block">
+t5_lo = packed_dword(| 0000 | mnop | 0000 | ijkl | 0000 | efgh | 0000 | abcd |)
+t5_hi = packed_dword(| 0000 | MNOP | 0000 | IJKL | 0000 | EFGH | 0000 | ABCD |)
+</pre>
+<p>Steps 6 and 7 are different:</p>
+<ol class="arabic" start="6">
+<li><p class="first">SSE4.1 supports <tt class="docutils literal">PACKUSDW</tt>, thanks to that <tt class="docutils literal">t5_lo</tt> and <tt class="docutils literal">t5_hi</tt> could be joined
+with single instruction:</p>
+<pre class="literal-block">
+t6 = packusdw(t5_hi, t5_lo)
+   = packed_word(| MNOP | IJKL | EFGH | ABCD | mnop | ijkl | efgh | abcd |)
+</pre>
+</li>
+<li><p class="first">Calculate results:</p>
+<pre class="literal-block">
+t7 = pmaddwd(t6, {10000, 1, 10000, 1, 10000, 1, 10000, 1})
+   = packed_dword(|  IJKLMNOP  |   ABCDEFGH  |  ijklmnop   |  abcdefgh   |)
+</pre>
+</li>
+<li><p class="first">SSE4.1 supports also <tt class="docutils literal">PMULDQ</tt>, so producing 64-bit values in SSE registers
+is possible:</p>
+<pre class="literal-block">
+m1 = pmuldq(t7, {100000000, 100000000}
+   = packed_qword(|     ABCDEFGH00000000     |       abcdefgh00000000    |)
+
+m2 = packed_dword(|     0      |    t7[3]    |      0      |    t7[1]    |)
+   = packed_qword(|     0      |   IJKLMNOP  |      0      |   ijklmnop  |)
+
+t8 = m1 + m2
+   = packed_qword(|     ABCDEFGHIJKLMNOP     |       abcdefgijklmnop     |)
+</pre>
+</li>
+</ol>
+<p>However, calculating 128-bit value require CPU instructions.</p>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample code is available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/conv_from_dec">gitub</a>. Only SSE and SSSE3 implementations
+are available.</p>
+</div>
+<div class="section" id="experiments-results">
+<h1>Experiments results</h1>
+<p>The SWAR methods are described in the article linked at the bottom.</p>
+<div class="section" id="core-i5-m540-2-53ghz">
+<h2>Core i5 M540 &#64; 2.53GHz</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="38%" />
+<col width="34%" />
+<col width="28%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">method</th>
+<th class="head">time [us]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>247514</td>
+<td>1.00</td>
+</tr>
+<tr><td>SWAR (1)</td>
+<td>158043</td>
+<td>1.57</td>
+</tr>
+<tr><td>SWAR (2)</td>
+<td>148712</td>
+<td>1.66</td>
+</tr>
+<tr><td>SWAR (3)</td>
+<td>125978</td>
+<td>1.96</td>
+</tr>
+<tr><td>SSE</td>
+<td>37704</td>
+<td>6.56</td>
+</tr>
+<tr><td>SSSE3</td>
+<td>27271</td>
+<td>9.07</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-core-i7-6700-cpu-3-40ghz">
+<h2>Skylake Core i7-6700 CPU &#64; 3.40GHz</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="38%" />
+<col width="34%" />
+<col width="28%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">method</th>
+<th class="head">time [us]</th>
+<th class="head">speedup</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>131904</td>
+<td>1.00</td>
+</tr>
+<tr><td>SWAR (1)</td>
+<td>84933</td>
+<td>1.55</td>
+</tr>
+<tr><td>SWAR (2)</td>
+<td>84945</td>
+<td>1.55</td>
+</tr>
+<tr><td>SWAR (3)</td>
+<td>75862</td>
+<td>1.74</td>
+</tr>
+<tr><td>SSE</td>
+<td>18698</td>
+<td>7.05</td>
+</tr>
+<tr><td>SSSE3</td>
+<td>17693</td>
+<td>7.45</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="see-also">
+<h1>See also</h1>
+<ul class="simple">
+<li><a class="reference external" href="2014-10-12-parsing-decimal-numbers-part-1-swar.html">Parsing decimal numbers &mdash; part 1: SWAR</a></li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-15-parsing-decimal-numbers-part-2-sse.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2017-11-26-code-dive-2017.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>A short report from code::dive 2017</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="a-short-report-from-code-dive-2017">
+<h1 class="title">A short report from code::dive 2017</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2017-11-26</td>
+</tr>
+</tbody>
+</table>
+<img src="2017-11-26-code-dive-2017/DSC_0579_small.jpg" style="float:right; padding-left: 1em" /><p><a class="reference external" href="http://codedive.pl/">Code::dive 2017</a> was a free conference held in Wrocław,
+Poland. The conference was organized and sponsored by Nokia Poland. The fourth
+edition took two days (14-15 November), it was in a huge cinema near the city
+center. There were five sessions, in each session one could choose from four
+lectures. In total 40 talks in two days, awesome.</p>
+<p>The organization was great, as always. The only downside was a pretty big queue
+to the registration on the first day. Otherwise it was perfect; there were even
+free snacks and water.</p>
+<p>I attended following talks:</p>
+<ul class="simple">
+<li>Miodrag Molivić, &quot;FPGA for a software developer&quot;</li>
+<li>Alex Crichton, &quot;Concurrency in Rust&quot;</li>
+<li>Mark Isaacson, &quot;C++17 and beyond&quot;</li>
+<li>Kamil Witecki, &quot;Architecture is (not) everything&quot;</li>
+<li>Silke Holtmanns, &quot;Interconnection security -- SS7 and Diameter&quot;</li>
+<li>Douglas Crockford, &quot;The better parts&quot;</li>
+<li>Mateusz Pusz, &quot;Striving for ultimate low latency&quot;</li>
+<li>William Kennedy, &quot;Go: Optimizing for correctness&quot;</li>
+<li>Michał Sajdak, &quot;A story of 3 CCTV cameras - a story of 3 admins&quot;</li>
+<li>Alex Crichton, &quot;Introduction to Rust&quot;</li>
+</ul>
+<div class="section" id="fpga-for-a-software-developer">
+<h1>FPGA for a software developer</h1>
+<p>It was one of my favourite talks. Miodrag presented an architecture of typical
+FPGA, he also showed a number of open source tools that enables us to play with
+FPGAs. He also got through core parts of Verilog, using as an example a simple
+8-bit CPU. The CPU has a fully functional design -- it has got an ALU, a
+control unit; it was able to decode variable-length opcodes and execute them.
+At the end the speaker run a sample program on the CPU realized on a real,
+cheap FPGA hardware. Wow!</p>
+<p>Although I have already known some bits of FPGA and Verilog, the presentation
+gave me a grasp of the whole stack needed to use the programmable arrays in
+practice.</p>
+</div>
+<div class="section" id="concurrency-in-rust">
+<h1>Concurrency in Rust</h1>
+<p>Because I don't know Rust, I was keen on seeing the talk. I learnt that Rust
+can precisely track the ownership and lifetime of values and thanks to that
+many C++-specific problems (like read-after-free) are ridden off. To my
+surprise Rust doesn't support threads. All multithreading work is done by
+third-part libraries. Due to the ownership tracking, a multithread code is hard
+to misuse.  Libraries won't allow to use shared values, which otherwise would
+be the root of many problems.</p>
+<p>The existing libraries are pretty rich; for instance, they support fork-join
+pattern, as well as well-known primitives, like condition variables and
+mutexes. The latter might make program unsafe, as wrongly used mutexes may lead
+to deadlocks.</p>
+</div>
+<div class="section" id="c-17-and-beyond">
+<h1>C++17 and beyond</h1>
+<p>It was a review of new features introduced in C++17 and C++20. The speaker
+described in details three upcoming changes from C++17.</p>
+<p>The first one is <tt class="docutils literal"><span class="pre">std::string_view</span></tt>, a really nice <tt class="docutils literal"><span class="pre">std::string</span></tt>-compatible
+wrapper for any string data. The only disadvantage of this class is not
+tracking lifetime of the underlying data, thus a string_view might be
+dangerous when we forget about that trait.</p>
+<p>The second feature is possibility of override <strong>a dot operator</strong>. Yes, it's not
+a mistake. <strong>The dot operator.</strong> It allows to provide wrappers that are
+transparent for programmer, i.e. no extra code is needed to properly use such
+wrapper; it's spelled as a normal value. My first impression: it's a wolf in
+sheep's clothing. I can't imagine how a programmer would easily reason about
+the code.</p>
+<p>The last feature is the nicest one: <strong>constexpr if</strong>. This makes possible to
+get rid off all this utterly unreadable SFINAE crap and replace with explicit
+conditions that are executed in compile-time. I'm grateful for this change.</p>
+</div>
+<div class="section" id="architecture-is-not-everything">
+<h1>Architecture is (not) everything</h1>
+<p>I didn't like this presentation. To be honest the whole talk could be squeezed
+into a single statement: mind that you, a programmer, don't work in void, the
+result of your work would be used by somebody.</p>
+</div>
+<div class="section" id="interconnection-security-ss7-and-diameter">
+<h1>Interconnection security -- SS7 and Diameter</h1>
+<p>The best presentation I saw on all code::dives I attended. Silke described the
+current state of the network which interconnects mobile networks; now there are
+around 800 networks. The bad news is there's no security build in. Would you
+like to fake a SMS? Not a big deal. Would you like to grab some private keys?
+No problem, they're send in <strong>plain text</strong>. Would you like to locate a
+cellphone? You're welcome! Approximately 1% of network traffic looks
+suspiciously.</p>
+<p>Moreover, entry points to the network, either hardware equipment or APIs, are
+available on the black markets; not to mention that governments and special
+forces has open access to that network. As Silke said, attacks on the
+interconnection network are getting similar to attacks on traditional networks.</p>
+<p>My conclusion is that we should be worried. The Internet is well known. All its
+users, even non-technician, are less or more aware of the dangers come from the
+net. The mobile network has even more users, and they (we!) are basically
+unaware of technical details and perils.</p>
+</div>
+<div class="section" id="the-better-parts">
+<h1>The better parts</h1>
+<p>A nice show of the creator of JSON. He tried to convince people that Javascript
+used properly is not as bad as it's commonly believed.</p>
+<p>For me the most interesting part was presentation of a new format for decimal
+floating point numbers -- more details on <a class="reference external" href="http://dec64.com/">dec64.com</a>. I
+like it very much, the format nicely includes integers into the representation.
+If broadly accepted, it would solve a great deal of problems that people
+encounter in practice.</p>
+</div>
+<div class="section" id="striving-for-ultimate-low-latency">
+<h1>Striving for ultimate low latency</h1>
+<p>I enjoyed the talk! The speaker, who works in a trading company, showed several
+ways and solutions to achieve low latency C++ code. For instance he showed how
+factoring out a rarely called branch into a separate function speed up the code
+(due to reducing use of the instruction cache size). The well known
+<a class="reference external" href="http://godbolt.org/">godbolt.org</a> was used to show how complicated and time
+consuming <tt class="docutils literal"><span class="pre">std::shared_ptr</span></tt> is; and how cheap <tt class="docutils literal"><span class="pre">std::unique_ptr</span></tt> is.</p>
+<p>I really like Mateusz's call for measuring things. He said his predictions
+about the performance are almost always wrong. Welcome to the club!</p>
+</div>
+<div class="section" id="go-optimizing-for-correctness">
+<h1>Go: Optimizing for correctness</h1>
+<p>I don't know Go very well, just read this and that about the language, even
+though I enjoyed the talk. It was a really nice presentation of tools and
+builtin facilities that allow to profile both the CPU and memory usage of a go
+program. William made a live-coding session, where he showed how to use
+different utilities to track down performance and heap problems. He also showed
+that one can extend own application with hooks that can report the current
+measurements, through REST API, I guess. I didn't get well that part.</p>
+</div>
+<div class="section" id="a-story-of-3-cctv-cameras-a-story-of-3-admins">
+<h1>A story of 3 CCTV cameras - a story of 3 admins</h1>
+<p>In the Polish comedy &quot;Va Bank&quot;, a seasoned robber opens a safe and his friend asks him:</p>
+<p>--- Wow, how have you opened it?</p>
+<p>--- You should have payed attention.</p>
+<p>This presentation was like this. The speaker showed that he cracked three
+different CCTV cameras. However, when it came to details, his answers was like
+&quot;I know where to seek for because I'm experienced&quot; or &quot;can't give more
+details&quot;. It was awful.</p>
+<p>An important take away from this talk is that producers of pretty expansive
+devices don't care too much about security.</p>
+</div>
+<div class="section" id="introduction-to-rust">
+<h1>Introduction to Rust</h1>
+<p>The funny fact is that this talk was given in the last session on the last day.</p>
+<p>I saw the previous Alex's presentation about concurrency in Rust; some
+information was repeated here. From this presentation I learnt that although
+Rust is advertised as a &quot;safe language&quot;, it has unsafe parts. <strong>Unsafe</strong> is the
+language keyword, and such an unsafe block of code may be full of dragons.
+In the real-world case of Firefox there is around 30% unsafe code (if I
+remember the number correctly).</p>
+<p>It was also said that thanks to Rust it was possible to build a concurrent CSS
+parser for Firefox. According to Alex, C++ somehow prevented programmers from
+this. However, I didn't get what these reasons were. I would love to learn
+more details about the problems imposed by C++.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2017-11-26-code-dive-2017.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:42 GMT -->
+</html>

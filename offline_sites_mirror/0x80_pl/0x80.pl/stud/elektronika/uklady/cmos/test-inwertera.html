@@ -1,0 +1,17 @@
+Test inwertera CMOS
+* Wojciech Mu³a, 11.10.2005
+
+* wej¶cie: 1 0
+* wyj¶cie: 2 0
+
+Vin	1 0		DC 3V
+Vcc	3 0		DC 10V
+Xinv	1 2 3		CMOS_NEG
+
+.include bramki_cmos.spice
+
+* analiza
+.DC Vin 0 10 0.1
+.plot DC V(1) V(2)
+
+.end

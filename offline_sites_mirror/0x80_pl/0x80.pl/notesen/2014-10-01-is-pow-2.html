@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-01-is-pow-2.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Determining if an integer is a power of 2 &mdash; part 2</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="determining-if-an-integer-is-a-power-of-2-part-2">
+<h1 class="title">Determining if an integer is a power of 2 &mdash; part 2</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-10-01</td>
+</tr>
+</tbody>
+</table>
+<p>The idea is simple:</p>
+<ol class="arabic simple" start="0">
+<li><strong>precondition</strong>: x is not zero;</li>
+<li>isolate lowest bit set: <tt class="docutils literal">x &amp; <span class="pre">-x</span></tt>;</li>
+<li>check if this number is equal to x: <tt class="docutils literal">x == (x &amp; <span class="pre">-x)</span></tt>.</li>
+</ol>
+<p>Sample code:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="nf">isolate_lowest_set</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="o">-</span><span class="n">x</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">is_power_of_two_non_zero</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">isolate_lowest_set</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">x</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">is_power_of_two</span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">is_power_of_two_non_zero</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>GCC 4.8.2 generates for <tt class="docutils literal">is_power_of_two</tt> following code:</p>
+<pre class="literal-block">
+8b 54 24 04     mov    0x4(%esp),%edx
+31 c0           xor    %eax,%eax
+85 d2           test   %edx,%edx
+74 0e           je     8048488 &lt;is_power_of_two+0x18&gt;
+89 d0           mov    %edx,%eax
+f7 d8           neg    %eax
+21 d0           and    %edx,%eax
+39 c2           cmp    %eax,%edx
+0f 94 c0        sete   %al
+0f b6 c0        movzbl %al,%eax
+f3 c3           repz ret
+</pre>
+<p>Unfortunately compiler inserted a jump. But when we are sure that
+arguments are non-zero then only 5 basic instruction are required
+to perform this check.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-10-01-is-pow-2.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

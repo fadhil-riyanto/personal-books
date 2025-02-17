@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2023-01-19-avx512-consts.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>AVX512: generating constants</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="avx512-generating-constants">
+<h1 class="title">AVX512: generating constants</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2023-01-19</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2023-02-02</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#integer-constants" id="toc-entry-2">Integer constants</a><ul>
+<li><a class="reference internal" href="#zero-0x00000000" id="toc-entry-3">Zero (0x00000000)</a></li>
+<li><a class="reference internal" href="#all-ones-0xffffffff" id="toc-entry-4">All ones (0xffffffff)</a></li>
+<li><a class="reference internal" href="#all-decimal-ones-0x00000001-0x00010001-0x01010101" id="toc-entry-5">All decimal ones (0x00000001, 0x00010001, 0x01010101)</a></li>
+<li><a class="reference internal" href="#powers-of-two-0x2-0x4-0x8" id="toc-entry-6">Powers of two (0x2, 0x4, 0x8, ...)</a></li>
+<li><a class="reference internal" href="#decimal-numbers-from-0-to-32" id="toc-entry-7">Decimal numbers (from 0 to 32)</a></li>
+<li><a class="reference internal" href="#bit-mask-0x80808080-or-0x80008000" id="toc-entry-8">Bit-mask 0x80808080 or 0x80008000</a></li>
+<li><a class="reference internal" href="#bit-masks-span-of-ones-like-0b00111000" id="toc-entry-9">Bit-masks: span of ones (like 0b00111000)</a></li>
+<li><a class="reference internal" href="#bit-mask-span-of-zeros-like-0b11000111" id="toc-entry-10">Bit-mask: span of zeros (like 0b11000111)</a></li>
+<li><a class="reference internal" href="#any-bit-pattern" id="toc-entry-11">Any bit-pattern</a></li>
+<li><a class="reference internal" href="#any-bit-pattern-byte-level" id="toc-entry-12">Any bit-pattern &mdash; byte level</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#any-bit-pattern-gf2p8affineqb" id="toc-entry-13">Any bit pattern &mdash; GF2P8AFFINEQB</a></li>
+<li><a class="reference internal" href="#floating-point-constants" id="toc-entry-14">Floating point constants</a><ul>
+<li><a class="reference internal" href="#section-1" id="toc-entry-15">0.0</a></li>
+<li><a class="reference internal" href="#integer-values" id="toc-entry-16">Integer values</a></li>
+<li><a class="reference internal" href="#pi-2-max-float-min-float" id="toc-entry-17">90.0, 1.0, -1.0, +0.0, -0.0, 1/2, Pi/2, MAX_FLOAT, MIN_FLOAT</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-code" id="toc-entry-18">Sample code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>AVX512 code often needs constants that repeat in 64-, 32-, 16- or 8-bit lanes.
+Instead of pre-computing such constants as whole 64-byte arrays, we can reduce
+memory consumption by using explicit or implicit broadcasts.</p>
+<p>While broadcasts have high throughput, their latencies are quite high. According
+to <a class="reference external" href="https://uops.info/table.html?search=broadcastq%20(zmm%2C%20R64&amp;cb_lat=on&amp;cb_tp=on&amp;cb_SKX=on&amp;cb_CNL=on&amp;cb_ICL=on&amp;cb_ADLP=on&amp;cb_measurements=on&amp;cb_doc=on&amp;cb_avx512=on">uops.info</a>, latencies are 5 cycles (on Skylake-X, Cannon Lake, Ice Lake,
+Adler Lake-P) when broadcasting from either a 32-bit or 64-bit register.
+When the source is memory location, latencies are even higher.</p>
+<p>When an AVX512 procedure is quite short, or often loads different constants
+from memory, broadcast latencies might become visible. To overcome this
+problem, we might <strong>compute</strong> some values using few cheap instructions.</p>
+<p>We can quickly fill an AVX512 all zero bits (with XOR) or ones (with ternary
+log instruction) and then use shifts, bit operations and other instructions
+to construct desired value.</p>
+<p>This article show some ways to calculate different simple constants.
+Examples are focused mostly on 32-bit values, although in most cases we
+might generalize the methods to other lane widths.</p>
+</div>
+<div class="section" id="integer-constants">
+<h1>Integer constants</h1>
+<div class="section" id="zero-0x00000000">
+<h2>Zero (0x00000000)</h2>
+<p>A well known zeroing idiom:</p>
+<pre class="literal-block">
+VPXORD Z1, Z1, Z1
+</pre>
+</div>
+<div class="section" id="all-ones-0xffffffff">
+<h2>All ones (0xffffffff)</h2>
+<p>Ternary logic with immediate 255:</p>
+<pre class="literal-block">
+VPTERNLOGD $0xff, Z1, Z1, Z1
+</pre>
+</div>
+<div class="section" id="all-decimal-ones-0x00000001-0x00010001-0x01010101">
+<h2>All decimal ones (0x00000001, 0x00010001, 0x01010101)</h2>
+<p>The word <tt class="docutils literal">0xffffffff</tt> interpreted as a signed number is -1.
+AVX512 provides instruction to calculate an absolute value,
+thus getting 1 is straightforward:</p>
+<pre class="literal-block">
+VPTERNLOGD $0xff, Z1, Z1, Z1
+VPABSD     Z1, Z2               // 0x00000001
+VPABSW     Z1, Z3               // 0x00010001
+VPABSB     Z1, Z4               // 0x01010101
+</pre>
+</div>
+<div class="section" id="powers-of-two-0x2-0x4-0x8">
+<h2>Powers of two (0x2, 0x4, 0x8, ...)</h2>
+<p>Starting from <tt class="docutils literal">0x00000001</tt>, we may use left shift with
+a constant to produce <tt class="docutils literal">1 &lt;&lt; 1</tt>, <tt class="docutils literal">1 &lt;&lt; 2</tt>, <tt class="docutils literal">1 &lt;&lt; 3</tt>
+up to <tt class="docutils literal">1 &lt;&lt; 31</tt>.</p>
+</div>
+<div class="section" id="decimal-numbers-from-0-to-32">
+<h2>Decimal numbers (from 0 to 32)</h2>
+<p>We start from <tt class="docutils literal">0xffffffff</tt> and then shift it right
+by the number <strong>n</strong> we want to get. The result
+is a word having n zeros followed by 32-n ones.</p>
+<p>Then we may use <tt class="docutils literal">VPLZCNTD</tt> to count the leading zeros
+of word. In our case it will be exactly <strong>n</strong>.</p>
+<p>A sample program for n=17:</p>
+<pre class="literal-block">
+VPTERNLOGD  $0xff, Z1, Z1, Z1
+VPSRLD      $17,   Z1, Z1, Z1
+VPLZCNTD    Z1, Z1
+</pre>
+<p>In a similar way we may utilize <tt class="docutils literal">VPOPCNTD</tt>, but
+this instruction is not widely available yet.</p>
+</div>
+<div class="section" id="bit-mask-0x80808080-or-0x80008000">
+<h2>Bit-mask 0x80808080 or 0x80008000</h2>
+<p>We start with two words <tt class="docutils literal">0xffffffff</tt> and <tt class="docutils literal">0x00000000</tt>.
+Then we use either the instruction <tt class="docutils literal">AVGB</tt> or <tt class="docutils literal">AVGW</tt>.
+Both calculate expression <span class="math">(<i>x</i><sub><i>i</i></sub> + <i>y</i><sub><i>i</i></sub> + 1)/2</span>,
+yielding the correct result, even if the sum from numerator
+would not fit in the destination byte (or word).</p>
+<p>When x = 0xff and y = 0x00, then <tt class="docutils literal">x + y + 1 = 0x100</tt>,
+and finally <tt class="docutils literal">0x100 / 2 = 0x80</tt>.</p>
+<p>Sample program for bytes:</p>
+<pre class="literal-block">
+VPTERNLOGD  $0xff, Z0, Z0, Z0   // 0xffffffff
+VPXORD      Z7, Z7, Z7          // 0x00000000
+VPAVGB      Z0, Z7, Z1          // 0x80808080
+VPAVGW      Z0, Z7, Z2          // 0x80008000
+</pre>
+<p>As <a class="reference external" href="https://twitter.com/Wunkolo/status/1616207919242178560">Wunk</a> &amp; <a class="reference external" href="https://x.com/HaroldAptroot/">Harold Aptroot</a> showed, this constant
+can be generated by the expression <tt class="docutils literal">AVG(x, ~x)</tt> for
+any <em>x</em>.</p>
+</div>
+<div class="section" id="bit-masks-span-of-ones-like-0b00111000">
+<h2>Bit-masks: span of ones (like 0b00111000)</h2>
+<p>Starting from <tt class="docutils literal">0xffffffff</tt>, we may obtain any bit-mask in form
+<tt class="docutils literal"><span class="pre">00..0011..11</span></tt> by shifting the word right.</p>
+<p>Likewise, a bit-mask in form <tt class="docutils literal"><span class="pre">11..1100..00</span></tt> by shifting
+the word left.</p>
+<p>When we need a mask in form <tt class="docutils literal"><span class="pre">00..0011..1100..00</span></tt>, then
+two shift are required. The first one produces a mask
+<tt class="docutils literal"><span class="pre">00..0011..11</span></tt> with the wanted number of ones. The second
+shift left moves the ones to the desired position.</p>
+<p>For example a bit-mask with 11 bits that starts at the 3rd bit
+can be constructed with the following program:</p>
+<pre class="literal-block">
+VPTERNLOGD $0xff,    Z1, Z1, Z1 # 0xffffffff
+VPSRLD     $(32-11), Z1, Z1     # 0x000007ff
+VPSLLD     $3,       Z1, Z1     # 0x00003ff8
+</pre>
+</div>
+<div class="section" id="bit-mask-span-of-zeros-like-0b11000111">
+<h2>Bit-mask: span of zeros (like 0b11000111)</h2>
+<p>We starting from <tt class="docutils literal">0xffffffff</tt>, and we will use two
+instructions: shift left and <strong>rotate</strong> left</p>
+<p>The shift produces as many zeros at the word's beginning
+as we want. The rotation places the string of zeros
+at the desired position.</p>
+<p>For example a bit-mask with 7 zeros that starts at the 14 bit
+can be constructed with the following program:</p>
+<pre class="literal-block">
+VPTERNLOGD $0xff, Z1, Z1, Z1 # 0xffffffff
+VPSLLD        $7, Z1, Z1     # 0xffffff80
+VPROLD       $14, Z1, Z1     # 0xffe03fff
+</pre>
+</div>
+<div class="section" id="any-bit-pattern">
+<h2>Any bit-pattern</h2>
+<p>Any bit pattern can be generated with a sequence of
+shifts and rotates. The algorithm to construct a program
+for the given constant works as follows.</p>
+<ol class="arabic simple">
+<li>Convert the constant into its binary representation.</li>
+<li>Initialize a register with <tt class="docutils literal">0xffffffff</tt>.</li>
+<li>Starting from the most significant bits consider
+spans of bits of the same value.</li>
+<li>When a span contains zeros, then use shift left on
+the register.</li>
+<li>When a span contains ones, then use rotate left on
+the register.</li>
+</ol>
+<p>The number of shifts equals the number of spans, thus
+this method is suitable for a limited set of constants.</p>
+<p>Let's analyse algorithm for constant 0x00ff1f01. Its
+binary representation is 0b00000000111111110001111100000001.</p>
+<p>Our program starts with <tt class="docutils literal">VPTERNLOGD $0xff, Z1, Z1, Z1</tt>.</p>
+<p>The first span of zero bits contains 8 bits. Thus the
+next instruction is shift left by 8. Then there's 8-bit
+span of ones. Thus we're issuing rotate left by 8. Next
+we have three zeros -- it's shift left by 3. Then
+five ones equal to rotate left by 5. Next seven zeros
+yields a shift left by 7. And finally sole one is
+generated by rotate by 1 bit.</p>
+<p>The full assembly program is shown below:</p>
+<pre class="literal-block">
+VPTERNLOGD $0xff, Z1, Z1, Z1 // 11111111111111111111111111111111
+VPSSLD $8, Z1, Z1            // 11111111111111111111111100000000
+VPROLD $8, Z1, Z1            // 11111111111111110000000011111111
+VPSSLD $3, Z1, Z1            // 11111111111110000000011111111000
+VPROLD $5, Z1, Z1            // 11111111000000001111111100011111
+VPSSLD $7, Z1, Z1            // 10000000011111111000111110000000
+VPROLD $1, Z1, Z1            // 00000000111111110001111100000001
+</pre>
+</div>
+<div class="section" id="any-bit-pattern-byte-level">
+<h2>Any bit-pattern &mdash; byte level</h2>
+<p>When a 32-bit pattern contains a repeated byte, like <tt class="docutils literal">0xdddddddd</tt>,
+we may use the generic method to build the zero-th byte, i.e.
+<tt class="docutils literal">0xffffffdd</tt>. Then we populate the byte with <tt class="docutils literal">PSHUFB</tt>, as
+indices are zeros (and we know how to get them).</p>
+<p>A sample program:</p>
+<pre class="literal-block">
+// generate 0xffffffdd
+VPTERNLOGD $0xff, Z1, Z1, Z1 // 11111111111111111111111111111111
+VPSLLD $1, Z1, Z1            // 11111111111111111111111111111110
+VPROLD $3, Z1, Z1            // 11111111111111111111111111110111
+VPSLLD $1, Z1, Z1            // 11111111111111111111111111101110
+VPROLD $1, Z1, Z1            // 11111111111111111111111111011101
+
+// populate 0th byte
+VPXORD Z0, Z0, Z0
+VPSHUFB Z0, Z1, Z1
+</pre>
+</div>
+</div>
+<div class="section" id="any-bit-pattern-gf2p8affineqb">
+<h1>Any bit pattern &mdash; GF2P8AFFINEQB</h1>
+<p><a class="reference external" href="https://twitter.com/InstLatX64/status/1299306483537018882">InstLatX64</a> showed in 2020, that the instruction <a class="reference external" href="https://www.felixcloutier.com/x86/gf2p8affineqb">GF2P8AFFINEQB</a>
+(Galois Field Affine Transformation) can be used to broadcast any compile-time
+8-bit constant.</p>
+</div>
+<div class="section" id="floating-point-constants">
+<h1>Floating point constants</h1>
+<div class="section" id="section-1">
+<h2>0.0</h2>
+<p>Since binary representation of <tt class="docutils literal">float32(0.0)</tt> is <tt class="docutils literal">0x00000000</tt>,
+it's sufficient to use <tt class="docutils literal">VPXOR</tt>.</p>
+</div>
+<div class="section" id="integer-values">
+<h2>Integer values</h2>
+<p>Obviously, we may first obtain an integer value, and then convert
+it into a floating point number, using for instance <tt class="docutils literal">VCVTDQ2PS</tt>.</p>
+</div>
+<div class="section" id="pi-2-max-float-min-float">
+<h2>90.0, 1.0, -1.0, +0.0, -0.0, 1/2, Pi/2, MAX_FLOAT, MIN_FLOAT</h2>
+<p>Instruction <tt class="docutils literal">VFIXUPIMMPS</tt> can be used to generate the following
+constants: 90.0, 1.0, -1.0, +0.0, -0.0, 1/2, Pi/2, <tt class="docutils literal">MAX_FLOAT</tt>,
+<tt class="docutils literal">MIN_FLOAT</tt>. Downside of this instruction is high latency.</p>
+<p>The instruction works in two steps. It first classifies the
+input numbers into eight classes:</p>
+<ul class="simple">
+<li>QNaN/SNaN,</li>
+<li>zero,</li>
+<li>one,</li>
+<li>+/- infinity,</li>
+<li>positive number,</li>
+<li>negative number.</li>
+</ul>
+<p>Then, the class is used to fetch a single nibble from
+the second argument; the nibble encodes what to do with
+given value. The nibbles in range 0..6 transform
+the input number; for instance negate it, thanks to
+that we can calculate absolute value.</p>
+<p>The nibbles in range 7..15 force writing one of the listed
+constants:</p>
+<ul>
+<li><p class="first">-0.0 &mdash; nibble=7:</p>
+<pre class="literal-block">
+f32: -0.000000
+u32: 0x80000000
+</pre>
+</li>
+<li><p class="first">+0.0 &mdash; nibble=8:</p>
+<pre class="literal-block">
+f32: 0.000000
+u32: 0x00000000
+</pre>
+</li>
+<li><p class="first">-1.0 &mdash; nibble=9:</p>
+<pre class="literal-block">
+f32: -1.000000
+u32: 0xbf800000
+</pre>
+</li>
+<li><p class="first">+1.0 &mdash; nibble=0xa:</p>
+<pre class="literal-block">
+f32: 1.000000
+u32: 0x3f800000
+</pre>
+</li>
+<li><p class="first"><span class="math">&frac12;</span> &mdash; nibble=0xb:</p>
+<pre class="literal-block">
+f32: 0.500000
+u32: 0x3f000000
+</pre>
+</li>
+<li><p class="first">90.0 &mdash; nibble=0xc:</p>
+<pre class="literal-block">
+f32: 90.000000
+u32: 0x42b40000
+</pre>
+</li>
+<li><p class="first"><span class="math"><i>pi</i>/2</span> &mdash; nibble=0xd:</p>
+<pre class="literal-block">
+f32: 1.570796
+u32: 0x3fc90fdb
+</pre>
+</li>
+<li><p class="first"><tt class="docutils literal">MAX_FLOAT</tt> &mdash; nibble=0xe:</p>
+<pre class="literal-block">
+f32: 340282346638528859811704183484516925440.000000
+u32: 0x7f7fffff
+</pre>
+</li>
+<li><p class="first"><tt class="docutils literal">MIN_FLOAT</tt> &mdash; nibble=0xf:</p>
+<pre class="literal-block">
+f32: -340282346638528859811704183484516925440.000000
+u32: 0xff7fffff
+</pre>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="sample-code">
+<h1>Sample code</h1>
+<p>Sample programs are available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/avx512-consts">Github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2023-01-19-avx512-consts.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

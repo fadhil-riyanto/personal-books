@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:og="http://ogp.me/ns#"
+      xmlns:fb="https://www.facebook.com/2008/fbml">
+
+<!-- Mirrored from eli.thegreenplace.net/2024/linearizability-in-distributed-systems/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:11 GMT -->
+<head>
+    <title>Linearizability in distributed systems - Eli Bendersky's website</title>
+    <!-- Using the latest rendering mode for IE -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link href="../../favicon.ico" rel="icon">
+
+    <!-- Bootstrap -->
+        <link rel="stylesheet" href="../../theme/css/bootstrap.min.css" type="text/css"/>
+    <link href="../../theme/css/font-awesome.min.css" rel="stylesheet">
+
+    <link href="../../theme/css/pygments/vs.css" rel="stylesheet">
+    <link rel="stylesheet" href="../../theme/css/style.css" type="text/css"/>
+
+        <link href="../../feeds/all.atom.xml" type="application/atom+xml" rel="alternate"
+              title="Eli Bendersky's website ATOM Feed"/>
+
+</head>
+<body>
+
+<div class="navbar navbar-default navbar-fixed-top" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-ex1-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a href="../../index.html" class="navbar-brand">
+                <img src="../../images/logosmall.png" width="32" height="32"/>
+Eli Bendersky's website            </a>
+        </div>
+        <div class="collapse navbar-collapse navbar-ex1-collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a href="../../pages/about.html">
+                        <i class="fa fa-question"></i>
+                        <span class="icon-label">About</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../pages/projects.html">
+                        <i class="fa fa-github"></i>
+                        <span class="icon-label">Projects</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="../../archives/all.html">
+                        <i class="fa fa-th-list"></i>
+                        <span class="icon-label">Archives</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        <!-- /.navbar-collapse -->
+    </div>
+</div> <!-- /.navbar -->
+
+<div class="container">
+    <div class="row">
+    <section id="content">
+        <article>
+            <header class="page-header">
+                <h1>
+                    <a href="index.html"
+                       rel="bookmark"
+                       title="Permalink to Linearizability in distributed systems">
+                        Linearizability in distributed systems
+                    </a>
+                </h1>
+            </header>
+            <div class="entry-content">
+                <div class="panel">
+                    <div class="panel-body">
+<footer class="post-info">
+    <span class="published">
+        <i class="fa fa-calendar"></i>
+        <time> October 07, 2024 at 19:16</time>
+    </span>
+<span class="label label-default">Tags</span>
+    <a href="../../tag/concurrency.html">Concurrency</a>
+        ,
+    <a href="../../tag/network-programming.html">Network Programming</a>
+        ,
+    <a href="../../tag/databases.html">Databases</a>
+</footer><!-- /.post-info -->                    </div>
+                </div>
+                <p>Linearizability is a strong <a class="reference external" href="https://en.wikipedia.org/wiki/Consistency_model">consistency model</a>
+in concurrent and distributed systems. From the paper introducing it <a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a>:</p>
+<blockquote>
+Linearizability provides the illusion that each operation applied by
+concurrent processes takes effect instantaneously at some point between
+its invocation and its response.</blockquote>
+<p>On first reading (and probably on the second and third...) this sounds a bit
+abstract, but it really is all there is to it. A slightly different way to
+think about it is - a linearizable system appears as if there's only one copy
+of data in existence, and all client operations apply to this data atomically.
+This post dives deeper into what this means in practice.</p>
+<div class="section" id="registers">
+<h2>Registers</h2>
+<p>Linearizability is a <em>single-object</em> consistency model (see the &quot;Linearizability
+vs. Serializability&quot; section below for more on this).
+It's common in distributed systems literature to talk
+about a <em>register</em> - a single key-value pair, for example, stored in some
+distributed database. When clients write and read this register concurrently,
+we can analyze the history of operations and their results and determine if
+the system maintains linearizability.</p>
+</div>
+<div class="section" id="basic-example">
+<h2>Basic example</h2>
+<p>The following diagram describes a sequence of register reads and writes by
+three different clients; some of these operations are done concurrently. Time
+flows from left to right, and a colored rectangle denotes an operation; its
+left edge is the operation's start, and its right edge the operation's
+completion <a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>.</p>
+<img alt="Linearizable history scenario 1" class="align-center" src="../../images/2024/linearizable-sc1.png" />
+<p>Here are the events, each with its own number in the yellow bubble:</p>
+<ol class="arabic simple">
+<li>Client A reads the register and gets the value of 0. The read itself
+happened at some point in time in the database, denoted on the timeline
+in the very bottom of the diagram.</li>
+<li>Client B reads the value 0. Note that this read operation is partially
+concurrent with the write operation (3); concurrent operations can execute
+in any order, but here (2) happened to be executed before (3) (we know
+this because the value 0 was read, not 1).</li>
+<li>Client C writes 1 into the register.</li>
+<li>Client A reads 1 from the register. This read is also concurrent with the
+write, and thus could end up with any result, but since the result in this
+timeline is 1, we know it happened after (3).</li>
+<li>Client B reads 1 from the register.</li>
+</ol>
+<p>This sequence of events is valid in a linearizable system, because we can
+construct a serial history of events (the bottom timeline) that's consistent
+with our results. Each event occurs instantaneously at some point between the
+start and finish of the client request.</p>
+<p>Compare this to the following sequence, which is not valid:</p>
+<img alt="Linearizable history scenario 2" class="align-center" src="../../images/2024/linearizable-sc2.png" />
+<p>This sequence is similar to the first one, with one difference: B's read in
+(5) results in 0. Since (5) is concurrent with (3), when seen in isolation
+this isn't unreasonable. However, since in (4), client A already observed
+the value 1 in the register and (4) happens before (5), this sequence is
+invalid in a linearizable system. We can imagine systems with weaker
+consistency guarantees producing this history, but such systems are not
+linearizable.</p>
+<p>Another way to look at it is examine the timeline in the bottom of the diagram.
+Notice that (5) reads 0, after (3) happened. We just can't find a way to
+arrange this history so it looks sequential - therefore, it's inconsistent
+with linearizability.</p>
+</div>
+<div class="section" id="a-more-subtle-example">
+<h2>A more subtle example</h2>
+<p>Here's a more subtle example, taken from the linearizability paper:</p>
+<img alt="Linearizable history scenario 3" class="align-center" src="../../images/2024/linearizable-sc3.png" />
+<p>This sequence of events is invalid for a linearizable system! To
+understand why, let's follow the timeline at the bottom of the diagram.</p>
+<p>(3) Client B's write of 1 executes before (2) client A's read, because A
+reads 1 from the register. If the read at (2) happened before the write
+at (3), it (the read) would result in 0, not 1.</p>
+<p>Event (4) has to happen after event (2), since it starts after (2) ends.
+But we've just reasoned that (2) happens after (3); therefore, (4) happens
+after (3) - even though these two writes are concurrent, their order is
+imposed by observing other events.</p>
+<p>Finally, since we've just proven that (4) happens after (3), the value in the
+register at the conclusion of (3) is 0, not 1; therefore, the read of 1 in (5)
+is invalid. This system cannot be linearizable. As before, you can try
+to arrange the events in the bottom of the diagram into some sequential order -
+this attempt will fail, because no consistent sequential order can account
+for the observed events.</p>
+</div>
+<div class="section" id="a-formal-definition">
+<h2>A formal definition</h2>
+<p>I personally found the formal definition of linearizability in the Herlihy &amp;
+Wang paper somewhat obscured by attention given to potentially unfinished
+operations. If we assume that every operation has a start and an end, it's
+easier to restate the formal definition as follows.</p>
+<p>An operation <em>e</em> has the timestamps <em>start(e)</em> and <em>end(e)</em>; these are the
+left and right boundaries of the rectangles in the diagrams shown above.</p>
+<p>A history <em>H</em> exists with a strong partial order <object class="valign-m3" data="../../images/math/756c241ac5f91f469be969adf19eba8be013f3d6.svg" style="height: 13px;" type="image/svg+xml">&lt;_H</object> on operations <a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>:
+<object class="valign-m3" data="../../images/math/da680da9f55778b0b7ae1936f4f9d9e83f7686cb.svg" style="height: 13px;" type="image/svg+xml">e_0 &lt;_H e_1</object> if <object class="valign-m5" data="../../images/math/98d60fef24c45831a1c414f7c97ef09d586c7a02.svg" style="height: 19px;" type="image/svg+xml">end(e_0)</object> precedes <object class="valign-m5" data="../../images/math/c4a35986d620d327ab562a7d0a5a603e11425181.svg" style="height: 19px;" type="image/svg+xml">start(e_1)</object> in <em>H</em>.
+Operations unrelated by <object class="valign-m3" data="../../images/math/756c241ac5f91f469be969adf19eba8be013f3d6.svg" style="height: 13px;" type="image/svg+xml">&lt;_H</object> are said to be <em>concurrent</em> in H.
+In our diagrams, <em>H</em> represents the observed history (the part of the diagram
+with the overlapping rectangles). The formal definition captures what it
+means for us to know that some operations precede others, while other operations
+are concurrent.</p>
+<p>For example, in our last diagram above if <em>H</em> is the history shown, then
+<object class="valign-m3" data="../../images/math/ee5009cacbd76077cf901db78a83bf5014f6c7c0.svg" style="height: 13px;" type="image/svg+xml">e_3 &lt;_H e_5</object>, but the pair <object class="valign-m4" data="../../images/math/bc1f891fff9987dabf9906aa81786141b784d60a.svg" style="height: 12px;" type="image/svg+xml">e_3,e_4</object> is not in the relation
+<object class="valign-m3" data="../../images/math/756c241ac5f91f469be969adf19eba8be013f3d6.svg" style="height: 13px;" type="image/svg+xml">&lt;_H</object>, since these operations are concurrent.</p>
+<p>If <em>H</em> is a sequential history, then <object class="valign-m3" data="../../images/math/756c241ac5f91f469be969adf19eba8be013f3d6.svg" style="height: 13px;" type="image/svg+xml">&lt;_H</object> is a <em>total order</em>. It means
+there are no concurrent operations.</p>
+<p>Now it's time for the definition of linearizability. <em>H</em> is linearizable if:</p>
+<ul class="simple">
+<li><em>H</em> is equivalent to some sequential history <em>S</em></li>
+<li><object class="valign-m3" data="../../images/math/21bc4a1cae8b4f606a98282c4c93be246a3673fb.svg" style="height: 14px;" type="image/svg+xml">&lt;_H \subseteq &lt;_S</object></li>
+</ul>
+<p>The second item requires a bit of elaboration: recall that <object class="valign-m3" data="../../images/math/756c241ac5f91f469be969adf19eba8be013f3d6.svg" style="height: 13px;" type="image/svg+xml">&lt;_H</object> and
+<object class="valign-m3" data="../../images/math/cdd6694fe341fc295fff7257a7031c88365c1bf8.svg" style="height: 13px;" type="image/svg+xml">&lt;_S</object> are <em>relations</em>. <object class="valign-m3" data="../../images/math/756c241ac5f91f469be969adf19eba8be013f3d6.svg" style="height: 13px;" type="image/svg+xml">&lt;_H</object> being a subset of <object class="valign-m3" data="../../images/math/cdd6694fe341fc295fff7257a7031c88365c1bf8.svg" style="height: 13px;" type="image/svg+xml">&lt;_S</object> means
+that the partial order of operations in the real-time history <em>H</em> is preserved
+in the linearization.</p>
+<p>We then call <em>S</em> the <em>linearization of H</em>. In our diagrams, <em>S</em> is the bottom
+line where operations are shown on the server happening immediately; they are
+still represented by <em>start(e)</em> and <em>end(e)</em> in the history (we can just assume
+<em>start(e)</em> and <em>end(e)</em> are infinitesimally close in time, since the DB applies
+operations atomically).</p>
+</div>
+<div class="section" id="linearizability-vs-serializability">
+<h2>Linearizability vs. Serializability</h2>
+<p>Linearizability is often confused with <em>serializability</em> - another consistency
+model. The two are fundamentally different, though:</p>
+<ul class="simple">
+<li>Serializability is a multi-object property useful to describe transactions
+that consist of multiple operations that may potentially touch multiple
+objects; informally, it means that transactions happen atomically, and their
+sub-operations cannot be observed in isolation or intermix.</li>
+<li>Linearizability is a single-object property, talking about the observed
+effects on a single register, as this post demonstrates.</li>
+</ul>
+<p>For a great taxonomy of consistency models, see <a class="reference external" href="https://jepsen.io/consistency">this page from Jepsen</a>.</p>
+</div>
+<div class="section" id="additional-resources">
+<h2>Additional resources</h2>
+<p>Kyle Kingsbury - on his blog and through his company Jepsen - has a wealth of
+great resources on the subject of linearizability and other consistency models.
+Some examples:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://jepsen.io/consistency">The taxonomy</a>, as mentioned above,
+and the related <a class="reference external" href="https://aphyr.com/posts/313-strong-consistency-models">blog post</a></li>
+<li>Knossos, a linearizability checker: <a class="reference external" href="https://aphyr.com/posts/309-knossos-redis-and-linearizability">blog post</a>
+and <a class="reference external" href="https://github.com/jepsen-io/knossos">project page</a></li>
+<li>Jepsen's <a class="reference external" href="https://jepsen.io/analyses/etcd-3.4.3">analysis of etcd</a> has
+an interesting practical discussion of linearizability in a real-world system</li>
+</ul>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>Herlihy, Maurice P.; Wing, Jeannette M. (1990).
+&quot;Linearizability: A Correctness Condition for Concurrent Objects&quot;.
+ACM Transactions on Programming Languages and Systems.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>The operation itself happens instantaneously on the server at some
+moment within the rectangle's boundaries, but we don't know exactly when
+due to network delays.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>For a refresher on the math used here (relations, orders) see
+<a class="reference external" href="../../2018/partial-and-total-orders/index.html">this post</a>.</td></tr>
+</tbody>
+</table>
+</div>
+
+            </div>
+            <!-- /.entry-content -->
+<hr/>
+<div class="dotted-links">
+<p class="align-center">
+For comments, please send me
+<a href="mailto:eliben@gmail.com"><i class="fa fa-envelope-o"></i> an email</a>.
+</p>
+</div>        </article>
+    </section>
+
+    </div>
+</div>
+<footer>
+   <div class="container">
+      <hr>
+      <div class="row">
+         <div class="col-xs-10">
+            &copy; 2003-2025 Eli Bendersky
+         </div>
+         <div class="col-xs-2"><p class="pull-right"><i class="fa fa-arrow-up"></i> <a href="#">Back to top</a></p></div>
+      </div>
+   </div>
+</footer>
+<script src="http://code.jquery.com/jquery-2.2.4.min.js"></script>
+
+<!-- Include all compiled plugins (below), or include individual files as needed -->
+<script src="../../theme/js/bootstrap.min.js"></script>
+
+<!--
+  Using goatcounter to count visitors. The count.js script is vendored in.
+-->
+<script data-goatcounter="https://stats.thegreenplace.net/count"
+        async src="../../theme/js/count.js"></script>
+</body>
+
+<!-- Mirrored from eli.thegreenplace.net/2024/linearizability-in-distributed-systems/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 23:39:11 GMT -->
+</html>

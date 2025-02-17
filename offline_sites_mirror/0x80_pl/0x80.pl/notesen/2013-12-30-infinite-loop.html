@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2013-12-30-infinite-loop.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>I accidentally created an infinite loop</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="i-accidentally-created-an-infinite-loop">
+<h1 class="title">I accidentally created an infinite loop</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2013-12-30</td>
+</tr>
+</tbody>
+</table>
+<p>I needed to iterate through all values of 32-bit unsigned integer, so I
+wrote:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;stdint.h&gt;</span><span class="cp">
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">UINT32_MAX</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+   </span><span class="c1">// whatever
+</span><span class="p">}</span>
+</pre>
+<p>Is it ok? No, because the value of <tt class="docutils literal">uint32_t</tt> will never exceed
+<tt class="docutils literal">UINT32_MAX = 0xffffffff</tt>. Of course we can use larger types, like
+<tt class="docutils literal">uint64_t</tt>, but on 32-bit machines this requires some additional
+instructions. For example gcc 4.7 compiled following code:</p>
+<pre class="code cpp literal-block">
+<span class="kt">void</span><span class="w"> </span><span class="nf">loop1</span><span class="p">(</span><span class="kt">void</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">fun</span><span class="p">)())</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">UINT32_MAX</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">fun</span><span class="p">();</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>to:</p>
+<pre class="literal-block">
+00000000 :
+   0:   57                      push   %edi
+   1:   bf 01 00 00 00          mov    $0x1,%edi
+   6:   56                      push   %esi
+   7:   31 f6                   xor    %esi,%esi
+   9:   53                      push   %ebx
+   a:   8b 5c 24 10             mov    0x10(%esp),%ebx
+   e:   66 90                   xchg   %ax,%ax
+  10:   ff d3                   call   *%ebx
+  12:   83 c6 ff                add    $0xffffffff,%esi
+  15:   83 d7 ff                adc    $0xffffffff,%edi
+  18:   89 f8                   mov    %edi,%eax
+  1a:   09 f0                   or     %esi,%eax
+  1c:   75 f2                   jne    10
+  1e:   5b                      pop    %ebx
+  1f:   5e                      pop    %esi
+  20:   5f                      pop    %edi
+  21:   c3                      ret
+</pre>
+<p>TBH, I have no idea why such a weird sequence has been generated
+(<tt class="docutils literal">add</tt>, <tt class="docutils literal">adc</tt>, <tt class="docutils literal">or</tt>, <tt class="docutils literal">jnz</tt>). The simplest and portable solution
+is to detect a wrap-around of 32-bit value after increment:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// loop body
+</span><span class="w">
+        </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="c1">// wrap-around
+</span><span class="w">                </span><span class="k">break</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>In an assembly code it's even simpler, because a CPU sets the carry flag:</p>
+<pre class="literal-block">
+         xor %eax, %eax
+loop:
+         ; loop body
+
+         add $1, %eax
+         jnc loop
+</pre>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2013-12-30-infinite-loop.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2013-11-04-postresql-sum.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:56 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Short story about PostgreSQL SUM function</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="short-story-about-postgresql-sum-function">
+<h1 class="title">Short story about PostgreSQL SUM function</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2013-11-04</td>
+</tr>
+</tbody>
+</table>
+<p>Here is a simple PostgreSQL type:</p>
+<pre class="literal-block">
+CREATE TYPE foo_t AS (
+        id    integer,
+        total bigint
+);
+</pre>
+<p>and a simple query wrapped in a stored procedure:</p>
+<pre class="literal-block">
+CREATE FUNCTION group_foo()
+        RETURNS SETOF foo_t
+        LANGUAGE &quot;SQL&quot;
+AS $$
+        SELECT id, SUM(some_column) FROM some_table GROUP BY id;
+$$;
+</pre>
+<p>Now, we want to sum everything:</p>
+<pre class="literal-block">
+CREATE FUNCTION total_foo()
+        RETURNS bigint -- same as foo_t.total
+        LANGUAGE &quot;SQL&quot;
+AS $$
+        SELECT SUM(total) FROM group_foo();
+$$;
+</pre>
+<p>And we have an error about types inconsistency!</p>
+<p>This is caused by SUM function &mdash; in PostgreSQL there are many variants of
+this function, as the db engine supports function name overriding (sounds
+familiar for C++ guys). There are following variants in PostgreSQL 9.1:</p>
+<pre class="literal-block">
+$ \df sum
+                                                 List of functions
+   Schema   | Name | Result data type | Argument data types | Type
+------------+------+------------------+---------------------+------
+ pg_catalog | sum  | numeric          | bigint              | agg
+ pg_catalog | sum  | double precision | double precision    | agg
+ pg_catalog | sum  | bigint           | integer             | agg
+ pg_catalog | sum  | interval         | interval            | agg
+ pg_catalog | sum  | money            | money               | agg
+ pg_catalog | sum  | numeric          | numeric             | agg
+ pg_catalog | sum  | real             | real                | agg
+ pg_catalog | sum  | bigint           | smallint            | agg
+</pre>
+<p>Smaller types are promoted: from integer we get bigint, from bigint we get numeric, and so on.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2013-11-04-postresql-sum.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:56 GMT -->
+</html>

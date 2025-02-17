@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-04-28-be-careful-with-dir-iterator.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Be careful with directory_iterator</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="be-careful-with-directory-iterator">
+<h1 class="title">Be careful with directory_iterator</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-04-28</td>
+</tr>
+</tbody>
+</table>
+<p>C++17 finally introduced <a class="reference external" href="http://en.cppreference.com/w/cpp/header/filesystem">filesystem</a> library, which is pretty nice.</p>
+<p>This text shows a caveat my colleague bumped into recently. He wanted to perform
+a set of different operations on files from a directory; it was something like:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;filesystem&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="k">using</span><span class="w"> </span><span class="n">fs</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">filesystem</span><span class="p">;</span><span class="w">
+
+</span><span class="k">class</span><span class="w"> </span><span class="nc">Foo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span><span class="k">public</span><span class="o">:</span><span class="w">
+    </span><span class="kt">void</span><span class="w"> </span><span class="n">perfrom</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">fs</span><span class="o">::</span><span class="n">path</span><span class="o">&amp;</span><span class="w"> </span><span class="n">dir</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">perform_impl</span><span class="p">(</span><span class="n">fs</span><span class="o">::</span><span class="n">directory_iterator</span><span class="p">{</span><span class="n">dir</span><span class="p">},</span><span class="w"> </span><span class="n">fs</span><span class="o">::</span><span class="n">directory_iterator</span><span class="p">{});</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+</span><span class="k">private</span><span class="o">:</span><span class="w">
+    </span><span class="kt">void</span><span class="w"> </span><span class="n">perform_impl</span><span class="p">(</span><span class="n">fs</span><span class="o">::</span><span class="n">directory_iterator</span><span class="w"> </span><span class="n">first</span><span class="p">,</span><span class="w"> </span><span class="n">fs</span><span class="o">::</span><span class="n">directory_iterator</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">fs</span><span class="o">::</span><span class="n">directory_iterator</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">first</span><span class="p">;</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">it</span><span class="p">)</span><span class="w">
+            </span><span class="n">do_foo</span><span class="p">(</span><span class="o">*</span><span class="n">it</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">fs</span><span class="o">::</span><span class="n">directory_iterator</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">first</span><span class="p">;</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w"> </span><span class="o">++</span><span class="n">it</span><span class="p">)</span><span class="w">
+            </span><span class="n">do_bar</span><span class="p">(</span><span class="o">*</span><span class="n">it</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="kt">void</span><span class="w"> </span><span class="n">do_foo</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">fs</span><span class="o">::</span><span class="n">directory_entry</span><span class="o">&amp;</span><span class="w"> </span><span class="n">de</span><span class="p">);</span><span class="w">
+    </span><span class="kt">void</span><span class="w"> </span><span class="nf">do_bar</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">fs</span><span class="o">::</span><span class="n">directory_entry</span><span class="o">&amp;</span><span class="w"> </span><span class="n">de</span><span class="p">);</span><span class="w">
+</span><span class="p">};</span>
+</pre>
+<p>In method <tt class="docutils literal">perform_impl</tt> we iterate twice over the range defined by two
+<a class="reference external" href="http://en.cppreference.com/w/cpp/filesystem/directory_iterator">directory_iterators</a>.  Well, we suppose so. Although iterator <tt class="docutils literal">first</tt> is
+copied, the copy operation is peculiar.  It doesn't copy <strong>the state of
+iterator</strong>, we get merely a new &quot;handle&quot; to an existing, single state.
+Standard libraries from GCC and Clang keep a <tt class="docutils literal"><span class="pre">std::shared_ptr</span></tt>, which holds
+an instance of internal class responsible for iterating.</p>
+<p>What it means? When the first loop executes, then <tt class="docutils literal">first == end</tt>. Thus, the
+second loop never runs.</p>
+<p>In my opinion this behaviour is counter-intuitive. If the copy operator doesn't
+really make a copy, it should be disabled in API (it can be done with <tt class="docutils literal">=
+delete</tt> put next to the operator declaration). People will be forced to pass
+the iterator by reference and, thanks to that, will be aware of the iterator
+traits.</p>
+<p>A funny side-effect of the current language feature is that even iterators
+passed by const reference change their visible state.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-04-28-be-careful-with-dir-iterator.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+</html>

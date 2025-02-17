@@ -1,0 +1,172 @@
+[ISO-8859-2]
+
+Od pewnego czasu u¿ywam systemu LaTeX do sk³adu dokumentów. Tutaj bêdê
+sukcesywnie umieszcza³ rozwi±zania problemów, które pojawi³y siê podczas mojej
+przygody z LaTeX-u. W przypadku pakietów opisujê jedynie te elementy, które
+by³y mi potrzebne.
+
+Zachêcam do odwiedzenia strony http://www.gust.org.pl.
+
+	Wojtek Mu³a
+
+********** Rozwi±zania ************
+
+1. Podczas sk³adu ksi±¿ki (\documentclass[...]{book}) pojawiaj± siê overfulle w
+   pionowych pude³kach (\vbox) zajmowanych przez tytu³y rozdzia³ów i sekcji.
+   Wygl±da to na b³±d w LaTeX-u, nie mo¿na nic z tym zrobiæ, poza ukryciem 
+   samych b³êdów.
+
+	\vbadness	= 10000
+
+2. Centrowanie w pionie na pierwszej stronie; typowo robimy to tak:
+
+	\begin{document}
+	\vfill
+	Tytu³ publikacji
+	\vfill
+	...
+
+Jednak, jak siê okazuje, TeX pomija pierwsze polecenie \vfill. By temu zapobiec
+nale¿y wstawiæ wcze¶niej jaki¶ twardy odstêp, np.
+
+	\begin{document}
+	\vspace*{0pt}
+	\vfill
+	% itd.
+
+3. Wstawienie dodatkowego odstêpu pionowego w tabular (tak, to jest w
+   dokumentacji, ale ja zapominam)
+
+	\begin{tabular}{...}
+	... & ... & ... \\ [odstêp]
+	....
+
+************ U¿yteczne pakiety *************
+
+1. Pakiet textfit
+
+	\usepackage{textfit}
+
+Dostarcza dwóch poleceñ
+	\scaletoheight{wysoko¶æ}{tekst}
+oraz
+	\scaletowidth{szeroko¶æ}{tekst}
+
+które tak ustawiaj± rozmiar [bie¿±cego] fontu, by podany tekst mia³ zadan±
+szeroko¶æ lub wysoko¶æ. Ale uwaga! efekty mog± ró¿ne w zale¿no¶ci od rozmiaru
+bie¿±cego fontu, bowiem pakiet wykorzystuje polecenie \magstep.
+
+By wycentrowaæ tekst nale¿y u¿yæ poleceñ \hfill, bowiem ¶rodowisko 'center' nie
+"dzia³a".
+
+	\hfill \scaletoheight{3cm}{Tytu³} \hfill
+
+Pakiet nie zmienia tak¿e 'baselineskip', wiêc zamiast
+	\scaletoheight{3cm}{Cudowny \\ LaTeX},
+
+nale¿y u¿yæ dwóch poleceñ \scale...  rozdzielonych poleceniem klasy \addvspace.
+
+2. Pakiet lettrine
+
+Pakiet s³u¿y do tworzenia inicja³ów, czyli du¿ych pierwszych liter akapitu,
+obejmuj±cych kilka wierszy. 
+
+Oto przyk³ad u¿ycia:
+
+	\usepackage{lettrine}
+	...
+	\lettrine[lines=3 findent=0.2em nindent 0.1em]{P}ierwsza litera
+
+Paremetry (jest ich jeszcze kilka):
+	* lines   -- ilo¶æ linii które ma obj±æ inicja³;
+	* findent -- wciêcie pierwszej linii;
+	* nindent -- wciêcie (wzglêdem findent!) nastêpnych linii, 
+	             które obejmuje inicja³. 
+
+Pakiet dodatkowo sk³ada nastêpna literê (w tym przyk³adzie 'i') kapitalikami.
+Moim zdaniem wygl±da to paskudnie. Mo¿na to zmieniæ redefiniuj±c polecenie
+	\LettrineTextFont
+
+np. \renewcommand{\LettrineTextFont}{}
+
+3. Pakiet pslatex
+
+Pakiet ten powoduje sk³ad tekstu przy u¿yciu fontów  wbudowanych w Acrobat
+Reader, dziêki czemu pliki pdf wygenerowane przez program pdflatex wygl±daj±
+dobrze w tym programie.
+
+4. Pakiet multicol
+
+Pakiet umo¿liwia sk³adanie tekstu w kolumnach. U¿ywa³em go do sk³adania d³ugich
+wierszy.
+
+	\usepackage{multicol}
+	...
+	\begin{multicols}{2}	% tu nie b³êdu, s koñczy nazwê ¶rodowiska
+	aaa \\
+	bbb \\
+	ccc \\
+	ddd
+	\end{multicols}
+
+Co zostanie z³o¿one jako
+
+	aaa	ccc
+	bbb	ddd
+
+5. Pakiet lineno
+
+Pakiet ten numeruje wiersze i umo¿liwia wstawianie odno¶ników do konkretnych
+linii. Polecenia, które u¿ywa³em to:
+
+	\linenumbers	-- w³±cza numerowanie linii
+	\linenumbers*	-- w³±cza numerowanie linii, oraz ustawia licznik na 1
+	\nolinenumbers	-- wy³±cza numerowanie
+	\pagewiselinenumbers -- w³±cza numerowanie linii, po przej¶ciu 
+	                        do nowej strony licznik linii jest 
+				ustawiany na 1.
+
+Oto przyk³ad:
+
+	\usepackage{lineno}
+	...
+	\begin{document}
+
+	To jest \linelabel{wazne} bardzo wa¿ny tekst. % \linelabel wstawia 
+	                                              % odno¶nik
+
+	...
+
+	Bardzo wa¿ny tekst znajduje siê na stronie \pageref{wazne}, w linii
+	\ref{wazne}. % \ref wstawia numer wiersza w którym etykieta wystêpuje
+
+	\end{document}
+
+Poniewa¿ pakiet liczy wszystkie linii, nie bacz±c czy to tytu³ rozdzia³u,
+sekcji, itd. mo¿na na chwilê wy³±czyæ numerowanie poleceniem \nolinenumbers.
+
+Pakiet standardowo wypisuje numery linii po lewej (lub prawej) stronie tekstu.
+Gdy chcemy wy³±cznie odwo³ywaæ do numerów linii (\linelabel, \ref) mo¿na ukryæ
+numery redefiniuj±c polecenie \thelinenumber, oraz stworzyæ sobie odpowiednie
+polecenie, które na chwilê "odkryje numery":
+
+	\newcommand{\refline}[1]{%
+		% wy¶wietlanie numerów		
+		\renewcommand{\thelinenumber}{\arabic{linenumber}}
+		\ref{#1}
+		% ukrycie numerów
+		\renewcommand{\thelinenumber}{}
+	}
+	\renewcommand{\thelinenumber}{}	
+
+	\begin{document}
+	\linenumbers
+	...
+	Bardzo wa¿ny tekst znajduje siê na stronie \pageref{wazne}, w linii
+	\refline{wazne}.
+	\end{document}
+
+
+UWAGA! Pakiet gryzie siê z poleceniem \mainmatter!
+
+[eof]

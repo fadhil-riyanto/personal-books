@@ -1,0 +1,11 @@
+HTTrack3.49-5 launched on Sun, 16 Feb 2025 23:11:52 at https://veykril.github.io/tlborm/
+(httrack https://veykril.github.io/tlborm/ )
+
+Information, Warnings and Errors reported for this mirror:
+note:	the hts-log.txt file, and hts-cache folder, may contain sensitive information,
+	such as username/password authentication for websites mirrored in this project
+	do not share these files/folders if you want these information to remain private
+
+
+HTTrack Website Copier/3.49-5 mirror complete in 1 minutes 19 seconds : 78 links scanned, 77 files written (3167798 bytes overall) [1538669 bytes received at 19476 bytes/sec], 2500283 bytes transferred using HTTP compression in 63 files, ratio 32%, 26.0 requests per connection
+(No errors, 0 warnings, 0 messages)

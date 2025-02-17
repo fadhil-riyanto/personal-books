@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/bezier-approx.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:57 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Aproksymacja łamaną krzywej Beziera 3. stopnia</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="aproksymacja-lamana-krzywej-beziera-3-stopnia">
+<h1 class="title">Aproksymacja łamaną krzywej Beziera 3. stopnia</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">7.02.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Oczywiście standardowy sposób aproksymacji polega na wyznaczenia punktów
+<span class="math">P(<i>t</i>)</span> ze stałym krokiem parametru <span class="math"><i>t</i></span>.  Przy małym kroku
+(gęstym próbkowaniu) efekty są bardzo dobre, ale to nie zawsze jest
+dobre rozwiązanie &mdash; głównie chodzi o koszty obliczeniowe.</p>
+<p>Pisałem o <a class="reference external" href="bezier-flat.html">sposobach określania</a>, czy krzywa Beziera jest
+&bdquo;płaska&rdquo; i że jednym z zastosowań jest rysowanie krzywej, tj.
+przedstawienie jej jak najwierniej za pomocą łamanej.  <em>Adaptywny
+podział krzywej</em> polega na rekurencyjnym dzieleniu krzywej na coraz
+mniejsze łuki do chwili, gdy dany fragment nie będzie dostatecznie
+&bdquo;płaski&rdquo; &mdash; wówczas można zastąpić go odcinkiem.</p>
+<p>Na animacji niżej widać, że tam, gdzie krzywa jest płaska użyto małej
+liczby odcinków, tam gdzie krzywa się &bdquo;wygina&rdquo; punkty są rozmieszczone
+gęściej.</p>
+<img alt="img/cbezier-as-tkdemo.gif" class="align-center" src="img/cbezier-as-tkdemo.gif" />
+<p>Przedstawiam małe demo, które pokazuje jak sprawują się różne metody
+określania &bdquo;płaskości&rdquo;:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/cbezier-as-tkdemo.py">cbezier-as-tkdemo.py</a> &mdash; główny program</li>
+</ul>
+<p>Program do działania wymaga kilku małych bibliotek, które zawierają
+procedury związane głównie z grafiką 2D:</p>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/aabb2D.py">aabb2D.py</a>     &mdash; pudełka otaczające w 2D,</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/utils2D.py">utils2D.py</a>    &mdash; działania na wektorach (pary (x, y)),</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/cbezier2D.py">cbezier2D.py</a>  &mdash; krzywe Beziera 3. stopnia (podział, pudełko
+otaczające, przejścia między bazą potęgową i bazą wielomianów
+Berensteina, przecięcia z linią, drugą krzywą itp.),</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/poly_root.py">poly_root.py</a>  &mdash; pierwiastki wielomianów 1., 2. i 3. stopnia.</li>
+</ul>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/bezier-approx.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:58 GMT -->
+</html>

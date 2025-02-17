@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notespl/2016-01-16-boilingfrogs.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:40 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Boilingfrogs &mdash; Wrocław 2016</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="boilingfrogs-wroclaw-2016">
+<h1 class="title">Boilingfrogs &mdash; Wrocław 2016</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodane field"><th class="docinfo-name">Dodane:</th><td class="field-body">2016-01-16</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wstep" id="toc-entry-1">Wstęp</a></li>
+<li><a class="reference internal" href="#welcome-to-monad-club" id="toc-entry-2">Welcome to Monad Club</a></li>
+<li><a class="reference internal" href="#czysto-funkcyjne-struktury-danych" id="toc-entry-3">Czysto funkcyjne struktury danych</a></li>
+<li><a class="reference internal" href="#raj-dla-poliglotow-wszystko-plynie" id="toc-entry-4">Raj dla poliglotów &mdash; wszystko płynie</a></li>
+<li><a class="reference internal" href="#jak-przetestowac-prawdziwy-system" id="toc-entry-5">Jak przetestować prawdziwy system?</a></li>
+<li><a class="reference internal" href="#jak-znalezc-czas-na-jakosc-teoria-kolejek-i-little-s-law-w-procesach-wytwarzania-oprogramowania" id="toc-entry-6">Jak znaleźć czas na jakość? &mdash; Teoria Kolejek i Little's Law w procesach wytwarzania oprogramowania</a></li>
+<li><a class="reference internal" href="#machine-learning-dla-developerow" id="toc-entry-7">Machine Learning dla Developerów</a></li>
+</ul>
+</div>
+<div class="section" id="wstep">
+<h1>Wstęp</h1>
+<p>Na jakimś wrocławskim wykładzie, jeszcze w 2015 roku, o konferencji
+<a class="reference external" href="http://boilingfrogs.pl/">Boilingfrogs</a> powiedział mi kolega Krzysiek (który opowiadał tam o <a class="reference external" href="https://en.wikipedia.org/wiki/SOLID_(object-oriented_design)">SOLID</a>).
+Jako, że postanowiłem nie marnować takich okazji, więc zapisałem się. I właśnie
+wróciłem. Wyjątkowo autobus linii 409 nie utknął w korkach &mdash; niby sobota, ale
+to Wrocław i różnie mogło być.  Słucham sobie tytułowego utworu z płyty &quot;On An
+Island&quot; Davida Gilmoura i piszę, póki nie zapomniałem (jeszcze tylko herbata i
+lecimy).</p>
+<p>Więc<a class="footnote-reference" href="#footnote-1" id="footnote-reference-1">[1]</a> ta jednodniowa konferencja odbyła się w budynku o dumnej nazwie Silver
+Tower Center<a class="footnote-reference" href="#footnote-2" id="footnote-reference-2">[2]</a>, który jest nie tylko interesujący architektonicznie, ale
+przede wszystkim położony w dogodnym miejscu. Blisko dworca PKP i autobusowego,
+dość&nbsp;blisko Rynku, świetnie skomunikowane. Ja co prawda miałem trzy przesiadki i
+15 minut pieszo, ale to tylko dlatego, że mieszkam w dość odległym miejscu (hm,
+<em>zadupie</em> jest nieodpowiednią nazwą, to <em>jeszcze</em> Wrocław) i z racji weekendu
+autobusy jeżdżą rzadziej<a class="footnote-reference" href="#footnote-3" id="footnote-reference-3">[3]</a>.</p>
+<p>Była to pierwsza edycja <strong>Boilingfrogs</strong>. Konferencja była płatna, lecz kwota
+naprawdę symboliczna, bo jakieś 80 złotych. Organizacyjnie pierwsza klasa.
+Przede wszystkim porządna strona internetowa, bezproblemowa rejestracja,
+potrzebne informacje zostały przesłane na maila<a class="footnote-reference" href="#footnote-4" id="footnote-reference-4">[4]</a>. Na miejscu była darmowa
+kawa, herbata, ciasteczka oraz obiad<a class="footnote-reference" href="#footnote-5" id="footnote-reference-5">[5]</a>. Do tego wszystkie wykłady zaczynały
+się&nbsp;punktualnie. Miło, naprawdę.</p>
+<p>Słowo-klucz konferencji to &quot;craftsmanship&quot;, co wg słowników znaczy <em>skill in
+a particular craft</em> i na nasz przepiękny język tłumaczy się jako <strong>rzemiosło</strong>. Ja
+jednak wolę <strong>rękodzieło</strong>. W końcu tymi ręcami piszemy te wszystkie mało
+znaczące ciągi literek.</p>
+<p>Organizatorzy zapewnili 5 wykładów w 3 ścieżkach, czyli 15 do wyboru. Mam
+jednak wątpliwości, czy to po prostu nie za duży wybór. Z 2/3 wykładów trzeba
+było zrezygnować.</p>
+<p>Niekiedy z niemałym trudnem wybrałem następujące wykłady:</p>
+<ul class="simple">
+<li><strong>Welcome to Monad Club</strong> &mdash; Marcin Malinowski,</li>
+<li><strong>Czysto funkcyjne struktury danych</strong> &mdash; Tomasz Kaczmarzyk,</li>
+<li><strong>Raj dla poliglotów - wszystko płynie</strong> &mdash; Michał Płachta,</li>
+<li><strong>Jak przetestować prawdziwy system?</strong> &mdash; Tomasz Kalkosiński,</li>
+<li><strong>Jak znaleźć czas na jakość? &mdash; Teoria Kolejek i Little's Law
+w procesach wytwarzania oprogramowania</strong> &mdash; Wiktor Żołnowski,</li>
+<li><strong>Machine Learning dla Developerów</strong> &mdash; Mariusz Gil.</li>
+</ul>
+<p>Poniżej spisałem moje wrażenia. Nie jestem dziś złośliwy, chyba Gilmour
+działa tak uspokajająco.</p>
+</div>
+<div class="section" id="welcome-to-monad-club">
+<h1>Welcome to Monad Club</h1>
+<p>Przeglądam regularnie <a class="reference external" href="https://news.ycombinator.com/">Hacker News</a>, słowo &quot;monada&quot; pojawia się tam często.
+Ogólnie jest hype. Jednak ilekroć o tym czytałem, miałem wrażenie, że to
+<strong>za proste</strong>, że to nie może być <strong>aż</strong> tak trywialne. Mój wniosek jest taki,
+że to dorobienie ideologii do banału<a class="footnote-reference" href="#footnote-6" id="footnote-reference-6">[6]</a>.</p>
+<p>Miałem nadzieję, że wykład Marcina da mi jasną odpowiedź, że to ja czegoś naprawdę
+nie rozumiem, coś istotnego mi umyka. Niestety, tak się nie stało. Marcin
+poopowiadał trochę i pokazał praktyczną realizację monad w C# i F#. W sumie
+potwierdził, co już wiedziałem. Jedynym plusem stosowania monad było
+uproszczenie kodu, zarówno w imperatywnym C# jak i funkcyjnym F#. A tak
+naprawdę przeniesienie if w jedno miejsce.</p>
+<p>Z mojej perspektywy najciekawsze było jedno z pytań z sali. Kolega przyznał, że
+uwielbia monady, że używa, ale... kod jest trudny w debugowaniu. Piękna
+rekomendacja.</p>
+<p>Nie podobały mi się dwie rzeczy na tym wykładzie:</p>
+<ul class="simple">
+<li>Pisanie kodu na żywo w jakimś Eclipsie i jego szybkie przewijanie. Bez sensu.</li>
+<li>Trzykrotne użycie wulgarnego słowa &quot;zajebisty&quot;. <strong>Nie, po prostu nie.</strong></li>
+</ul>
+</div>
+<div class="section" id="czysto-funkcyjne-struktury-danych">
+<h1>Czysto funkcyjne struktury danych</h1>
+<p>Tytuł prelekcji był nieco mylący. Tomek opowiedział tak naprawdę o jednej
+strukturze danych, ale za to takiej! Otóż nie słyszałem o niej. Prelegent i
+organizator konferencji w jednym, opisał dość dokładnie <a class="reference external" href="http://goto.ucsd.edu/~rjhala/liquid/haskell/blog/blog/2015/01/28/okasakis-lazy-queue.lhs/">kolejki i kolejki
+zrównoważone Osakiego</a>. Interesujące i inspirujące, jako że struktury danych
+to jedna z moich ulubionych działek w informatyce (plasują się tuż za zdjęciami
+kotków w Internecie).</p>
+<p>W drugiej części wykładu Tomek pokazał jak w praktyce <a class="reference external" href="http://git-scm.com/">git</a> używa
+persystentnych drzew. Akurat o tym kiedyś czytałem, ale całkiem zaskakująca
+była konstatacja, że tak nieskomplikowana struktura stoi u podstaw jednego z
+fajniejszych narzędzi<a class="footnote-reference" href="#footnote-7" id="footnote-reference-7">[7]</a>.</p>
+</div>
+<div class="section" id="raj-dla-poliglotow-wszystko-plynie">
+<h1>Raj dla poliglotów &mdash; wszystko płynie</h1>
+<p>Prelegent na przykładzie prostej gry w węża (działała, był pokaz na żywo!)
+zademonstrował jak używać strumieni. Strumienie, to jak nazwa sugeruje, ciągi
+jakiś obiektów. Najciekawsze, że za pomocą kilku prostych operacji na
+strumieniach można je łączyć w skomplikowane systemy. Bardzo mi się podoba! Za
+pomocą trywialnych przekształceń, zdaje się 5 czy 6, można budować mocno
+nietrywialne rzeczy. Siła wyrazu, o! to jest dobre określenie.</p>
+<p>Do tego istnieją frameworki, które dramatycznie uproszczają praktyczne
+zastosowanie. Michał pracuje nad systemem, gdzie strumienie są używane do
+wizualizacji w przeglądarce aktualnego stanu jakiegoś obiektu przemysłowego
+(magazynu? nie pamiętam... przepraszam).</p>
+<p>Prezentacja była bardzo dobra. Prelegent wiedział o czym mówi, miał
+doświadczenie w tym temacie i fajnie się go słuchało.</p>
+</div>
+<div class="section" id="jak-przetestowac-prawdziwy-system">
+<h1>Jak przetestować prawdziwy system?</h1>
+<p>Tomek opowiadał o swoich doświadczeniach z testowaniem, głównie testowaniem
+integracyjnym systemów sieciowych. Prelegent jest programistą Javy, przykłady
+były w tym języku, jednak to w niczym nie przeszkadzało.</p>
+<p>Bardzo spodobał mi się pomysł enkapsulowania akcji specyficznych dla każdego
+systemu zewnętrznego i użycia fraz zapożyczonych z BDD. Sami zobaczcie (spróbujcie
+przeczytać na głos):</p>
+<pre class="literal-block">
+whenInMainSystem.createUser();
+whenInExternalSystem.receiveNotification();
+thenInAnotherExternalSystem.coffeeIsReady();
+</pre>
+<p>Każdy podsystem reprezentuje inny obiekt określonej klasy, posiadającej
+specyficzne fragmenty testów lub sekwencji akcji. Całkiem dobrze się to czyta<a class="footnote-reference" href="#footnote-8" id="footnote-reference-8">[8]</a>.
+Tomek wspomniał, że testują integracyjnie także na poziomie protokołu
+sieciowego (HTTP). Nie zdążyłem zapytać, czy testują także błędy samej
+komunikacji (np. zerwanie połączenia, błędy w rodzaju 500) bądź bezsensowne
+odpowiedzi serwisów zewnętrznych. Ale myślę, że to wykonalne.</p>
+<p>Fundamentalnie nie zgadzam się jednak z jednym stwierdzeniem, że pokrycie kodu
+nie jest istotne i można żyć z niską jego wartością. Nie, przy testowaniu
+jednostkowym 100% pokrycie kodu to podstawa. Trudne, nie zawsze wykonalne, ale
+do tego trzeba dążyć. Ile razy nacięliście się na błędy, bo coś tam było
+niedotestowane w kluczowym module? Mnie się zdarza, bo &quot;po co testować,
+to tak mało prawdopodobne, weź się&quot;.</p>
+<p>Ale ogólnie wykład fajny, ciekawe doświadczenia i wnioski.</p>
+</div>
+<div class="section" id="jak-znalezc-czas-na-jakosc-teoria-kolejek-i-little-s-law-w-procesach-wytwarzania-oprogramowania">
+<h1>Jak znaleźć czas na jakość? &mdash; Teoria Kolejek i Little's Law w procesach wytwarzania oprogramowania</h1>
+<p>Generalnie Witek opisał&nbsp;swoje doświadczenia z pracą w zespołach, które słabo
+dawały sobie radę z powodu nadmiernego obciążenia bądź istnienia wąskich
+gardeł. Jeden z przykładów takiego wąskiego gardła: 60 programistów + tylko 8
+doświadczonych, uprawionych do code review i mergowania &mdash; i tylko to robili
+przez kilka miesięcy<a class="footnote-reference" href="#footnote-9" id="footnote-reference-9">[9]</a>.</p>
+<p>Arcyciekawy był&nbsp;sposób na poradzenie sobie ze słabą wydajnością zespołu.
+Wystarczyło zmniejszyć liczbę zadań (niewyobrażalne dla menadżera), co
+spowodowało zmniejszenie obciążenia ludzi, ale podniosło ogólną przepustowość.
+Efekt sprzeczny z intuicją, nieprawdaż.</p>
+<p>Było całkiem interesująco.</p>
+</div>
+<div class="section" id="machine-learning-dla-developerow">
+<h1>Machine Learning dla Developerów</h1>
+<p>Mariusz opowiedział nieco o Machine Learningu, obecnie gorącym temacie.
+Oczywiście był to wykład wprowadzając, ale Mariusz pokazał co jest istotne z
+punktu widzenia praktycznego. Jednym z kluczowych problemów jest dobre
+zrozumienie danych. Przerobiliśmy to na przykładowym, na pierwszy rzut oka,
+nieskomplikowanym przykładzie. Pouczające doświadczenie.</p>
+<p>Prelegent pokazał też, że istnieje obecnie wiele darmowych narzędzi do ML
+(bibliotek, system, itd.), wiele przykładowych zbiorów danych itd. Ten próg
+wejścia z technicznego punktu widzenia jest więc niewielki. Schody zaczynają
+się, gdy trzeba z tych narzędzi umiejętnie skorzystać. I to było zadanie domowe
+dla chętnych.</p>
+<p>Ciekawie, chociaż siłą rzeczy mocno pobieżnie. Chciałoby się więcej.</p>
+<hr class="docutils" />
+<table class="docutils footnote" frame="void" id="footnote-1" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-1">[1]</a></td><td>&bdquo;Nie zaczyna się zdania od więc&rdquo; &mdash; jedyna rzecz, którą wiedzą
+polonistki płci obojga.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-2" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-2">[2]</a></td><td>Jest to nazwa tradycyjnie słowiańska. Ale najśmieszniejsza w tym budynku
+jest Biedronka na parterze i za każdym razem, gdy widzę Srebrną Wieżę, ten
+fakt mnie autentycznie bawi. Doprawdy, brakuje tam jeszcze lumpeksu.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-3" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-3">[3]</a></td><td>Wiadomo, że w weekendy mieszkańcy Wrocławia w ogóle nie chcą nigdzie się
+przemieszczać, siedzą w domach i czekają spokojnie na śmierć. Albo oglądają
+TV, co na jedno wychodzi.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-4" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-4">[4]</a></td><td>Myślicie, że to standard? W przypadku pewnej konferencji musiałem pisać do
+organizatorów, czy na pewno jestem na liście, bo nie dostałem <strong>żadnego</strong>
+potwierdzenia.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-5">[5]</a></td><td>Z różnych względów przez klawiaturę mi nie przejdzie słowo &quot;lunch&quot;,
+przykro mi.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-6" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-6">[6]</a></td><td>Co wydaje się dość&nbsp;częstą praktyką w IT.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-7" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-7">[7]</a></td><td>W obecnej pracy używam Mercuriala. Po przesiadce z gita to jednak krok
+wstecz.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-8" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-8">[8]</a></td><td>Modulo konwencja nazewnicza, ja nie lubię camelCase, brzydkie jak
+Mielno w grudniu.</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="footnote-9" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#footnote-reference-9">[9]</a></td><td>Przypomniała mi się wtedy sytuacja z mojej poprzedniej pracy, gdzie przez
+<strong>dwa sprinty</strong> zajmowałem się wyłącznie poprawianiem błędów, a koledzy
+wtedy radośnie robili nowe funkcjonalności. Brrr, nigdy więcej.</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notespl/2016-01-16-boilingfrogs.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:41 GMT -->
+</html>

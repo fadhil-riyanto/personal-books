@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/flipx.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:27 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Odbicie lustrzane Y</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="odbicie-lustrzane-y">
+<h1 class="title">Odbicie lustrzane Y</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">6.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">3.03.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="obrazy-grayscale">
+<h1>Obrazy grayscale</h1>
+<p>Najprościej jest po prostu zamieniać bajty (bądź słowa):</p>
+<pre class="literal-block">
+; edi - wskazuje na początek linii (pierwszy piksel)
+
+; obrazy 8-bitowe            ; obrazy 15/16-bitowe
+
+; esi wskazuje na koniec linii
+lea esi, [edi + img_width-1] ; lea esi, [edi + img_width-2]
+mov ecx, img_width/2         ; mov ecx, img_width/2
+
+flipx:
+        mov     al, [edi]    ; mov    ax, [edi]
+        xchg    al, [esi]    ; xchg   ax, [esi]
+        mov  [edi], al       ; mov [edi], ax
+
+        ; kolejny piksel
+        inc edi              ; add edi, byte 2
+
+        ; wcześniejszy piksel
+        dec esi              ; sub esi, byte 2
+        loop flipx
+</pre>
+<p>Podstawową wadą programu jest liczba odwołań do pamięci, równa
+<tt class="docutils literal">3*img_width/2</tt>. Poniżej zoptymalizowany program dla obrazów
+grayscale.</p>
+<pre class="literal-block">
+; edi - pierwszy piksel
+; esi - ostatni piksel
+
+mov ecx, img_width/8        ; tylko img_width/8 iteracji
+
+flipx:
+        mov eax, [edi]
+        mov ebx, [esi]
+
+        bswap eax           ; instrukcja bswap zamienia kolejność bajtów -
+        bswap ebx           ; jest wręcz idealna dla tego zastosowania
+
+        mov [esi], eax
+        mov [edi], ebx
+
+        add edi, 4
+        sub esi, 4
+
+        loop flipx
+</pre>
+<p>W tym przypadku liczba pobrań jest równa <tt class="docutils literal">img_width/2</tt>, tj. <strong>3
+razy</strong> mniej niż w poprzednim programie. Jedyną, myślę niezbyt dokuczliwą
+wadą, jest wymogów by szerokość obrazu (<tt class="docutils literal">img_width</tt>) była całkowitą
+wielokrotnością czwórki.</p>
+<p>Użycie rozszerzonych rozkazów MMX może znacznie przyspieszyć kod
+--- przedstawiam kod zamieniający kolejność bajtów w rejestrze MMX.</p>
+<pre class="literal-block">
+movq  mm0, [edi]      ; mm0 = |a|b|c|d|e|f|g|h|
+movq  mm1, mm0        ; mm1 = |a|b|c|d|e|f|g|h|
+
+psrlw mm0, 8          ; mm0 = |0a|0c|0e|0g|
+psllw mm1, 8          ; mm1 = |b0|d0|f0|h0|
+
+por   mm0, mm1        ; mm0 = |ba|dc|fe|hg| -- zamiana bajtów w słowach
+
+pshufw mm0, mm0, 0x1b ; 0x1b= |00|01|10|11|
+
+                      ; mm0 = |hg|fe|dc|ba|
+</pre>
+</div>
+<div class="section" id="obrazy-15-16bpp">
+<h1>Obrazy 15/16bpp</h1>
+<p>Przy przetwarzaniu obrazów 15/16 bpp można pobierać po 2 piksele do
+rejestru 32-bitowego, po czym dokonać obrotu bitowego (w lewo, bądź
+prawo) o 16 pozycji.</p>
+<pre class="literal-block">
+mov eax, [edi+0] ; eax = |piksel1|piksel0|
+mov ebx, [edi+4] ; ebx = |piksel3|piksel2|
+
+rol eax, 16      ; eax = |piksel0|piksel1|
+rol ebx, 16      ; ebx = |piksel2|piksel3|
+
+mov [esi-4], ebx
+mov [esi-8], eax
+</pre>
+<p>Użycie rozkazu <tt class="docutils literal">pshufw</tt> umożliwi blisko dwukrotne przyspieszenie.</p>
+<pre class="literal-block">
+movq mm0, [edi+0] ; załaduj 4 piksele
+movq mm1, [edi+8] ; i kolejne 4
+
+pshufw mm0, mm0, 0x1b ; 0x1b = |00|01|10|11|
+pshufw mm1, mm1, 0x1b ;
+
+movq mm0, [esi-8]
+movq mm0, [esi-16]
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/flipx.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:27 GMT -->
+</html>

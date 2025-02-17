@@ -1,0 +1,765 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%Title: xcirpl
+%%Creator: Xcircuit v3.1
+%%CreationDate: Sun Oct 23 16:02:31 2005
+%%Pages: 1
+%%BoundingBox: 68 68 556 400
+%%DocumentNeededResources: font Helvetica 
+%%EndComments
+%%BeginProlog
+%
+%  PostScript prolog for output from xcircuit
+%  Version: 2.4
+%
+%  Electrical circuit (and otherwise general) drawing program
+%
+%  Written by Tim Edwards 8/5/93--1/15/03  (tim@bach.ece.jhu.edu)
+%  The Johns Hopkins University
+%
+%%BeginResource: procset XCIRCproc 2.4 2
+% supporting definitions --- these are the primary xcircuit types.
+
+/XCIRCsave save def
+/topmat matrix currentmatrix def
+
+/fontslant { /slant exch def [1 0 slant 1 0 0] 
+    exch findfont exch makefont dup length dict /ndict exch def
+    { 1 index /FID ne { ndict 3 1 roll put } { pop pop } ifelse } forall
+    ndict definefont pop} def
+/ul { dup type /stringtype eq showflag 1 eq and { gsave 
+   currentpoint topmat setmatrix 0 0 moveto 2 index stringwidth pop (_)
+   false charpath flattenpath pathbbox grestore exch pop 1 index
+   sub setlinewidth exch pop currentpoint 3 -1 roll add moveto 0
+   rlineto stroke moveto } if } def
+/ol { dup type /stringtype eq showflag 1 eq and { gsave gsave
+   currentpoint topmat setmatrix 2 index stringwidth pop 3 index
+   true charpath flattenpath pathbbox grestore exch pop
+   exch pop topmat setmatrix (_) true charpath pathbbox grestore
+   exch pop 1 index sub setlinewidth exch pop currentpoint
+   exch 4 1 roll exch sub add moveto pop 0 rlineto stroke
+   moveto } if } def
+/stW { gsave currentpoint newpath moveto true charpath flattenpath
+	pathbbox pop exch pop sub grestore } def
+/Ts {mark Tabs aload pop counttomark 1 add array astore /Tabs exch def Tabs
+	0 currentpoint pop put} def
+/Tbn {mark Tabs aload pop counttomark dup 2 add 1 roll cleartomark 1 sub} def
+/Tb { 0 1 Tbn {Tabs exch get dup currentpoint pop lt
+	{currentpoint exch pop moveto exit} {pop} ifelse } for } def
+/Tf { Tbn -1 0 {Tabs exch get dup currentpoint pop gt
+	{currentpoint exch pop moveto exit} {pop} ifelse } for } def
+/qS { (aa) stW (a a) stW sub 4 div 0 Kn } def
+/hS { qS qS } def
+/pspc 0 def
+/cf0 { scalefont setfont } bind def
+/Kn { dup kY add /kY exch def rmoveto } bind def
+/ss { /fscale fscale 0.67 mul def currentfont 0.67 cf0 0 fscale0 fscale mul
+	0.33 mul neg Kn} def
+/Ss { /fscale fscale 0.67 mul def currentfont 0.67 cf0 0 fscale0 fscale mul
+	0.67 mul Kn } def
+/ns { 0 kY neg Kn /kY 0 def /fscale 1.0 def xfont0 1.0 cf0 } def
+/CR { ns 0 /Bline Bline fscale0 neg add def Bline moveto } def
+/cf { dup type /realtype ne {1.0} if exch findfont exch kY 0 eq
+	{ 40 mul dup /fscale0 exch def cf0 /xfont0 currentfont def}
+	{fscale0 mul fscale mul cf0} ifelse } def
+/ctmk { counttomark dup 2 add -1 roll pop } bind def
+/label { gsave translate 0 0 moveto dup scale neg /rotval exch def
+	/just exch def just 16 and 0 gt {gsave rotval rotate 0 1 dtransform
+	gsave pagemat setmatrix idtransform exch grestore 1 0 dtransform
+	gsave pagemat setmatrix idtransform exch grestore dup abs 1e-9 lt
+	{pop mul 0 gt} {3 1 roll pop pop 0 lt} ifelse grestore {-1 /rotval
+	rotval neg def /just just dup 3 and 1 ne {3 xor} if def} {1} ifelse
+	exch -1e-9 lt {-1 /rotval rotval neg def /just just dup 12 and
+	4 ne {12 xor} if def} {1} ifelse scale } if /showflag 0 def
+	/fspc pspc def /Bline 0 def /Tabs 0 array def /fscale 1.0 def
+	/kY 0 def gsave dup 1 add copy 0 exch 1 0 dtransform exch atan rotate
+	{exch dup type /stringtype eq {true charpath flattenpath} {exec}
+	ifelse } repeat pop pathbbox grestore 3 -1 roll pop 3 1 roll just
+	1 and 0 gt {just 2 and 0 gt {exch pop neg fspc sub} {exch sub 0.5
+	mul neg} ifelse} {pop neg fspc add} ifelse exch Bline exch just 4
+	and 0 gt {just 8 and 0 gt {exch pop neg fspc sub} {add 0.5 mul neg}
+	ifelse} {pop neg fspc add} ifelse rotval rotate Kn currentpoint
+	translate /showflag 1 def /Bline 0 def /Tabs 0 array def /fscale
+	1.0 def /kY 0 def {dup type /stringtype eq {show}{exec} ifelse}
+	repeat grestore } def
+/pinlabel { 4 index 32 and 0 ne hlevel 0 eq or { /pspc 10 def label
+	/pspc 0 def } { pop pop pop pop pop {pop} repeat } ifelse } def
+/pinglobal { pinlabel } def
+/infolabel { pinlabel } def
+
+/scb { setrgbcolor } bind def  /sce { defColor aload pop scb } bind def
+/cRedef {/defColor currentcolor 3 array astore def} def
+/begingate { /hlevel hlevel 1 add def /defColor currentcolor sce 3 array
+	astore def gsave sce translate 0 0 moveto neg rotate dup abs scale
+	} bind def
+/makeparm  {3 string cvs dup length 1 add string /tstr exch def tstr exch
+	1 exch putinterval tstr 0 (v) putinterval tstr cvn} bind def
+/beginparm { -1 1 {makeparm exch def} for
+	dup type /arraytype eq { aload length -1 1 {makeparm exch def}
+	for } if begingate } bind def
+/endgate { /hlevel hlevel 1 sub def grestore defColor aload pop cRedef
+	scb} bind def
+
+/hlevel 0 def
+/tmpa [1 0 0 1 0 0] def
+/gar {8 8 true tmpa {<c0 c0 00 00 0c 0c 00 00>} imagemask} bind
+{8 8 true tmpa {<30 70 60 02 03 07 06 20>} imagemask} bind
+{8 8 true tmpa {<0c 1e 1e 0c c0 e1 e1 c0>} imagemask} bind
+{8 8 true tmpa {<0f 0f 0f 0f f0 f0 f0 f0>} imagemask} bind
+{8 8 true tmpa {<3f f3 e1 e1 f3 3f 1e 1e>} imagemask} bind
+{8 8 true tmpa {<df cf 8f 9f fd fc f8 f9>} imagemask} bind
+{8 8 true tmpa {<ff 3f 3f ff ff f3 f3 ff>} imagemask} bind 7 array astore def
+/ppaint { gsave clip tmpa dup setmatrix pathbbox neg exch neg 4 2 roll
+  neg 4 -1 roll 2 copy gt {exch} if 8 div ceiling 8 mul 4 2 roll neg 2 copy
+  gt {exch} if 8 div ceiling 8 mul 3 -1 roll -8 5 -1 roll
+  { 3 index exch 5 exch put dup -8 3 index { 3 index
+  exch 4 exch put 3 index exec } for } for pop pop pop pop grestore } bind def
+/setstyles {
+  currentlinewidth mul setlinewidth /style exch def
+  style 1 and 0 gt not {closepath} if
+  style 2 and 0 gt {currentlinewidth 4 mul dup 2 array astore 0 setdash} if
+  style 4 and 0 gt {0.5 currentlinewidth 4 mul 2 array astore 0 setdash} if
+  gsave style 16 and 0 gt { style 224 and -5 bitshift style 256 and 0 gt {
+  7 exch sub 8 div dup 1 exch sub currentrgbcolor 3 array astore
+  {3 copy mul add 4 1 roll pop} forall pop pop setrgbcolor eofill}
+  {dup 7 lt {gar exch get ppaint} {pop eofill} ifelse} ifelse}
+  {style 256 and 0 gt {1 setgray eofill} if} ifelse grestore style 8 and 0 gt 
+  style 512 eq or {newpath} {stroke} ifelse grestore} def     
+
+/polygon { gsave /num exch def moveto num 1 sub {lineto} repeat setstyles } def
+/xcarc   { gsave newpath arc setstyles } def
+/elb { matrix currentmatrix 7 -1 roll 7 -1 roll translate 5 1 roll 4 -1 roll
+	3 index div 1 scale } def
+/ele { 0 4 1 roll 0 4 1 roll } bind def
+/ellipse { gsave elb newpath ele arc setmatrix setstyles } def
+/pellip  { elb ele arc setmatrix } def
+/nellip  { elb ele arcn setmatrix } def
+/spline  { gsave moveto curveto setstyles } def
+/polyc   { {lineto} repeat } bind def
+/beginpath { gsave moveto } bind def
+/endpath { setstyles } bind def
+/bop	 { 1 setlinecap 0 setlinejoin 6 setmiterlimit 0 0 0 scb cRedef } def
+/psinsertion {/PSobj save def /showpage {} def bop rotate translate dup scale} def
+/end_insert {PSobj restore} def
+/setpagemat {/pagemat matrix currentmatrix def} def
+/inchscale  {setpagemat 0.375 mul dup scale} def
+/cmscale    {setpagemat 0.35433071 mul dup scale} def
+
+%%EndResource
+%%EndProlog
+
+% XCircuit output starts here.
+
+/dioda_zenera {
+begingate
+1 1.00 0 96 0 64 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 64 24 64 24 52 3 polygon
+endgate
+} def
+
+/dioda {
+begingate
+1 1.00 0 96 0 64 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 64 24 64 2 polygon
+endgate
+} def
+
+/rezystor {
+begingate
+0 1.00 -12 80 -12 16 12 16 12 80 4 polygon
+1 1.00 0 96 0 80 2 polygon
+1 1.00 0 16 0 0 2 polygon
+endgate
+} def
+
+/rezystor2 {
+begingate
+0 1.00 16 12 16 -12 80 -12 80 12 4 polygon
+1 1.00 16 0 0 0 2 polygon
+1 1.00 80 0 96 0 2 polygon
+endgate
+} def
+
+/potencjometr {
+begingate
+0 1.00 -12 80 -12 16 12 16 12 80 4 polygon
+1 1.00 0 96 0 80 2 polygon
+1 1.00 0 16 0 0 2 polygon
+1 1.00 12 48 32 48 2 polygon
+1 1.00 24 54 12 48 24 42 3 polygon
+endgate
+} def
+
+/rezystor3 {
+begingate
+0 1.00 -12 32 -12 -32 12 -32 12 32 4 polygon
+1 1.00 0 48 0 32 2 polygon
+1 1.00 0 -32 0 -48 2 polygon
+1 1.00 -28 -28 32 32 2 polygon
+1 1.00 20 28 32 32 28 20 3 polygon
+endgate
+} def
+
+/wzmoper2 {
+begingate
+1 1.00 -96 32 -64 32 2 polygon
+1 1.00 -96 -32 -64 -32 2 polygon
+1 1.00 64 0 96 0 2 polygon
+1 1.00 -56 32 -40 32 2 polygon
+1 1.00 -56 -32 -40 -32 2 polygon
+1 1.00 -48 -24 -48 -40 2 polygon
+1 1.00 64 0 -64 64 -64 -64 64 0 4 polygon
+endgate
+} def
+
+/wzmoper {
+begingate
+1 1.00 128 0 -64 96 -64 -96 128 0 4 polygon
+1 1.00 -96 64 -64 64 2 polygon
+1 1.00 -96 -64 -64 -64 2 polygon
+1 1.00 128 0 160 0 2 polygon
+1 1.00 -56 64 -40 64 2 polygon
+1 1.00 -56 -64 -40 -64 2 polygon
+1 1.00 -48 -56 -48 -72 2 polygon
+endgate
+} def
+
+/ua741 {
+begingate
+1 1.00 96 0 -96 96 -96 -96 96 0 4 polygon
+1 1.00 -128 64 -96 64 2 polygon
+1 1.00 -128 -64 -96 -64 2 polygon
+1 1.00 96 0 128 0 2 polygon
+1 1.00 -88 64 -72 64 2 polygon
+1 1.00 -88 -64 -72 -64 2 polygon
+1 1.00 -80 -56 -80 -72 2 polygon
+1 1.00 0 96 0 48 2 polygon
+1 1.00 0 -48 0 -96 2 polygon
+(ua741) {/Helvetica cf} 2 21 0 1.00 -32 0 label
+endgate
+} def
+
+/dioda_pojemnosciowa {
+begingate
+1 1.00 0 96 0 72 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 64 24 64 2 polygon
+1 1.00 -24 72 24 72 2 polygon
+endgate
+} def
+
+/dioda_schottkyego {
+begingate
+1 1.00 0 96 0 64 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 52 -24 64 24 64 24 76 4 polygon
+endgate
+} def
+
+/dioda_tunelowa {
+begingate
+1 1.00 0 96 0 64 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 52 -24 64 24 64 24 52 4 polygon
+endgate
+} def
+
+/LED {
+begingate
+1 1.00 0 96 0 64 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 64 24 64 2 polygon
+1 1.00 32 56 56 80 2 polygon
+1 1.00 44 76 56 80 52 68 3 polygon
+1 1.00 32 36 56 60 2 polygon
+1 1.00 44 56 56 60 52 48 3 polygon
+endgate
+} def
+
+/fotodioda {
+begingate
+1 1.00 0 96 0 64 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 64 -24 32 24 32 0 64 4 polygon
+1 1.00 -24 64 24 64 2 polygon
+1 1.00 64 56 40 32 2 polygon
+1 1.00 52 36 40 32 44 44 3 polygon
+1 1.00 64 76 40 52 2 polygon
+1 1.00 52 56 40 52 44 64 3 polygon
+endgate
+} def
+
+/zr_pradu_AC {
+begingate
+1 1.00 0 48 32 0.00 360.00 xcarc
+1 1.00 0 0 0 16 2 polygon
+1 1.00 0 80 0 96 2 polygon
+1 1.00 -8 48 8 0.00 180.00 xcarc
+1 1.00 8 48 8 180.00 360.00 xcarc
+1 1.00 0 48 26 0.00 360.00 xcarc
+endgate
+} def
+
+/zr_pradu_DC {
+begingate
+1 1.00 0 48 32 0.00 360.00 xcarc
+1 1.00 0 0 0 16 2 polygon
+1 1.00 0 80 0 96 2 polygon
+1 1.00 0 64 0 28 2 polygon
+1 1.00 -4 52 0 64 4 52 3 polygon
+1 1.00 0 48 26 0.00 360.00 xcarc
+endgate
+} def
+
+/zr_nap_DC {
+begingate
+1 1.00 0 48 32 0.00 360.00 xcarc
+1 1.00 0 0 0 16 2 polygon
+1 1.00 0 80 0 96 2 polygon
+1 1.00 0 68 0 28 2 polygon
+1 1.00 -4 56 0 68 4 56 3 polygon
+endgate
+} def
+
+/zr_nap_AC {
+begingate
+1 1.00 0 48 32 0.00 360.00 xcarc
+1 1.00 0 0 0 16 2 polygon
+1 1.00 0 80 0 96 2 polygon
+1 1.00 -8 48 8 0.00 180.00 xcarc
+1 1.00 8 48 8 180.00 360.00 xcarc
+endgate
+} def
+
+/cewka {
+begingate
+1 1.00 0 160 0 128 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 48 16 270.00 450.00 xcarc
+1 1.00 0 80 16 270.00 450.00 xcarc
+1 1.00 0 112 16 270.00 450.00 xcarc
+endgate
+} def
+
+/cewka2 {
+begingate
+1 1.00 0 0 32 0 2 polygon
+1 1.00 48 0 16 0.00 180.00 xcarc
+1 1.00 80 0 16 0.00 180.00 xcarc
+1 1.00 112 0 16 0.00 180.00 xcarc
+1 1.00 128 0 160 0 2 polygon
+endgate
+} def
+
+/cewka3 {
+begingate
+1 1.00 0 160 0 128 2 polygon
+1 1.00 0 32 0 0 2 polygon
+1 1.00 0 48 16 270.00 450.00 xcarc
+1 1.00 0 80 16 270.00 450.00 xcarc
+1 1.00 0 112 16 270.00 450.00 xcarc
+1 1.00 24 128 24 32 2 polygon
+endgate
+} def
+
+/transformator {
+begingate
+1 1.00 -24 -16 16 270.00 450.00 xcarc
+1 1.00 -24 16 16 270.00 450.00 xcarc
+1 1.00 -24 48 16 270.00 450.00 xcarc
+1 1.00 0 64 0 -32 2 polygon
+1 1.00 24 -16 16 90.00 270.00 xcarc
+1 1.00 24 16 16 90.00 270.00 xcarc
+1 1.00 24 48 16 90.00 270.00 xcarc
+1 1.00 24 64 24 96 64 96 3 polygon
+1 1.00 24 -32 24 -64 64 -64 3 polygon
+1 1.00 -24 -32 -24 -64 -64 -64 3 polygon
+1 1.00 -24 64 -24 96 -64 96 3 polygon
+endgate
+} def
+
+/bateria {
+begingate
+1 1.00 -32 52 32 52 2 polygon
+1 1.00 -16 44 12 44 2 polygon
+1 1.00 0 44 0 0 2 polygon
+1 1.00 0 52 0 96 2 polygon
+1 1.00 24 72 24 64 2 polygon
+1 1.00 20 68 28 68 2 polygon
+endgate
+} def
+
+/bateria2 {
+begingate
+1 1.00 -32 36 32 36 2 polygon
+1 1.00 -16 28 16 28 2 polygon
+1 1.00 -32 52 32 52 2 polygon
+1 1.00 -16 44 16 44 2 polygon
+1 1.00 -32 68 32 68 2 polygon
+1 1.00 -16 60 16 60 2 polygon
+1 1.00 0 28 0 0 2 polygon
+1 1.00 0 68 0 96 2 polygon
+1 1.00 24 84 24 76 2 polygon
+1 1.00 20 80 28 80 2 polygon
+endgate
+} def
+
+/BJT_NPN {
+begingate
+1 1.00 0 24 0 -24 2 polygon
+1 1.00 0 -8 32 -26 32 -64 3 polygon
+1 1.00 0 0 -32 0 2 polygon
+1 1.00 13 -21 28 -24 18 -12 3 polygon
+1 1.00 0 8 32 24 32 64 3 polygon
+1 0.50 18 0 40 0.00 360.00 xcarc
+endgate
+} def
+
+/BJT_NPN2 {
+begingate
+1 1.00 0 24 0 -24 2 polygon
+1 1.00 0 -8 32 -26 32 -64 3 polygon
+1 1.00 0 0 -32 0 2 polygon
+1 1.00 13 -21 28 -24 18 -12 3 polygon
+1 1.00 0 8 32 24 32 64 3 polygon
+endgate
+} def
+
+/BJT_PNP {
+begingate
+1 1.00 0 24 0 -24 2 polygon
+1 1.00 0 -8 32 -26 32 -64 3 polygon
+1 1.00 0 0 -32 0 2 polygon
+1 1.00 22 -15 7 -12 17 -24 3 polygon
+1 1.00 0 8 32 24 32 64 3 polygon
+1 0.50 18 0 40 0.00 360.00 xcarc
+endgate
+} def
+
+/_BJT_NPN2 {
+begingate
+1 1.00 0 24 0 -24 2 polygon
+1 1.00 0 -8 32 -26 32 -64 3 polygon
+1 1.00 0 0 -32 0 2 polygon
+1 1.00 22 -15 7 -12 17 -24 3 polygon
+1 1.00 0 8 32 24 32 64 3 polygon
+endgate
+} def
+
+/kondensator {
+begingate
+1 1.00 -32 8 32 8 2 polygon
+1 1.00 -32 -8 32 -8 2 polygon
+1 1.00 0 -8 0 -32 2 polygon
+1 1.00 0 32 0 8 2 polygon
+endgate
+} def
+
+/kondensator2 {
+begingate
+1 1.00 -8 32 -8 -32 2 polygon
+1 1.00 8 32 8 -32 2 polygon
+1 1.00 8 0 32 0 2 polygon
+1 1.00 -32 0 -8 0 2 polygon
+endgate
+} def
+
+/kond_elektr {
+begingate
+0 1.00 -32 0 -32 -8 32 -8 32 0 4 polygon
+1 1.00 -32 8 32 8 2 polygon
+1 1.00 0 32 0 8 2 polygon
+1 1.00 0 -8 0 -32 2 polygon
+1 1.00 24 -16 24 -32 2 polygon
+1 1.00 16 -24 32 -24 2 polygon
+endgate
+} def
+
+/kond_elektr2 {
+begingate
+1 1.00 -32 0 -8 0 2 polygon
+1 1.00 -8 32 -8 -32 2 polygon
+0 1.00 0 32 0 -32 8 -32 8 32 4 polygon
+1 1.00 8 0 32 0 2 polygon
+1 1.00 24 32 24 16 2 polygon
+1 1.00 16 24 32 24 2 polygon
+endgate
+} def
+
+/JFET_N {
+begingate
+1 1.00 0 48 0 -8 2 polygon
+1 1.00 -32 0 32 0 32 -32 3 polygon
+1 1.00 0 40 32 40 32 64 3 polygon
+1 1.00 -12 4 0 0 -12 -4 3 polygon
+endgate
+} def
+
+/JFET_N2 {
+begingate
+1 1.00 0 48 0 -8 2 polygon
+1 1.00 -32 0 32 0 32 -32 3 polygon
+1 1.00 0 40 32 40 32 64 3 polygon
+1 0.50 8 20 36 0.00 360.00 xcarc
+1 1.00 -12 4 0 0 -12 -4 3 polygon
+endgate
+} def
+
+/JFET_P {
+begingate
+1 1.00 0 48 0 -8 2 polygon
+1 1.00 -32 0 32 0 32 -32 3 polygon
+1 1.00 0 40 32 40 32 64 3 polygon
+1 0.50 8 20 36 0.00 360.00 xcarc
+1 1.00 -4 4 -16 0 -4 -4 3 polygon
+endgate
+} def
+
+/JFET_P2 {
+begingate
+1 1.00 0 48 0 -8 2 polygon
+1 1.00 -32 0 32 0 32 -32 3 polygon
+1 1.00 0 40 32 40 32 64 3 polygon
+1 1.00 -4 4 -16 0 -4 -4 3 polygon
+endgate
+} def
+
+/NMOS1 {
+begingate
+1 1.00 0 -32 36 -32 36 32 3 polygon
+1 1.00 64 64 64 32 44 32 44 -32 64 -32 64 -64 6 polygon
+1 1.00 44 0 96 0 2 polygon
+1 1.00 60 -4 48 0 60 4 3 polygon
+endgate
+} def
+
+/NMOS2 {
+begingate
+1 1.00 -32 -32 0 -32 0 32 3 polygon
+1 1.00 8 10 8 -10 2 polygon
+1 1.00 8 20 8 32 32 32 32 64 4 polygon
+1 1.00 8 -20 8 -32 32 -32 32 -64 4 polygon
+1 1.00 8 0 64 0 2 polygon
+1 1.00 28 -4 12 0 28 4 3 polygon
+endgate
+} def
+
+/PMOS1 {
+begingate
+1 1.00 -32 -32 4 -32 4 32 3 polygon
+1 1.00 32 64 32 32 12 32 12 -32 32 -32 32 -64 6 polygon
+1 1.00 12 0 64 0 2 polygon
+1 1.00 20 -4 32 0 20 4 3 polygon
+endgate
+} def
+
+/PMOS2 {
+begingate
+1 1.00 -32 0 0 0 0 64 3 polygon
+1 1.00 8 42 8 22 2 polygon
+1 1.00 8 52 8 64 32 64 32 96 4 polygon
+1 1.00 8 12 8 0 32 0 32 -32 4 polygon
+1 1.00 8 32 64 32 2 polygon
+1 1.00 20 28 32 32 20 36 3 polygon
+endgate
+} def
+
+/wlacznik {
+begingate
+1 1.00 -32 -12 6 0.00 360.00 xcarc
+1 1.00 32 -12 6 0.00 360.00 xcarc
+1 1.00 -26 -8 22 16 2 polygon
+1 1.00 38 -12 64 -12 2 polygon
+1 1.00 -38 -12 -64 -12 2 polygon
+endgate
+} def
+
+/przelacznik {
+begingate
+1 1.00 32 -16 6 0.00 360.00 xcarc
+1 1.00 38 -16 64 -16 2 polygon
+1 1.00 32 16 6 0.00 360.00 xcarc
+1 1.00 38 16 64 16 2 polygon
+1 1.00 -32 0 6 -180.00 180.00 xcarc
+1 1.00 -38 0 -64 0 2 polygon
+1 1.00 -26 0 32 0 2 polygon
+endgate
+} def
+
+/przycisk {
+begingate
+1 1.00 38 -14 64 -14 2 polygon
+1 1.00 -38 -14 -64 -14 2 polygon
+1 1.00 -36 2 36 2 2 polygon
+1 1.00 -6 2 -6 18 2 polygon
+1 1.00 6 18 6 2 2 polygon
+1 1.00 -12 18 12 18 2 polygon
+1 1.00 -32 -14 6 0.00 360.00 xcarc
+1 1.00 32 -14 6 0.00 360.00 xcarc
+endgate
+} def
+
+/transformator2 {
+begingate
+1 1.00 -20 48 16 270.00 450.00 xcarc
+1 1.00 -20 80 16 270.00 450.00 xcarc
+1 1.00 -20 112 16 270.00 450.00 xcarc
+1 1.00 20 48 16 90.00 270.00 xcarc
+1 1.00 20 80 16 90.00 270.00 xcarc
+1 1.00 20 112 16 90.00 270.00 xcarc
+1 1.00 20 128 20 160 64 160 3 polygon
+1 1.00 20 32 20 0 64 0 3 polygon
+1 1.00 -20 32 -20 0 -64 0 3 polygon
+1 1.00 -20 128 -20 160 -64 160 3 polygon
+endgate
+} def
+
+/cewka4 {
+begingate
+1 1.00 -6 -24 12 270.00 450.00 xcarc
+1 1.00 -6 0 12 270.00 450.00 xcarc
+1 1.00 -6 24 12 270.00 450.00 xcarc
+1 1.00 -6 -36 -6 -48 2 polygon
+1 1.00 -6 36 -6 48 2 polygon
+endgate
+} def
+
+/cewka5 {
+begingate
+1 1.00 -48 -6 -36 -6 2 polygon
+1 1.00 36 -6 48 -6 2 polygon
+1 1.00 -24 -6 12 0.00 180.00 xcarc
+1 1.00 0 -6 12 0.00 180.00 xcarc
+1 1.00 24 -6 12 0.00 180.00 xcarc
+endgate
+} def
+
+/termistor {
+begingate
+0 1.00 -12 32 -12 -32 12 -32 12 32 4 polygon
+1 1.00 0 32 0 48 2 polygon
+1 1.00 0 -32 0 -48 2 polygon
+1 1.00 -24 -32 -24 -16 28 24 3 polygon
+endgate
+} def
+
+/zlacze {
+begingate
+1 1.00 -16 0 6 0.00 360.00 xcarc
+1 1.00 -10 0 0 0 2 polygon
+endgate
+} def
+
+/zlacze2 {
+begingate
+1 1.00 16 0 6 0.00 360.00 xcarc
+1 1.00 10 0 0 0 2 polygon
+1 1.00 32 0 22 0 2 polygon
+endgate
+} def
+
+/dioda2 {
+begingate
+1 1.00 -48 0 -16 0 2 polygon
+1 1.00 16 0 48 0 2 polygon
+1 1.00 16 0 -16 24 -16 -24 16 0 4 polygon
+1 1.00 16 24 16 -24 2 polygon
+endgate
+} def
+
+/zlacze3 {
+begingate
+1 1.00 0 16 6 0.00 360.00 xcarc
+1 1.00 0 10 0 0 2 polygon
+endgate
+} def
+
+/masa {
+begingate
+1 1.00 0 0 0 -32 2 polygon
+504 1.00 -32 -32 -32 -40 32 -40 32 -32 4 polygon
+endgate
+} def
+
+/masa2 {
+begingate
+1 1.00 0 0 0 -32 2 polygon
+1 1.00 -32 -32 32 -32 2 polygon
+1 1.00 -20 -40 20 -40 2 polygon
+1 1.00 -8 -48 8 -48 2 polygon
+endgate
+} def
+
+%%Page: 1 1
+%%PageOrientation: Portrait
+/pgsave save def bop
+% 1888 1120 offsets
+% 32.00 32.00 gridspace
+1.0000 inchscale
+2.6000 setlinewidth
+
+1.00 0 864 448 dioda_zenera
+1.00 0 784 448 dioda
+1.00 0 224 736 rezystor
+1.00 0 208 1024 rezystor2
+1.00 0 384 736 potencjometr
+1.00 0 304 784 rezystor3
+1.00 0 896 320 wzmoper2
+1.00 0 608 288 wzmoper
+1.00 0 384 288 ua741
+1.00 0 1104 448 dioda_pojemnosciowa
+1.00 0 944 448 dioda_schottkyego
+1.00 0 1024 448 dioda_tunelowa
+1.00 0 1184 448 LED
+1.00 0 1280 448 fotodioda
+1.00 0 224 864 zr_pradu_AC
+1.00 0 304 864 zr_pradu_DC
+1.00 0 384 864 zr_nap_DC
+1.00 0 464 864 zr_nap_AC
+1.00 0 608 544 cewka
+1.00 0 672 672 cewka2
+1.00 0 544 544 cewka3
+1.00 0 448 608 transformator
+1.00 0 624 864 bateria
+1.00 0 544 864 bateria2
+1.00 0 1024 960 BJT_NPN
+1.00 0 1152 960 BJT_NPN2
+1.00 0 1280 960 BJT_PNP
+1.00 0 1408 960 _BJT_NPN2
+1.00 0 624 784 kondensator
+1.00 0 368 1024 kondensator2
+1.00 0 544 784 kond_elektr
+1.00 0 592 1024 kond_elektr2
+1.00 0 1152 800 JFET_N
+1.00 0 1024 800 JFET_N2
+1.00 0 1280 800 JFET_P
+1.00 0 1408 800 JFET_P2
+1.00 0 992 672 NMOS1
+1.00 0 1152 672 NMOS2
+1.00 0 1408 672 PMOS1
+1.00 0 1280 640 PMOS2
+1.00 0 784 1036 wlacznik
+1.00 0 784 880 przelacznik
+1.00 0 784 974 przycisk
+1.00 0 288 544 transformator2
+1.00 0 678 592 cewka4
+1.00 0 480 1030 cewka5
+1.00 0 464 784 termistor
+1.00 0 736 800 zlacze
+1.00 0 800 800 zlacze2
+1.00 0 1408 512 dioda2
+1.00 0 768 800 zlacze3
+1.00 0 1088 416 masa
+1.00 0 1088 320 masa2
+pgsave restore showpage
+
+%%Trailer
+XCIRCsave restore
+%%EOF

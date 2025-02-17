@@ -1,0 +1,285 @@
+<!doctype html public "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html lang="pl">
+
+<!-- Mirrored from 0x80.pl/stud/elektronika/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:50:16 GMT -->
+<head>
+<meta http-equiv="Content-type"     content="text/html;charset=iso-8859-2">
+<meta http-equiv="Content-language" content="pl">
+<meta name="Author"    content="Wojciech Muła">
+<meta name="Generator" content="vim">
+<link rel="stylesheet" type="text/css" href="../../index.css">
+<style type="text/css">
+td.title {
+	font-size	: larger;
+	padding		: 15px 15px 15px 3px;
+}
+</style>
+<title>Wojciech Muła - strona domowa::studia::elektronika</title>
+
+</head>
+<body>
+<a href="../../index-2.html">strona główna</a>::<a href="../index-2.html">studia</a>::<b>elektronika</b>
+
+<h2>Wstęp</h2>
+
+<p>Wszystkie obwody .spice zostały przetestowane w programie <a
+class="ext" href="http://ngspice.sf.net/">ngspice</a>, którego bazą jest SPICE3f5, więc
+zapewne także w większości programów pochodzących od SPICE3 powinno
+udać się je zasymulować.</p>
+
+<p>Wszystkie pliki źródłowe są dość dobrze udokumentowane (opisuję gdzie jest
+wejście, wyjście, czasem nawet podam jakiś końcowy wzór), natomiast na końcu
+pliku &ndash; w instrukcji <tt>.plot</tt> lub <tt>.print</tt> &ndash; pokazuję
+co w danym obwodzie było obserwowane. Ponadto na początku prawie każdego pliku
+znajduje się odnośnik do pewnego PDF-a. Jest to informacja wyłącznie dla mnie,
+ponieważ pliki te, to niedostępne publicznie opracowania wykładowcy.</p>
+
+<div align="right">
+	<a href="../../mail.html">Wojciech Muła</a>
+</div>
+
+<h2>XCircuit</h2>
+
+<p>Schematy elektryczne zostały narysowane w programie <a
+class="ext" href="http://opencircuitdesign.com/xcircuit/">XCircuit</a>, są to pliki <a
+class="ext" href="http://pl.wikipedia.org/wiki/PostScript">PostScriptowe</a>. Chociaż
+XCircuit umożliwia generowanie plików spice na podstawie schematu (tzw.
+netlist), to <u>wszystkie pliki zostały utworzone przez mnie
+&bdquo;ręcznie&rdquo;</u> &mdash; ze względu na ich prostotę nie widziałem
+potrzeby, by wspierać się jakimś graficznym edytorem.</p>
+
+<p>XCircuit nie posiada symboli elementów elektronicznych używanych w naszym
+kraju, toteż przygotowałem podstawową bibliotekę symboli.</p>
+
+<center><img src="xcirpl.png" alt="przegląd symboli"></center>
+
+<p>Pobierz:</p>
+<ul>
+	<li>źródłowy plik PS <a href="xcirpl.ps">xcirpl.ps</a> (wersja z 20.10.2005)
+	<li>gotowa do użycia w XCircuit biblioteka LPS <a href="xcirpl.html">xcirpl.lps</a>
+</ul>
+
+<p>Bibliotekę LPS można wczytać z poziomu programu: menu <b>File</b>, pozycja
+<b>Load Library</b>, chociaż wygodniej zmienić plik
+<tt>/usr/share/xcircuit/xcstartup.py</tt>; można przy okazji zablokować
+ładowanie nieużywanych bibliotek. Końcówka mojego pliku wygląda tak:
+
+<pre>
+# First library page
+library("generic.lps", 1)
+library("analog.lps", 1)
+library("avlsi.lps", 1)
+library("digital.lps", 1)
+
+# Second library page
+#library ("analoglib2.lps", 2)
+
+# Third library page
+#library ("ic_templates.lps", 3)
+
+# Fourth library page
+#library ("quadparts.lps", 4)
+
+library ("xcirpl.lps", 5)
+</pre>
+
+
+<h2>Układy</h2>
+
+<table width="100%" border="1" cellspacing="0px" cellpadding="3px">
+<tr>
+	<td colspan="3" class="title"><b>Układy prądu stałego</b></td>
+</tr>
+<tr>
+	<td class="col1">Najprostsze lustro prądowe (dwa tranzystory bipolarne)<br>
+	                 współczynnik powielania ok. 0.96</td>
+	<td class="col2"><a href="uklady/prad-staly/lustro_pradowe.html">SPICE</a></td>
+	<td class="col2"><a href="uklady/prad-staly/lustro_pradowe.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Zmodyfikowane źródło prądowe (trzy tranzystory bipolarne)<br>
+	                 współczynnik powielania ok. 0.998
+	</td>
+	<td class="col2"><a href="uklady/prad-staly/lustro_pradowe2.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/lustro_pradowe2.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Przesuwnik napięcia (podstawowy)</td>
+	<td class="col2"><a href="uklady/prad-staly/przesuwnik-napiecia1.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/przesuwnik-napiecia1.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Przesuwnik napięcia (praktyczny)</td>
+	<td class="col2"><a href="uklady/prad-staly/przesuwnik-napiecia2.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/przesuwnik-napiecia2.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Przesuwnik napięcia</td>
+	<td class="col2"><a href="uklady/prad-staly/przesuwnik-napiecia3.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/przesuwnik-napiecia3.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Prosty stabilizator napięcia (równoległy)</td>
+	<td class="col2"><a href="uklady/prad-staly/stabilizator1.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/stabilizator1.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Regulowany stabilizator napięcia (równoległy)</td>
+	<td class="col2"><a href="uklady/prad-staly/stabilizator2.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/stabilizator2.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Wtórnikowy stabilizator napięcia (stabilizator szeregowy)</td>
+	<td class="col2"><a href="uklady/prad-staly/stabilizator3.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/prad-staly/stabilizator3.ps">schemat</a></td>
+</tr>
+
+<tr>
+	<td colspan="3" class="title"><b>Bramki CMOS</b></td>
+</tr>
+<tr>
+	<td class="col1">
+		Bramki CMOS (biblioteka dołączana poleceniem <tt
+		class="spice">.include</tt>, wykorzystywana we wszystkich
+		obwodach):
+	<ul>
+		<li>Inwerter</li>
+		<li>NOR (buforowana, niebuforowana)</li>
+		<li>NAND (buforowana, niebuforowana)</li>
+		<li>EXOR (buforowana, niebuforowana)</li>
+		<li>bramka transmisyjna</li>
+	</ul>
+	</td>
+	<td class="col2"><a href="uklady/index.html">SPICE</a></td>
+	<td class="col3">schematy:<br>
+		<a href="uklady/cmos/inwerter.ps">inwerter</a>,<br>
+		<a href="uklady/cmos/NOR.ps">NOR</a>,<br>
+		<a href="uklady/cmos/NAND.ps">NAND</a>
+	</td>
+</tr>
+<tr>
+	<td class="col1">Test inwertera</td>
+	<td class="col2"><a href="uklady/cmos/test-inwertera.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+<tr>
+	<td class="col1">Test bramek NOR, NAND, EXOR</td>
+	<td class="col2"><a href="uklady/cmos/test-bramek.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+<tr>
+	<td class="col1">Test bramki transmisyjnej</td>
+	<td class="col2"><a href="uklady/cmos/CMOS-TG.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+<tr>
+	<td class="col1">Zależność napięcia wyjściowego bramki NOR (buforowanej i nie)
+	od napięcia wejściowego oraz pomiar prądu pobieranego ze źródła zasilania</td>
+	<td class="col2"><a href="uklady/cmos/lab6_przejsciowa.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+<tr>
+	<td class="col1">Zależność napięcia wyjściowego bramki NOR (niebuforowanej) od prądu obciążenia</td>
+	<td class="col2"><a href="uklady/cmos/lab6_obciazalnosc.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+<tr>
+	<td class="col1">Opóźnienia wprowadzane przez bramki buforowane i niebuforowane</td>
+	<td class="col2"><a href="uklady/cmos/lab6_opoznienie.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+
+
+<tr>
+	<td colspan="3" class="title"><b>Wzmacniacz różnicowy</b></td>
+</tr>
+<tr>
+	<td class="col1">Charakterystyki idealnej pary różnicowej</td>
+	<td class="col2"><a href="uklady/wzmacniacz-roznicowy/idealny.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/wzmacniacz-roznicowy/idealny.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Charakterystyka przejściowa (Uo=f(Ud)) idealnej pary różnicowej</td>
+	<td class="col2"><a href="uklady/wzmacniacz-roznicowy/idealny2.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/wzmacniacz-roznicowy/idealny.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Idealny wzmacniacz różnicowy jako przełącznik</td>
+	<td class="col2"><a href="uklady/wzmacniacz-roznicowy/przelacznik.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/wzmacniacz-roznicowy/przelacznik.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Układ wzmacniacza z obiążeniem aktywnym (praktyczna relizacja)</td>
+	<td class="col2"><a href="uklady/wzmacniacz-roznicowy/obciazenie_aktywne.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/wzmacniacz-roznicowy/obciazenie_aktywne.ps">schemat</a></td>
+</tr>
+
+<tr>
+	<td colspan="3" class="title"><b>Wzmacniacz operacyjny</b></td>
+</tr>
+<tr>
+	<td class="col1">Model [prawie] idealnego wzmiacniacza (używany w niektórych obwodach)</td>
+	<td class="col2"><a href="uklady/opamp/opamp.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/opamp.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Model wzmiacniacza ua741, pochodzi z programu <a class="ext" href="http://arrakis.gforge.lug.fi.uba.ar/">Oregano</a> (używany w niektórych obwodach)</td>
+	<td class="col2"><a href="uklady/opamp/ua741.html">SPICE</a></td>
+	<td class="col3">&nbsp;</td>
+</tr>
+<tr>
+	<td class="col1">Wzmacniacz odwracający</td>
+	<td class="col2"><a href="uklady/opamp/wzm_odwracajacy.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/wzm_odwracajacy.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Wzmacniacz nieodwracający</td>
+	<td class="col2"><a href="uklady/opamp/wzm_nieodwracajacy.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/wzm_nieodwracajacy.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Wzmacniacz odejmujący</td>
+	<td class="col2">&nbsp;</td>
+	<td class="col3"><a href="uklady/opamp/wzm_odejmujacy.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Wzmacniacz o regulowanym wzmocnieniu od -1 od +1</td>
+	<td class="col2"><a href="uklady/opamp/wzm_regulowany.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/wzm_regulowany.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Wtórnik napięciowy</td>
+	<td class="col2"><a href="uklady/opamp/wtornik_napieciowy.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/wtornik_napieciowy.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Konwerter prąd-napięcie</td>
+	<td class="col2"><a href="uklady/opamp/konwerter_IU.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/konwerter_IU.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Układ całkujący (integrator)</td>
+	<td class="col2"><a href="uklady/opamp/integrator.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/integrator.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Przesuwnik fazowy</td>
+	<td class="col2"><a href="uklady/opamp/przesuwnik_fazowy.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/przesuwnik_fazowy.ps">schemat</a></td>
+</tr>
+<tr>
+	<td class="col1">Filtr pasmowy</td>
+	<td class="col2"><a href="uklady/opamp/filtr-pasmowy.html">SPICE</a></td>
+	<td class="col3"><a href="uklady/opamp/filtr-pasmowy.ps">schemat</a></td>
+</tr>
+</table>
+
+<br><br>
+<center>
+<tt>$Id: index.html,v 1.2 2009-02-17 14:17:05 wm Exp $</tt>
+</center>
+</pre>
+</body>
+
+<!-- Mirrored from 0x80.pl/stud/elektronika/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:50:16 GMT -->
+</html>

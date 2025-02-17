@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2021-03-11-any-word-is-zero.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>How to check if any word is zero</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="how-to-check-if-any-word-is-zero">
+<h1 class="title">How to check if any word is zero</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2021-03-11</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="problem">
+<h1>Problem</h1>
+<p>We want to check if at least one integer value is zero. In other words,
+we are evaluating following expression (for reasonably small N):</p>
+<pre class="code cpp literal-block">
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">x0</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">x1</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">xN</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+    </span><span class="p">...</span>
+</pre>
+<p>For a three-argument expression GCC 10.2 produces (with <tt class="docutils literal"><span class="pre">-O3</span></tt> switch)
+the following x86 code:</p>
+<pre class="literal-block">
+testl   %esi, %esi  ; esi == 0?
+sete    %al         ; al = 1 if the above condition is true, 0 otherwise
+testl   %edx, %edx
+sete    %dl
+orl     %edx, %eax  ; plain `or`
+testl   %edi, %edi
+sete    %dl
+orl     %edx, %eax
+</pre>
+<p>Clang 11.0 generates almost identical code:</p>
+<pre class="literal-block">
+testl   %edi, %edi
+sete    %al
+testl   %esi, %esi
+sete    %cl
+orb     %al, %cl
+testl   %edx, %edx
+sete    %al
+orb     %cl, %al
+</pre>
+<p>ICC and MSVC added some jumps, but generally also use basic building block:
+<tt class="docutils literal">test</tt> followed by a conditional set <tt class="docutils literal">sete</tt>.</p>
+</div>
+<div class="section" id="can-we-do-better">
+<h1>Can we do better?</h1>
+<p>It's possible with help of function <strong>min</strong>. Our initial condition can be
+rewritten as <span class="math">min(<i>x</i><sub>0</sub>, <i>x</i><sub>1</sub>, <i>ldots</i>, <i>x</i><sub>N</sub>) = 0</span>.</p>
+<p>The minimum of two numbers can be calculated on x86 with a branch-free code:</p>
+<pre class="literal-block">
+cmpl    %ebx, %eax  ; copare ebx with eax
+cmovg   %ebx, %eax  ; eax := ebx if ebx &lt; eax
+</pre>
+<p>When <strong>min</strong> gets more arguments, we simply repeat this code, accumulating
+the minimum value in a selected register. Finally, we have to compare
+it with zero. Hand-written code for the three arguments expression:</p>
+<pre class="literal-block">
+; esi, edi and edx are inputs
+
+cmpl    %esi, %edx
+cmovg   %esi, %edx  ; edx = min(esi, edx)
+cmpl    %edi, %edx
+cmovg   %edi, %edx  ; edx = min(edi, edx)
+
+test    %edx, %edx
+setz    %al
+</pre>
+<p>But how compilers would compile this? GCC 10.2:</p>
+<pre class="literal-block">
+cmpl    %edx, %esi
+cmovg   %edx, %esi
+cmpl    %edi, %esi
+cmovg   %edi, %esi
+testl   %esi, %esi
+sete    %al
+</pre>
+<p>Clang 11.0:</p>
+<pre class="literal-block">
+cmpl    %esi, %edi
+cmovlel %edi, %esi
+cmpl    %edx, %esi
+cmovgl  %edx, %esi
+testl   %esi, %esi
+sete    %al
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2021-03-11-any-word-is-zero.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:33 GMT -->
+</html>

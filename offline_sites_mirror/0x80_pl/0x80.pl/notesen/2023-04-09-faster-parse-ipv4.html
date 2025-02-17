@@ -1,0 +1,1330 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2023-04-09-faster-parse-ipv4.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMD-ized faster parse of IPv4 addresses</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simd-ized-faster-parse-of-ipv4-addresses">
+<h1 class="title">SIMD-ized faster parse of IPv4 addresses</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2023-04-09</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction-1" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#simd-improvements" id="toc-entry-2">SIMD improvements</a></li>
+<li><a class="reference internal" href="#simd-validation-and-preprocessing" id="toc-entry-3">SIMD validation and preprocessing</a></li>
+<li><a class="reference internal" href="#selecting-parsing-schema" id="toc-entry-4">Selecting parsing schema</a><ul>
+<li><a class="reference internal" href="#hash-functions" id="toc-entry-5">Hash functions</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#number-conversions-and-validation" id="toc-entry-6">Number conversions and validation</a><ul>
+<li><a class="reference internal" href="#scalar-conversions" id="toc-entry-7">Scalar conversions</a><ul>
+<li><a class="reference internal" href="#sequential-conversion" id="toc-entry-8">Sequential conversion</a></li>
+<li><a class="reference internal" href="#unrolled-conversion" id="toc-entry-9">Unrolled conversion</a></li>
+<li><a class="reference internal" href="#unrolled-conversion-group-by-input-length" id="toc-entry-10">Unrolled conversion (group by input length)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#simd-conversion-1" id="toc-entry-11">SIMD conversion</a><ul>
+<li><a class="reference internal" href="#selecting-procedure" id="toc-entry-12">Selecting procedure</a></li>
+<li><a class="reference internal" href="#conversion-of-1-digit-numbers" id="toc-entry-13">Conversion of 1-digit numbers</a></li>
+<li><a class="reference internal" href="#conversion-of-1-and-2-digit-numbers" id="toc-entry-14">Conversion of 1- and 2-digit numbers</a></li>
+<li><a class="reference internal" href="#conversion-of-1-2-and-3-digit-numbers" id="toc-entry-15">Conversion of 1-, 2- and 3-digit numbers</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#benchmarks" id="toc-entry-16">Benchmarks</a><ul>
+<li><a class="reference internal" href="#tested-procedures" id="toc-entry-17">Tested procedures</a></li>
+<li><a class="reference internal" href="#results-from-skylake-machine" id="toc-entry-18">Results from SkyLake machine</a></li>
+<li><a class="reference internal" href="#results-from-icelake-machine" id="toc-entry-19">Results from IceLake machine</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#source" id="toc-entry-20">Source</a></li>
+<li><a class="reference internal" href="#appendix" id="toc-entry-21">Appendix</a><ul>
+<li><a class="reference internal" href="#appendix-a-the-go-source" id="toc-entry-22">Appendix A &mdash; the Go source</a></li>
+<li><a class="reference internal" href="#appendix-b-the-glibc-source" id="toc-entry-23">Appendix B &mdash; the Glibc source</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="introduction-1">
+<span id="introduction"></span><h1>Introduction</h1>
+<p>Just for recap, an <a class="reference external" href="http://en.wikipedia.org/wiki/IP_address">IPv4 address</a> written in the textual form consists four
+decimal numbers separated by the dot character. Each number represents an
+octet (byte), that is in range from 0 to 255. Here are some examples:
+&quot;10.1.1.12&quot;, &quot;127.0.0.1&quot;, &quot;255.255.255.0&quot;. An IPv4 address is stored in
+the <a class="reference external" href="http://en.wikipedia.org/wiki/Endianness">big-endian byte order</a>.</p>
+<p>Parsing IPv4 addresses seems to be a trivial task. For example, the Go
+builtin module <a class="reference external" href="https://pkg.go.dev/net/netip">netip</a> implements parsing with full validation in 35 lines.
+The <tt class="docutils literal">inet_pton</tt> specialisation for IPv4 addresses, that can be found in <a class="reference external" href="https://www.gnu.org/software/libc/">Glibc</a>,
+spans approx 40 lines of plain C code. For completeness, their full sources were
+put in <a class="reference internal" href="#appendix">appendix</a>.</p>
+<p>These two procedures share the same schema of parsing and validation:</p>
+<ol class="arabic simple">
+<li>Read the input string byte by byte.</li>
+<li>When the current byte is an ASCII digit ('0' ... '9') add it to the
+current octet. If the octet value becomes larger than 255 or the
+leading zero was detected, then report an error.</li>
+<li>When the current byte is the dot ('.'), check if we read at least
+one digit. If not, it's an error (for example &quot;.1.1.20&quot; or &quot;192..0.12&quot;).</li>
+<li>When the current byte is not a digit or the dot, report an error.</li>
+<li>At the very end, check if exactly four octets were read.</li>
+</ol>
+<p>I bet 99.999% of ever written IPv4 parsers use similar schema. And that is pretty
+hard to see any obvious inefficiency in this approach. Additionally, when we take
+into account that compilers are getting smarter and smarter, we may assume
+that a compiler would do a decent job for us.</p>
+<p>However, it's possible to make the conversion faster, using <a class="reference external" href="http://en.wikipedia.org/wiki/Single_instruction,_multiple_data">SIMD instructions</a>.
+The best solution is <strong>two-three times faster</strong> than a reference scalar procedure.</p>
+<p>The actual C++ code snippets with <a class="reference external" href="http://en.wikipedia.org/wiki/Streaming_SIMD_Extensions">SSE</a>
+instructions are used to illustrate solution. Full source code is <a class="reference internal" href="#source">available</a>.
+They include a <a class="reference external" href="http://en.wikipedia.org/wiki/SWAR">SWAR</a> implementation and also different SSE variants.</p>
+</div>
+<div class="section" id="simd-improvements">
+<h1>SIMD improvements</h1>
+<p>Since SIMD instructions process many bytes in parallel, we can approach the parsing
+problem from a slightly different direction.</p>
+<ol class="arabic simple">
+<li>First we load all the data. Since <strong>a valid IPv4</strong> string contains
+from 7 to 15 bytes, such string fits in a single 16-byte SSE register.</li>
+<li>Then, we can quickly validate all bytes at once.<ul>
+<li>As the first substep, we determine positions of the decimal dots
+('.', hex code <tt class="docutils literal">0x2e</tt>).
+There have to be exactly three dots, so this trait may be used
+to early filter out garbage inputs.</li>
+<li>As the second substep, we check if all remaining characters are
+digits ('0'...'9', hex codes from <tt class="docutils literal">0x30</tt> to <tt class="docutils literal">0x39</tt>).</li>
+</ul>
+</li>
+<li><strong>The positions of dots</strong> determine the further parsing. Moreover, not
+all positions all valid: the decimal numbers have to span from 1 to 3
+digits. Our goal is to transform the position of dots into &quot;something&quot;
+that can be an input to the subsequent step &mdash; actual number conversion.</li>
+<li>The last step is conversion of numeric fields, with additional validation
+regarding their ranges: numbers cannot excess the byte range (0..255, for
+example &quot;1.2.300.4&quot;.  We need also to reject fields with leading zeros
+(like &quot;01.2.3.4&quot;). Conversion can be done by a scalar or SIMD code. Both
+variants are shown in this article.</li>
+</ol>
+<p>With the help of SIMD instructions we may quickly get a 15-bit mask, where
+each 1 denotes the dot, and 0 a digit byte. The following table shows
+all 81 valid patterns.</p>
+<table border="1" class="docutils" id="table">
+<caption>Valid dot patterns</caption>
+<colgroup>
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">length in bytes</th>
+<th class="head"># of patterns</th>
+<th class="head">masks (binary)</th>
+<th class="head">masks (hex)</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>7</td>
+<td>1</td>
+<td><tt class="docutils literal">0101010</tt></td>
+<td><tt class="docutils literal">002a</tt></td>
+</tr>
+<tr><td>8</td>
+<td>4</td>
+<td><tt class="docutils literal">01001010</tt>, <tt class="docutils literal">01010100</tt>, <tt class="docutils literal">00101010</tt>, <tt class="docutils literal">01010010</tt></td>
+<td><tt class="docutils literal">004a</tt>, <tt class="docutils literal">0054</tt>, <tt class="docutils literal">002a</tt>, <tt class="docutils literal">0052</tt></td>
+</tr>
+<tr><td>9</td>
+<td>10</td>
+<td><tt class="docutils literal">001001010</tt>, <tt class="docutils literal">010101000</tt>, <tt class="docutils literal">001010010</tt>, <tt class="docutils literal">010010100</tt>, <tt class="docutils literal">010010010</tt>, <tt class="docutils literal">001010100</tt>, <tt class="docutils literal">000101010</tt>, <tt class="docutils literal">010001010</tt>, <tt class="docutils literal">010100100</tt>, <tt class="docutils literal">010100010</tt></td>
+<td><tt class="docutils literal">004a</tt>, <tt class="docutils literal">00a8</tt>, <tt class="docutils literal">0052</tt>, <tt class="docutils literal">0094</tt>, <tt class="docutils literal">0092</tt>, <tt class="docutils literal">0054</tt>, <tt class="docutils literal">002a</tt>, <tt class="docutils literal">008a</tt>, <tt class="docutils literal">00a4</tt>, <tt class="docutils literal">00a2</tt></td>
+</tr>
+<tr><td>10</td>
+<td>16</td>
+<td><tt class="docutils literal">0100010010</tt>, <tt class="docutils literal">0100010100</tt>, <tt class="docutils literal">0100100100</tt>, <tt class="docutils literal">0010100100</tt>, <tt class="docutils literal">0010010010</tt>, <tt class="docutils literal">0010100010</tt>, <tt class="docutils literal">0010010100</tt>, <tt class="docutils literal">0001001010</tt>, <tt class="docutils literal">0100101000</tt>, <tt class="docutils literal">0101001000</tt>, <tt class="docutils literal">0010001010</tt>, <tt class="docutils literal">0001010010</tt>, <tt class="docutils literal">0010101000</tt>, <tt class="docutils literal">0001010100</tt>, <tt class="docutils literal">0100100010</tt>, <tt class="docutils literal">0101000100</tt></td>
+<td><tt class="docutils literal">0112</tt>, <tt class="docutils literal">0114</tt>, <tt class="docutils literal">0124</tt>, <tt class="docutils literal">00a4</tt>, <tt class="docutils literal">0092</tt>, <tt class="docutils literal">00a2</tt>, <tt class="docutils literal">0094</tt>, <tt class="docutils literal">004a</tt>, <tt class="docutils literal">0128</tt>, <tt class="docutils literal">0148</tt>, <tt class="docutils literal">008a</tt>, <tt class="docutils literal">0052</tt>, <tt class="docutils literal">00a8</tt>, <tt class="docutils literal">0054</tt>, <tt class="docutils literal">0122</tt>, <tt class="docutils literal">0144</tt></td>
+</tr>
+<tr><td>11</td>
+<td>19</td>
+<td><tt class="docutils literal">00010001010</tt>, <tt class="docutils literal">01010001000</tt>, <tt class="docutils literal">01000100010</tt>, <tt class="docutils literal">00010010010</tt>, <tt class="docutils literal">00100100100</tt>, <tt class="docutils literal">00100010100</tt>, <tt class="docutils literal">00010100010</tt>, <tt class="docutils literal">01000100100</tt>, <tt class="docutils literal">00100010010</tt>, <tt class="docutils literal">00101001000</tt>, <tt class="docutils literal">01000101000</tt>, <tt class="docutils literal">00100100010</tt>, <tt class="docutils literal">01001000100</tt>, <tt class="docutils literal">00100101000</tt>, <tt class="docutils literal">00010010100</tt>, <tt class="docutils literal">01001001000</tt>, <tt class="docutils literal">00010100100</tt>, <tt class="docutils literal">00101000100</tt>, <tt class="docutils literal">00010101000</tt></td>
+<td><tt class="docutils literal">008a</tt>, <tt class="docutils literal">0288</tt>, <tt class="docutils literal">0222</tt>, <tt class="docutils literal">0092</tt>, <tt class="docutils literal">0124</tt>, <tt class="docutils literal">0114</tt>, <tt class="docutils literal">00a2</tt>, <tt class="docutils literal">0224</tt>, <tt class="docutils literal">0112</tt>, <tt class="docutils literal">0148</tt>, <tt class="docutils literal">0228</tt>, <tt class="docutils literal">0122</tt>, <tt class="docutils literal">0244</tt>, <tt class="docutils literal">0128</tt>, <tt class="docutils literal">0094</tt>, <tt class="docutils literal">0248</tt>, <tt class="docutils literal">00a4</tt>, <tt class="docutils literal">0144</tt>, <tt class="docutils literal">00a8</tt></td>
+</tr>
+<tr><td>12</td>
+<td>16</td>
+<td><tt class="docutils literal">001000100100</tt>, <tt class="docutils literal">010010001000</tt>, <tt class="docutils literal">010001001000</tt>, <tt class="docutils literal">000100100100</tt>, <tt class="docutils literal">000101000100</tt>, <tt class="docutils literal">000100010100</tt>, <tt class="docutils literal">000100101000</tt>, <tt class="docutils literal">001001000100</tt>, <tt class="docutils literal">001000100010</tt>, <tt class="docutils literal">010001000100</tt>, <tt class="docutils literal">000100010010</tt>, <tt class="docutils literal">001010001000</tt>, <tt class="docutils literal">001001001000</tt>, <tt class="docutils literal">001000101000</tt>, <tt class="docutils literal">000101001000</tt>, <tt class="docutils literal">000100100010</tt></td>
+<td><tt class="docutils literal">0224</tt>, <tt class="docutils literal">0488</tt>, <tt class="docutils literal">0448</tt>, <tt class="docutils literal">0124</tt>, <tt class="docutils literal">0144</tt>, <tt class="docutils literal">0114</tt>, <tt class="docutils literal">0128</tt>, <tt class="docutils literal">0244</tt>, <tt class="docutils literal">0222</tt>, <tt class="docutils literal">0444</tt>, <tt class="docutils literal">0112</tt>, <tt class="docutils literal">0288</tt>, <tt class="docutils literal">0248</tt>, <tt class="docutils literal">0228</tt>, <tt class="docutils literal">0148</tt>, <tt class="docutils literal">0122</tt></td>
+</tr>
+<tr><td>13</td>
+<td>10</td>
+<td><tt class="docutils literal">0001001000100</tt>, <tt class="docutils literal">0010010001000</tt>, <tt class="docutils literal">0010001001000</tt>, <tt class="docutils literal">0100010001000</tt>, <tt class="docutils literal">0001010001000</tt>, <tt class="docutils literal">0010001000100</tt>, <tt class="docutils literal">0001001001000</tt>, <tt class="docutils literal">0001000100100</tt>, <tt class="docutils literal">0001000100010</tt>, <tt class="docutils literal">0001000101000</tt></td>
+<td><tt class="docutils literal">0244</tt>, <tt class="docutils literal">0488</tt>, <tt class="docutils literal">0448</tt>, <tt class="docutils literal">0888</tt>, <tt class="docutils literal">0288</tt>, <tt class="docutils literal">0444</tt>, <tt class="docutils literal">0248</tt>, <tt class="docutils literal">0224</tt>, <tt class="docutils literal">0222</tt>, <tt class="docutils literal">0228</tt></td>
+</tr>
+<tr><td>14</td>
+<td>4</td>
+<td><tt class="docutils literal">00010001000100</tt>, <tt class="docutils literal">00100010001000</tt>, <tt class="docutils literal">00010010001000</tt>, <tt class="docutils literal">00010001001000</tt></td>
+<td><tt class="docutils literal">0444</tt>, <tt class="docutils literal">0888</tt>, <tt class="docutils literal">0488</tt>, <tt class="docutils literal">0448</tt></td>
+</tr>
+<tr><td>15</td>
+<td>1</td>
+<td><tt class="docutils literal">000100010001000</tt></td>
+<td><tt class="docutils literal">0888</tt></td>
+</tr>
+<tr><td>total</td>
+<td>81</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="simd-validation-and-preprocessing">
+<h1>SIMD validation and preprocessing</h1>
+<ol class="arabic">
+<li><p class="first">In the first step we reject inputs that are too short or too long.</p>
+<pre class="code cpp literal-block">
+<span class="n">result</span><span class="w"> </span><span class="nf">sse_parse_ipv4</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">ipv4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+    </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ipv4</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">minlen_ipv4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooShort</span><span class="p">;</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">maxlen_ipv4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooLong</span><span class="p">;</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// ...
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Next, we load the input string into an SSE register. In the following
+code there's the assumption we can read past the end of string. In the
+terms of C++, we assume <tt class="docutils literal">s.capacity() &gt;= 16</tt>. In the real-world
+applications it's not always hold, thus we need to use a masked load.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">input</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">((</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*</span><span class="p">)</span><span class="n">ipv4</span><span class="p">.</span><span class="n">data</span><span class="p">());</span>
+</pre>
+<p>An address &quot;195.42.3.0&quot;, having 10 bytes, has the following byte
+layout in an SSE register:</p>
+<pre class="literal-block">
+  ?  ?  .  ?  ?  ?  0  .  3  .  2  4  .  5  9  1
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│3f│3f│2e│3f│3f│3f│30│2e│33│2e│32│34│2e│35│39│31│ = input
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ^^                                           ^^
+ byte 15                                  byte 0
+</pre>
+</li>
+<li><p class="first">Then we locate the dots. Please note that we have garbage bytes past the
+string end, thus there's need to have a bitmask for valid positions.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint16_t</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0xffff</span><span class="p">;</span><span class="w">
+</span><span class="n">mask</span><span class="w"> </span><span class="o">&lt;&lt;=</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">
+</span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">~</span><span class="n">mask</span><span class="p">;</span><span class="w">
+
+</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">dotmask</span><span class="p">;</span><span class="w">
+</span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">dot</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">'.'</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">dot</span><span class="p">);</span><span class="w">
+    </span><span class="n">dotmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">);</span><span class="w">
+    </span><span class="n">dotmask</span><span class="w"> </span><span class="o">&amp;=</span><span class="w"> </span><span class="n">mask</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<pre class="literal-block">
+  ?  ?  .  ?  ?  ?  0  .  3  .  2  4  .  5  9  1
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│3f│3f│2e│3f│3f│3f│30│2e│33│2e│32│34│2e│35│39│31│ = input
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│00│00│ff│00│00│00│00│ff│00│ff│00│00│ff│00│00│00│ = t0
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+       ^^             ^^    ^^       ^^
+
+                      0x2148 = 0b0010000101001000 = dotmask
+                               0b0000001111111111 = mask
+                               0b0000000101001000 = dotmask &amp; mask
+</pre>
+</li>
+<li><p class="first">At this point we can count the number of dots (using cheap <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/POPCNT.html">POPCNT</a>).
+Yet, that is not necessary, as the wrong dot-patterns can be detected
+later. It depends on the method we choose for the dot mask processing.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_popcount</span><span class="p">(</span><span class="n">dotmask</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">k</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">k</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooManyFields</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooFewFields</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Now, we check if all other bytes are ASCII digits. It requires just one
+SIMD subtraction and compare.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">-128</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">rangedigits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="mi">-128</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="sc">'9'</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">));</span><span class="w">
+
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_sub_epi8</span><span class="p">(</span><span class="n">input</span><span class="p">,</span><span class="w"> </span><span class="n">ascii0</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">rangedigits</span><span class="p">);</span><span class="w">
+
+</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">less</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">t2</span><span class="p">);</span><span class="w">
+</span><span class="n">less</span><span class="w"> </span><span class="o">&amp;=</span><span class="w"> </span><span class="n">mask</span><span class="w">     </span><span class="c1">// trim to string length
+</span><span class="n">less</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="n">dotmask</span><span class="w">  </span><span class="c1">// combine with dot positions
+</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">less</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">mask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errWrongCharacter</span><span class="p">;</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="selecting-parsing-schema">
+<span id="select-schema"></span><h1>Selecting parsing schema</h1>
+<p>There are different ways the dot bitmask can be used to select the parsing path.</p>
+<p>The first, and quite obvious solution, is to sequentially scan the bitmask.
+Finding the first bit set is a cheap instruction (<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/TZCNT.html">TZCNT</a>). We set artificial
+1 after the last field, thanks to that we use the same code to handle all four
+fields. The number of digits has to be in range 1 to 3, otherwise the input
+is wrong.</p>
+<p>This schema can be applied literally, and is shown in details the section
+<a class="reference internal" href="#scalar-conversion">Scalar conversion</a>. We iterate over fields, read
+the number of digits and use code <strong>specialised</strong> to convert and validate
+the given number of digits.</p>
+<p>It is better, as we do not have to deal with numbers of an unknown length.
+We may do it faster, by selecting specialised conversion of four fields,
+in other words <strong>unroll</strong> the loop described earlier for given lengths
+of fields. As we learned, there are only 81 different length combinations
+to consider.  For example, the address &quot;123.45.6.7&quot; has to be converted
+by code path that would parse-and-validate 3-digit number, 2-digit number
+and two single digits.</p>
+<p>The only remaining issue is how to get the id/address of conversion path
+from the dot bitmask. We have a number of possibilities:</p>
+<ul class="simple" id="base3-number">
+<li>The four numbers of field digits can be seen as a number in the base of 3.
+We may sequentially calculate
+<span class="math">(<i>l</i><sub>0</sub> &minus; 1) &sdot; 3<sup>0</sup> + (<i>l</i><sub>1</sub> &minus; 1) &sdot; 3<sup>1</sup> + (<i>l</i><sub>2</sub> &minus; 1) &sdot; 3<sup>2</sup> + (<i>l</i><sub>3</sub> &minus; 1) &sdot; 3<sup>3</sup></span>.
+For &quot;123.45.6.7&quot; we have lengths [3, 2, 1, 1] and this leads to the
+ordinal number <span class="math">2 &sdot; 1 + 1 &sdot; 3 + 0 &sdot; 9 + 0 &sdot; 27 = 5</span>.</li>
+</ul>
+<ul id="base4-number">
+<li><p class="first">An easier way is to treat the lengths as digits of a number in the base 4.
+It means that we simply store the lengths as two-bit subfields of an
+eight-bit number.  In other words map a bitmask into 256 distinct values,
+with spare slots (for any <span class="math"><i>l</i><sub>0, 1, 2, 3</sub> = 0</span>).</p>
+</li>
+<li><p class="first">We may treat the dot bitmask as a natural number. The maximum value
+then is either 2184, but with three repetitions (due to three possible
+lengths of the last field). If we want to get unique numbers, we have to
+either add 1 after the last field, or combine bitmask with a 4-bit
+input length. Either way, that leads to max number ~30,000 &mdash; it's too
+big to have reasonable lookup table. Thus we have the following
+possibilities:</p>
+<ul class="simple">
+<li>Hash the dot bitmask, so we end up with <em>acceptable</em> table size. A
+disadvantage is the additional cost of hash calculation.</li>
+<li>Relay on a compiler, by using the <tt class="docutils literal">switch</tt> statement and enumerate
+all possible values. A compiler may use <a class="reference external" href="http://en.wikipedia.org/wiki/Binary_search_algorithm">binary search</a>, which is not
+that bad. However, the practice show that we can speed it significantly
+by pre-classifying the bitmasks by <strong>the input length</strong>. In other words,
+instead of a single switch we have nested ones, where the outer
+switch is on the input length.</li>
+</ul>
+<p>The common trait of these methods is that we do not have to check
+the number of dots. Such wrong patterns will not match anything.</p>
+</li>
+</ul>
+<div class="section" id="hash-functions">
+<h2>Hash functions</h2>
+<p>There are two hashing functions that were designed during the research:</p>
+<ol class="arabic" id="hash-function1">
+<li><p class="first">A quite complex function, having the maximum value 137. This is the
+hash used by function &quot;SSE (v5)&quot;.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint16_t</span><span class="w"> </span><span class="n">w0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">31</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kt">uint16_t</span><span class="p">((</span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">9</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">);</span><span class="w">
+</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">w1</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="mi">3</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kt">uint16_t</span><span class="p">((</span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x3f</span><span class="p">);</span><span class="w">
+</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">w2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">19</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kt">uint16_t</span><span class="p">((</span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">8</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">);</span><span class="w">
+</span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">hashcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">w0</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">w1</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">w2</span><span class="p">;</span>
+</pre>
+</li>
+</ol>
+<ol class="arabic" id="hash-function2" start="2">
+<li><p class="first">The simpler hash has maximum much bigger: 1228. This function is used
+by function &quot;SSE (v7)&quot;.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">hashcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">5</span><span class="p">)</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="p">(</span><span class="n">dotmask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x03ff</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+</div>
+</div>
+<div class="section" id="number-conversions-and-validation">
+<span id="number-conversions"></span><h1>Number conversions and validation</h1>
+<div class="section" id="scalar-conversions">
+<span id="scalar-conversion"></span><h2>Scalar conversions</h2>
+<p>In scalar conversion we do not take advantage of having data already in an
+SSE register  However, we know upfront that all characters are valid and there
+are exactly three dots. Thus we have only to validate number ranges.</p>
+<div class="section" id="sequential-conversion">
+<span id="scalar-sequential-conversion"></span><h3>Sequential conversion</h3>
+<p>This is the procedure &quot;SSE&quot; from sample code.</p>
+<ol class="arabic">
+<li><p class="first">Before we start iterating over dots, we add artificial one to the dot
+bitmask, after the last character. Thanks to that we can handle all fields
+in exactly the same way.</p>
+<pre class="code cpp literal-block">
+<span class="n">dotmask</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="kt">uint16_t</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">ipv4</span><span class="p">.</span><span class="n">size</span><span class="p">();</span>
+</pre>
+</li>
+<li><p class="first">In the next step we repeat the code four times. In each iteration we
+find the position of the first 1 in the dot mask. It tells us how
+many digits we have to convert. This is the place where we do
+additional validation: we check if the number of digits is 1, 2 or 3.</p>
+<p>Depending on the number of digits we use a specialised code
+path. Each path converts a number, validate its range and
+update the output word accordingly. We let the compiler to
+do its best.</p>
+<p>In each step we also shift out the processed bits from the dot mask.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="p">)</span><span class="n">ipv4</span><span class="p">.</span><span class="n">data</span><span class="p">();</span><span class="w">
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">dotmask</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span><span class="w">
+            </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+
+            </span><span class="n">data</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+            </span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">2</span><span class="p">:</span><span class="w">
+            </span><span class="p">{</span><span class="w">
+                </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w">
+                    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+            </span><span class="n">data</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+            </span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">3</span><span class="p">:</span><span class="w">
+            </span><span class="p">{</span><span class="w">
+                </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooBig</span><span class="p">;</span><span class="w">
+                    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">100</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w">
+                    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+
+                </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+
+            </span><span class="n">data</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+            </span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooManyDigits</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errEmptyField</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="unrolled-conversion">
+<span id="scalar-unrolled-conversion-256code"></span><h3>Unrolled conversion</h3>
+<p>While we can learn upfront what are widths of <strong>all fields</strong>, we utilize
+this fact.  For each possible valid combination we pre-compute a specialised
+path that converts given combination of numbers.</p>
+<p>This is the procedure &quot;SSE (v2)&quot; from sample code.</p>
+<ol class="arabic">
+<li><p class="first">As in the previous solution, we add an artificial one to the dot mask,
+just after the last character.</p>
+<pre class="code cpp literal-block">
+<span class="n">dotmask</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="kt">uint16_t</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">ipv4</span><span class="p">.</span><span class="n">size</span><span class="p">();</span>
+</pre>
+</li>
+<li><p class="first">Convert from byte mask into 8-bit code. Although there are only
+81 valid dot masks, they are stored as variable-length codes.
+We iterator over fields and encode their <strong>lengths</strong> on two
+bits, forming a byte. For our sample IPv4 &quot;195.42.3.0&quot; we
+have lengths [3, 2, 1, 1] and it's encoded as
+[0b11, 0b10, 0b01, 0b01] =&gt; <tt class="docutils literal">0b11100101</tt> = <tt class="docutils literal">0xe5</tt>.</p>
+<p>In parallel to code building, we validate if all fields have
+valid lengths (1, 2 or 3 chars).</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="o">*</span><span class="p">)</span><span class="n">ipv4</span><span class="p">.</span><span class="n">data</span><span class="p">();</span><span class="w">
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">code</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+</span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">dotmask</span><span class="p">);</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errEmptyField</span><span class="p">;</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooManyDigits</span><span class="p">;</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">code</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">code</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w">
+    </span><span class="n">dotmask</span><span class="w"> </span><span class="o">&gt;&gt;=</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">The next step is to use the <tt class="docutils literal">code</tt> value to choose specialised
+converter. It's a huge switch generated by a program; here we
+show just a single case.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">val0</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">val1</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">val2</span><span class="p">;</span><span class="w">
+</span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">val3</span><span class="p">;</span><span class="w">
+</span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">code</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// ...
+</span><span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="mh">0xe5</span><span class="p">:</span><span class="w"> </span><span class="c1">// [3, 2, 1, 1]
+</span><span class="w">        </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">                                  </span><span class="c1">// 3-digit number
+</span><span class="w">        </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+        </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">100</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooBig</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="p">;</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">  </span><span class="c1">// 2-byte number
+</span><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">                          </span><span class="c1">// single-digit number
+</span><span class="w">        </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">                          </span><span class="c1">// single-digit number
+</span><span class="w">        </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="c1">// ...
+</span><span class="p">}</span>
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="unrolled-conversion-group-by-input-length">
+<span id="scalar-unrolled-conversion-dotmask"></span><h3>Unrolled conversion (group by input length)</h3>
+<p>The approach is almost exactly as the previous one. The only
+difference is in how we choose the parsing specialisation.</p>
+<p>We're doing that in two steps. First, we use the input length.
+This already limits the number of possibilities (see the <a class="reference internal" href="#table">table</a>
+above). Next, we match the bitpattern as is, without any
+transcoding.</p>
+<p>This is the procedure &quot;SSE (v3)&quot; from sample code.</p>
+<p>Below is shown the part of switch that handles pattern [3, 2, 1, 1].</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">tmp</span><span class="p">;</span><span class="w">
+</span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">ipv4</span><span class="p">.</span><span class="n">size</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">7</span><span class="p">:</span><span class="w"> </span><span class="c1">// 1 case(s)
+</span><span class="w">            </span><span class="c1">// ...
+</span><span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="mi">8</span><span class="p">:</span><span class="w"> </span><span class="c1">// 4 case(s)
+</span><span class="w">            </span><span class="c1">// ...
+</span><span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="mi">9</span><span class="p">:</span><span class="w"> </span><span class="c1">// 10 case(s)
+</span><span class="w">            </span><span class="c1">// ...
+</span><span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="mi">10</span><span class="p">:</span><span class="w"> </span><span class="c1">// 16 case(s)
+</span><span class="w">        </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">dotmask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x3ff</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// ...
+</span><span class="w">            </span><span class="k">case</span><span class="w"> </span><span class="mh">0x148</span><span class="p">:</span><span class="w"> </span><span class="c1">// [3, 2, 1, 1]
+</span><span class="w">                </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="n">tmp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">tmp</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">100</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">tmp</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errTooBig</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="p">;</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">)</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">10</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="n">res</span><span class="p">.</span><span class="n">byte</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">byte</span><span class="p">[</span><span class="mi">9</span><span class="p">]</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+                </span><span class="k">break</span><span class="p">;</span><span class="w">
+            </span><span class="c1">// ...
+</span><span class="w">        </span><span class="p">}</span><span class="w">
+        </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="c1">// ...
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="simd-conversion-1">
+<span id="simd-conversion"></span><h2>SIMD conversion</h2>
+<p>Since the digit validation and dot-pattern generation is done by SIMD code,
+getting back to the scalar domain seems not to be optimal.</p>
+<p>We can use SIMD to perform full conversion. From the dot bitmask we determine
+how to layout the input bytes to make them processable by SIMD instructions.
+This is done by single <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PSHUFB.html">PSHUFB</a>, then we pick a proper procedure.</p>
+<p>Unlike the scalar unrolled code, we do not have to enumerate all 81 possibilities.
+We roughly classify an IPv4 address as:</p>
+<ol class="arabic simple">
+<li>having only single-digit numbers (like &quot;1.2.3.4&quot;);</li>
+<li>having 1- and 2-digit numbers (like &quot;11.2.33.44&quot;);</li>
+<li>having 1-, 2- and 3-digit numbers (like: &quot;1.222.111.44&quot;).</li>
+</ol>
+<p>In fact we may enumerate eight classes (for instance: only 2-digit
+numbers, only 2- or 3-digit numbers), but it's not clear if such
+fragmentation has much sense. Using the maximum numeric field
+length is good enough.</p>
+<div class="section" id="selecting-procedure">
+<h3>Selecting procedure</h3>
+<p>A SIMD conversion procedure requires the following
+parameters:</p>
+<ul class="simple">
+<li>Pattern for the <tt class="docutils literal">PSHUFB</tt> instruction &mdash; to layout input
+in the format required by a conversion procedure.</li>
+<li>Procedure number &mdash; a proper conversion procedure id (in
+practise maximum length of numeric field).</li>
+<li>The exact dot mask, that is compared with the current dot mask
+to filter out false negatives.</li>
+</ul>
+<p>These parameters fit in 20 bytes. When we express the dot
+mask as <a class="reference internal" href="#base3-number">a base-3 number</a> or <a class="reference internal" href="#hash-function1">hash function #1</a>, we may have a single array of parameters,
+having &mdash; respectively &mdash; 81 or 137 entries.</p>
+<p>Procedures &quot;SSE (v5)&quot; and &quot;SSE (v6)&quot; follow the pattern:</p>
+<pre class="code cpp literal-block">
+<span class="n">hashcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">hash</span><span class="p">(</span><span class="n">dotmask</span><span class="p">)</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hashcode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">max_hashcode</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// return error
+</span><span class="p">}</span><span class="w">
+</span><span class="n">spec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup</span><span class="p">[</span><span class="n">hashcode</span><span class="p">]</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">dotmask</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">spec</span><span class="p">.</span><span class="n">expected_dotmask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// return error
+</span><span class="p">}</span><span class="w">
+
+</span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">max_length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversion_max1</span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">pshufb_pattern</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">2</span><span class="p">:</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversion_max2</span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">pshufb_pattern</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">3</span><span class="p">:</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversion_max3</span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">pshufb_pattern</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="w">
+    </span><span class="k">default</span><span class="o">:</span><span class="w">
+        </span><span class="c1">// return error
+</span><span class="p">}</span>
+</pre>
+<p>However, when we use <a class="reference internal" href="#hash-function2">hash function #2</a> which
+max value is 1228, we use two tables.  The first lookup encodes
+transition from the hash value into length pattern. It should
+be number from 0 to 80 plus one special value for &quot;not found&quot;.
+The second table of size 82 has actual parameters.</p>
+<p>Procedure &quot;SSE (v7)&quot; follows the pattern:</p>
+<pre class="code cpp literal-block">
+<span class="n">hashcode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">hash</span><span class="p">(</span><span class="n">dotmask</span><span class="p">)</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">hashcode</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">max_hashcode</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// return error
+</span><span class="p">}</span><span class="w">
+</span><span class="n">id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup1</span><span class="p">[</span><span class="n">hashcode</span><span class="p">]</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">id</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">not_found_value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// return error
+</span><span class="p">}</span><span class="w">
+</span><span class="n">spec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">lookup2</span><span class="p">[</span><span class="n">id</span><span class="p">]</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">dotmask</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">spec</span><span class="p">.</span><span class="n">expected_dotmask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// return error
+</span><span class="p">}</span><span class="w">
+
+</span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">max_length</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">1</span><span class="p">:</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversion_max1</span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">pshufb_pattern</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">2</span><span class="p">:</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversion_max2</span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">pshufb_pattern</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="w">
+    </span><span class="k">case</span><span class="w"> </span><span class="mi">3</span><span class="p">:</span><span class="w">
+        </span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">conversion_max3</span><span class="p">(</span><span class="n">spec</span><span class="p">.</span><span class="n">pshufb_pattern</span><span class="p">)</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="w">
+    </span><span class="k">default</span><span class="o">:</span><span class="w">
+        </span><span class="c1">// return error
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="conversion-of-1-digit-numbers">
+<h3>Conversion of 1-digit numbers</h3>
+<p>In this case there's no need to validate anything, just pick
+the bytes from even indices. <tt class="docutils literal">PSHUFB</tt> layouts the input
+digits in the lower 32-bit word of an SSE register and we
+simply copy them with single instruction.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">pattern</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">pattern</span><span class="p">);</span><span class="w">
+</span><span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi128_si32</span><span class="p">(</span><span class="n">t1</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0f0f0f0f</span><span class="p">;</span>
+</pre>
+</div>
+<div class="section" id="conversion-of-1-and-2-digit-numbers">
+<h3>Conversion of 1- and 2-digit numbers</h3>
+<p>In this case we have only to check if the 2-digit fields do not contain
+ASCII '0' on their most significant position. We lay digits in two 32-bit
+words.  The lower one contains the most significant ASCII digits, or <strong>value</strong>
+0 for 1-digit fields. The higher 32-bit word contains the least significant
+digits.</p>
+<ol class="arabic" start="0">
+<li><p class="first">Let's see how we would parse address &quot;12.3.45.6&quot;.</p>
+<pre class="literal-block">
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│..│..│..│..│..│..│..│36│2e│35│34│2e│33│2e│32│31│ = input
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ^                                             ^
+ byte 15                                  byte 0
+</pre>
+</li>
+<li><p class="first">First, we split the input in the described way.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">pattern</span><span class="p">);</span>
+</pre>
+<pre class="literal-block">
+┌───────────────────────┬──┬──┬──┬──┬──┬──┬──┬──┐
+│    unused 64 bits     │  │  │  │  │ 0│34│ 0│31│ = lower 32-bit word
+└───────────────────────┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌───────────────────────┬──┬──┬──┬──┬──┬──┬──┬──┐
+│    unused 64 bits     │36│35│33│32│  │  │  │  │ = higher 32-bit word
+└───────────────────────┴──┴──┴──┴──┴──┴──┴──┴──┘
+</pre>
+<p>The actual byte layout is:</p>
+<pre class="literal-block">
+┌───────────────────────┬──┬──┬──┬──┬──┬──┬──┬──┐
+│    unused 64 bits     │36│35│33│32│ 0│34│ 0│31│ = t1
+└───────────────────────┴──┴──┴──┴──┴──┴──┴──┴──┘
+</pre>
+</li>
+<li><p class="first">Next, compare the <tt class="docutils literal">t1</tt> vector with ASCII '0' (hex 0x30). We are
+interested only in the lowest 32-bit result.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">ascii0</span><span class="p">);</span>
+</pre>
+<pre class="literal-block">
+┌───────────────────────────────────┬──┬──┬──┬──┐
+│            unused 96 bits         │30│30│30│30│ = ascii0
+└───────────────────────────────────┴──┴──┴──┴──┘
+┌───────────────────────┬──┬──┬──┬──┬──┬──┬──┬──┐
+│    unused 64 bits     │36│35│33│32│ 0│34│ 0│31│ = t1
+└───────────────────────┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌───────────────────────────────────┬──┬──┬──┬──┐
+│            unused 96 bits         │00│00│00│00│ = t2 = cmp(ascii0, t1)
+└───────────────────────────────────┴──┴──┴──┴──┘
+</pre>
+</li>
+<li><p class="first">As the next step, we extract that lowest word from <tt class="docutils literal">t2</tt>. If
+it is not zero, that means there is at least one 2-digit
+field having the leading zero.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">msd</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi128_si64</span><span class="p">(</span><span class="n">t2</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">msd</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">res</span><span class="p">.</span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">errLeadingZeros</span><span class="p">;</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">res</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Once we know the input is valid, we extract the lower 64 bits
+from <tt class="docutils literal">t1</tt> and get back to scalar code. There is simply too
+few data to use SIMD instructions for that.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">ascii</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi128_si64</span><span class="p">(</span><span class="n">t1</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">w01</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">ascii</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0f0f0f0f0f0f0f0f</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">w0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">w01</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">32</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">w1</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">w01</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xfffffffflu</span><span class="p">;</span>
+</pre>
+<pre class="literal-block">
+┌──┬──┬──┬──┬──┬──┬──┬──┐
+│36│35│33│32│ 0│34│ 0│31│ = ascii
+└──┴──┴──┴──┴──┴──┴──┴──┘
+┌──┬──┬──┬──┬──┬──┬──┬──┐
+│ 6│ 5│ 3│ 2│ 0│ 4│ 0│ 1│ = w01
+└──┴──┴──┴──┴──┴──┴──┴──┘
+
+            ┌──┬──┬──┬──┐
+            │ 6│ 5│ 3│ 2│ = w0
+            └──┴──┴──┴──┘
+            ┌──┬──┬──┬──┐
+            │ 0│28│ 0│ a│ = w1
+            └──┴──┴──┴──┘
+                40    10 decimal
+</pre>
+</li>
+<li><p class="first">Finally, we convert the individual digits into actual values. We
+may freely multiply by 10 and add, as we will never get an overflow;
+the <a class="reference external" href="http://en.wikipedia.org/wiki/SWAR">SWAR</a> solution works fine.</p>
+<pre class="code cpp literal-block">
+<span class="n">res</span><span class="p">.</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">w1</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">w0</span><span class="p">;</span>
+</pre>
+<pre class="literal-block">
+┌──┬──┬──┬──┐
+│ 6│2d│ 3│ c│ = IPv4
+└──┴──┴──┴──┘
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="conversion-of-1-2-and-3-digit-numbers">
+<h3>Conversion of 1-, 2- and 3-digit numbers</h3>
+<p>In this case we split input into four sets of digits.</p>
+<ol class="arabic" start="0">
+<li><p class="first">Let's analyse parsing of &quot;127.45.6.222&quot;.</p>
+<pre class="literal-block">
+              2  2  2  .  6  .  5  4  .  7  2  1
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│..│..│..│..│32│32│32│2e│36│2e│35│34│2e│37│32│31│ = input
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+ ^                                             ^
+ byte 15                                  byte 0
+</pre>
+</li>
+<li><p class="first">We split the input into four subwords:</p>
+<ul class="simple">
+<li>digits #0;</li>
+<li>digits #1 or zero for single-digit numbers;</li>
+<li>digits #2 or zero for 1- and 2-digit numbers;</li>
+<li>most significant ASCII digits of 2- and 3-digit numbers, 0 otherwise.</li>
+</ul>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_shuffle_epi8</span><span class="p">(</span><span class="n">t0</span><span class="p">,</span><span class="w"> </span><span class="n">pattern</span><span class="p">);</span>
+</pre>
+<pre class="literal-block">
+127.45.6.234
+│││ ││ │ │││
+││└──┴─┴───┴── digit #0 [7, 5, 6, 4]
+││  │    ││
+│└──┴─────┴─── digit #1 [2, 4, -, 3]
+│        │
+└────────┴──── digit #2 [1, -, -, 2]
+</pre>
+<pre class="literal-block">
+┌───────────────────────┬──┬──┬──┬──┬──┬──┬──┬──┐
+│                       │  │37│  │35│  │36│  │34│ = digit #0
+└───────────────────────┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌───────────────────────┬──┬──┬──┬──┬──┬──┬──┬──┐
+│                       │32│  │34│  │ 0│  │33│  │ = digit #1
+└───────────────────────┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌──┬──┬──┬──┬──┬──┬──┬──┬───────────────────────┐
+│  │31│  │ 0│  │ 0│  │32│                       │ = digit #2
+└──┴──┴──┴──┴──┴──┴──┴──┴───────────────────────┘
+┌──┬──┬──┬──┬──┬──┬──┬──┬───────────────────────┐
+│31│  │34│  │ 0│  │32│  │                       │ = most significant digits
+└──┴──┴──┴──┴──┴──┴──┴──┴───────────────────────┘
+</pre>
+<p>The actual layout after <tt class="docutils literal">PSHUFB</tt>:</p>
+<pre class="literal-block">
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│31│31│34│ 0│ 0│ 0│32│32│32│37│34│35│ 0│36│33│34│ = t1
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+</pre>
+</li>
+<li><p class="first">Check if any significant digit is ASCII '0'. We only use the results
+for odd bytes from the higher half of word <tt class="docutils literal">t1</tt>, thus masking with
+<tt class="docutils literal">0xAA00</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">ascii0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi8</span><span class="p">(</span><span class="sc">'0'</span><span class="p">);</span><span class="w"> </span><span class="c1">// 0x30
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">eq0</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpeq_epi8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">ascii0</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">res</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">eq0</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">res</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xaa00</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// report leading zeros
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Convert from ASCII to digits. It's sufficient to <strong>subtract
+with saturation</strong> value 0x30 (ASCII '0').</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_subs_epu8</span><span class="p">(</span><span class="n">t1</span><span class="p">,</span><span class="w"> </span><span class="n">ascii0</span><span class="p">);</span>
+</pre>
+<pre class="literal-block">
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│ 1│ 1│ 4│ 0│ 0│ 0│ 2│ 2│ 2│ 7│ 4│ 5│ 0│ 6│ 3│ 4│ = t2
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+</pre>
+</li>
+<li><p class="first">Then, we calculate <tt class="docutils literal">10 * digit #1 + digit #0</tt> in the lower
+half, and <tt class="docutils literal">100 * digit #2</tt>. To do this, we use instruction
+<a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PMADDUBSW.html">PMADDUBSW</a> that multiplies horizontally bytes and add adjacent
+results into 16-bit values.</p>
+<p>The multipliers for most significant digits from upper half
+are set to zero, thanks to that we do not need any extra masking.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">weights</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_setr_epi8</span><span class="p">(</span><span class="w">
+    </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w">     </span><span class="c1">//  10 = 0x0a
+</span><span class="w">    </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">100</span><span class="p">)</span><span class="w">    </span><span class="c1">// 100 = 0x64
+</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_maddubs_epi16</span><span class="p">(</span><span class="n">t2</span><span class="p">,</span><span class="w"> </span><span class="n">weights</span><span class="p">)</span>
+</pre>
+<pre class="literal-block">
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│ 0│64│ 0│64│ 0│64│ 0│64│ a│ 1│ a│ 1│ a│ 1│ a│ 1│ = weights
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┐
+│ 1│ 1│ 4│ 0│ 0│ 0│ 2│ 2│ 2│ 7│ 4│ 5│ 0│ 6│ 3│ 4│ = t2
+└──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┘
+┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+│  100│    0│    0│  200│   27│   45│    6│   34│ = t3 = maddubs(t2, weights)
+└─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘        [shown in decimal]
+</pre>
+</li>
+<li><p class="first">Now we have to combine these partial results. Simply shift right
+the <tt class="docutils literal">t3</tt> by 8 bytes (with <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PALIGNR.html">PALIGNR</a>) and add with the
+original constant of <tt class="docutils literal">t3</tt>.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_alignr_epi8</span><span class="p">(</span><span class="n">t3</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t5</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_add_epi16</span><span class="p">(</span><span class="n">t4</span><span class="p">);</span>
+</pre>
+<pre class="literal-block">
+┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+│  100│    0│    0│  200│   27│   45│    6│   34│ = t3
+└─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+┌───────────────────────┬─────┬─────┬─────┬─────┐
+│        unused         │  100│    0│    0│  200│ = t4
+└───────────────────────┴─────┴─────┴─────┴─────┘
+┌───────────────────────┬─────┬─────┬─────┬─────┐
+│        unused         │  127│   45│    6│  234│ = t5 = t3 + t4
+└───────────────────────┴─────┴─────┴─────┴─────┘
+                          0x3F  0x2D  0x06  0xEA
+</pre>
+</li>
+<li><p class="first">The almost final result is stored in <tt class="docutils literal">t4</tt> on 16-bit values. We have
+to check if all are not greater than 255. It's done by a regular
+comparison.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w">  </span><span class="n">gt</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmpgt_epi16</span><span class="p">(</span><span class="n">t4</span><span class="p">,</span><span class="w"> </span><span class="n">_mm_set1_epi16</span><span class="p">(</span><span class="mi">255</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">gtmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">gt</span><span class="p">);</span><span class="w">
+</span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">gtmask</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x00ff</span><span class="p">)</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="c1">// report too big fields
+</span><span class="p">}</span>
+</pre>
+</li>
+<li><p class="first">Finally, we need to convert from <tt class="docutils literal">uint16</tt> to <tt class="docutils literal">uint8</tt>. Since we know
+the values in <tt class="docutils literal">t4</tt> fit in a byte, <a class="reference external" href="https://hjlebbink.github.io/x86doc/html/PACKUSWB.html">pack with unsigned saturation</a>
+is sufficient.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">t6</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_packus_epi16</span><span class="p">(</span><span class="n">t5</span><span class="p">,</span><span class="w"> </span><span class="n">t5</span><span class="p">);</span><span class="w">
+</span><span class="n">ipv4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cvtsi128_si32</span><span class="p">(</span><span class="n">t6</span><span class="p">);</span>
+</pre>
+</li>
+</ol>
+</div>
+</div>
+</div>
+<div class="section" id="benchmarks">
+<h1>Benchmarks</h1>
+<p>As the baseline we selected the best result from scalar procedures: <tt class="docutils literal">go</tt>,
+<tt class="docutils literal">glibc</tt> and <tt class="docutils literal">naive</tt>.</p>
+<div class="section" id="tested-procedures">
+<h2>Tested procedures</h2>
+<table border="1" class="docutils">
+<caption>Tested procedures</caption>
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">comment</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>go</td>
+<td>A translation into C++ the <a class="reference internal" href="#go-source">Go procedure</a>.</td>
+</tr>
+<tr><td>glibc</td>
+<td>A C procedure from <a class="reference internal" href="#glibc-source">Glibc</a> with a thin wrapping for C++.</td>
+</tr>
+<tr><td>naive</td>
+<td>A from scratch implementation of sequential parsing, as described
+in <a class="reference internal" href="#introduction">introduction</a>.</td>
+</tr>
+<tr><td>naive (no validation)</td>
+<td>It converts only valid IPv4 addresses; used to estimate the
+lower bound of the naive implementation.</td>
+</tr>
+<tr><td>SSE</td>
+<td>It uses the SIMD validation, and <a class="reference internal" href="#scalar-sequential-conversion">scalar sequential conversion</a>.</td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>It uses the SIMD validation, and <a class="reference internal" href="#scalar-unrolled-conversion-256code">unrolled scalar conversion</a>
+with parsing schema based on a single switch. The switch statement takes lengths pattern
+encoded as an 8-bit values.</td>
+</tr>
+<tr><td>SSE (v3)</td>
+<td>It uses the SIMD validation, and <a class="reference internal" href="#scalar-unrolled-conversion-dotmask">unrolled scalar conversion</a>
+with parsing schema using nested switches. The outer switch uses the input length,
+nested switches are based on explicit dot mask values.</td>
+</tr>
+<tr><td>SSE (v4)</td>
+<td>It uses both the SIMD validation, and <a class="reference internal" href="#simd-conversion">SIMD number conversion</a>
+with nested switches: the outer one uses the input length, nested ones are based on
+explicit dot mask values.</td>
+</tr>
+<tr><td>SSE (v5)</td>
+<td>It uses both the SIMD validation, and <a class="reference internal" href="#simd-conversion">SIMD number conversion</a>
+with parsing schema selection using <a class="reference internal" href="#hash-function1">complex hash function</a></td>
+</tr>
+<tr><td>SSE (v6)</td>
+<td>It uses both SIMD validation, and <a class="reference internal" href="#simd-conversion">SIMD number conversion</a>
+with parsing schema selection using <a class="reference internal" href="#base3-number">base-3 numbers</a>.</td>
+</tr>
+<tr><td>SSE (v7)</td>
+<td>It uses both SIMD validation, and <a class="reference internal" href="#simd-conversion">SIMD number conversion</a>
+with parsing schema selection using <a class="reference internal" href="#hash-function2">simpler hash function</a>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="results-from-skylake-machine">
+<h2>Results from SkyLake machine</h2>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field"><th class="field-name">CPU:</th><td class="field-body">Intel(R) Core(TM) i7-6700 CPU &#64; 3.40GHz</td>
+</tr>
+<tr class="field"><th class="field-name">Compiler:</th><td class="field-body">g++-9 (Ubuntu 9.3.0-10ubuntu2~16.04) 9.3.0</td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="21%" />
+<col width="9%" />
+<col width="9%" />
+<col width="8%" />
+<col width="52%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best</th>
+<th class="head">avg.</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">[cycles]</th>
+<th class="head">[cycles]</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>79.962</td>
+<td>80.001</td>
+<td>0.97</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▍</span></tt></td>
+</tr>
+<tr><td>glibc</td>
+<td>77.893</td>
+<td>78.201</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▊</span></tt></td>
+</tr>
+<tr><td>go</td>
+<td>85.522</td>
+<td>85.918</td>
+<td>0.91</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▎</span></tt></td>
+</tr>
+<tr><td>naive (no validation)</td>
+<td>48.328</td>
+<td>48.458</td>
+<td>1.61</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>SWAR</td>
+<td>84.235</td>
+<td>84.258</td>
+<td>0.92</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▌</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>47.295</td>
+<td>47.344</td>
+<td>1.65</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>56.745</td>
+<td>56.792</td>
+<td>1.37</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (v3)</td>
+<td>40.779</td>
+<td>40.823</td>
+<td>1.91</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████▏</span></tt></td>
+</tr>
+<tr><td>SSE (v4)</td>
+<td>31.922</td>
+<td>31.938</td>
+<td>2.44</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (v5)</td>
+<td>28.127</td>
+<td>28.139</td>
+<td>2.77</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████▋</span></tt></td>
+</tr>
+<tr><td>SSE (v6)</td>
+<td>34.278</td>
+<td>34.287</td>
+<td>2.27</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (v7)</td>
+<td>26.239</td>
+<td>26.251</td>
+<td>2.97</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (v8)</td>
+<td>33.645</td>
+<td>33.655</td>
+<td>2.32</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████▉</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="results-from-icelake-machine">
+<h2>Results from IceLake machine</h2>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field"><th class="field-name">CPU:</th><td class="field-body">Intel(R) Xeon(R) Platinum 8375C CPU &#64; 2.90GHz</td>
+</tr>
+<tr class="field"><th class="field-name">Compiler:</th><td class="field-body">gcc (GCC) 7.3.1 20180712 (Red Hat 7.3.1-14)</td>
+</tr>
+</tbody>
+</table>
+<table border="1" class="docutils">
+<colgroup>
+<col width="21%" />
+<col width="9%" />
+<col width="9%" />
+<col width="8%" />
+<col width="52%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">best</th>
+<th class="head">avg.</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+<tr><th class="head">&nbsp;</th>
+<th class="head">[cycles]</th>
+<th class="head">[cycles]</th>
+<th class="head">&nbsp;</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>42.217</td>
+<td>42.601</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████▊</span></tt></td>
+</tr>
+<tr><td>glibc</td>
+<td>58.327</td>
+<td>58.717</td>
+<td>0.72</td>
+<td><tt class="docutils literal"><span class="pre">██████████████▎</span></tt></td>
+</tr>
+<tr><td>go</td>
+<td>51.779</td>
+<td>51.914</td>
+<td>0.82</td>
+<td><tt class="docutils literal"><span class="pre">████████████████▏</span></tt></td>
+</tr>
+<tr><td>naive (no validation)</td>
+<td>32.414</td>
+<td>32.491</td>
+<td>1.30</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████▊</span></tt></td>
+</tr>
+<tr><td>SWAR</td>
+<td>54.670</td>
+<td>54.718</td>
+<td>0.77</td>
+<td><tt class="docutils literal"><span class="pre">███████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE</td>
+<td>28.496</td>
+<td>28.550</td>
+<td>1.48</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (v2)</td>
+<td>38.016</td>
+<td>38.108</td>
+<td>1.11</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████▉</span></tt></td>
+</tr>
+<tr><td>SSE (v3)</td>
+<td>23.586</td>
+<td>23.711</td>
+<td>1.79</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████▍</span></tt></td>
+</tr>
+<tr><td>SSE (v4)</td>
+<td>16.716</td>
+<td>16.778</td>
+<td>2.53</td>
+<td><tt class="docutils literal"><span class="pre">██████████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (v5)</td>
+<td>19.385</td>
+<td>19.438</td>
+<td>2.18</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (v6)</td>
+<td>25.097</td>
+<td>25.129</td>
+<td>1.68</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████▎</span></tt></td>
+</tr>
+<tr><td>SSE (v7)</td>
+<td>17.041</td>
+<td>17.110</td>
+<td>2.48</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SSE (v8)</td>
+<td>23.761</td>
+<td>23.793</td>
+<td>1.78</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████▏</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="source">
+<h1>Source</h1>
+<p>All programs are available on <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/parseip4">Github</a>.</p>
+</div>
+<div class="section" id="appendix">
+<h1>Appendix</h1>
+<div class="section" id="appendix-a-the-go-source">
+<span id="go-source"></span><h2>Appendix A &mdash; the Go source</h2>
+<pre class="code go literal-block">
+<span class="kd">func</span><span class="w"> </span><span class="nx">parseIPv4</span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ip</span><span class="w"> </span><span class="nx">Addr</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kd">var</span><span class="w"> </span><span class="nx">fields</span><span class="w"> </span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="kt">uint8</span><span class="w">
+    </span><span class="kd">var</span><span class="w"> </span><span class="nx">val</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="kt">int</span><span class="w">
+    </span><span class="kd">var</span><span class="w"> </span><span class="nx">digLen</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="c1">// number of digits in current octet</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">s</span><span class="p">);</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="sc">'9'</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="nx">digLen</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">val</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nx">Addr</span><span class="p">{},</span><span class="w"> </span><span class="nx">parseAddrError</span><span class="p">{</span><span class="nx">in</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;IPv4 field has octet with leading zero&quot;</span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+            </span><span class="nx">val</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">val</span><span class="o">*</span><span class="mi">10</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nb">int</span><span class="p">(</span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="p">])</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="w">
+            </span><span class="nx">digLen</span><span class="o">++</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="nx">val</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="mi">255</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nx">Addr</span><span class="p">{},</span><span class="w"> </span><span class="nx">parseAddrError</span><span class="p">{</span><span class="nx">in</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;IPv4 field has value &gt;255&quot;</span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'.'</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">s</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'.'</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nx">Addr</span><span class="p">{},</span><span class="w"> </span><span class="nx">parseAddrError</span><span class="p">{</span><span class="nx">in</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;IPv4 field must have at least one digit&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">at</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="p">:]}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nx">Addr</span><span class="p">{},</span><span class="w"> </span><span class="nx">parseAddrError</span><span class="p">{</span><span class="nx">in</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;IPv4 address too long&quot;</span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+            </span><span class="nx">fields</span><span class="p">[</span><span class="nx">pos</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">uint8</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span><span class="w">
+            </span><span class="nx">pos</span><span class="o">++</span><span class="w">
+            </span><span class="nx">val</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span><span class="w">
+            </span><span class="nx">digLen</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nx">Addr</span><span class="p">{},</span><span class="w"> </span><span class="nx">parseAddrError</span><span class="p">{</span><span class="nx">in</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;unexpected character&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">at</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">[</span><span class="nx">i</span><span class="p">:]}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="nx">Addr</span><span class="p">{},</span><span class="w"> </span><span class="nx">parseAddrError</span><span class="p">{</span><span class="nx">in</span><span class="p">:</span><span class="w"> </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">msg</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;IPv4 address too short&quot;</span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="nx">fields</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">uint8</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="nx">AddrFrom4</span><span class="p">(</span><span class="nx">fields</span><span class="p">),</span><span class="w"> </span><span class="kc">nil</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="appendix-b-the-glibc-source">
+<span id="glibc-source"></span><h2>Appendix B &mdash; the Glibc source</h2>
+<pre class="code c literal-block">
+<span class="k">static</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="nf">inet_pton4</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">src</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">end</span><span class="p">,</span><span class="w"> </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="o">*</span><span class="n">dst</span><span class="p">)</span><span class="w">
+</span><span class="p">{</span><span class="w">
+  </span><span class="kt">int</span><span class="w"> </span><span class="n">saw_digit</span><span class="p">,</span><span class="w"> </span><span class="n">octets</span><span class="p">,</span><span class="w"> </span><span class="n">ch</span><span class="p">;</span><span class="w">
+  </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">tmp</span><span class="p">[</span><span class="n">NS_INADDRSZ</span><span class="p">],</span><span class="w"> </span><span class="o">*</span><span class="n">tp</span><span class="p">;</span><span class="w">
+
+  </span><span class="n">saw_digit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+  </span><span class="n">octets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+  </span><span class="o">*</span><span class="p">(</span><span class="n">tp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tmp</span><span class="p">)</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+  </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">src</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">end</span><span class="p">)</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+      </span><span class="n">ch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="n">src</span><span class="o">++</span><span class="p">;</span><span class="w">
+      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ch</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="sc">'0'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">ch</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="sc">'9'</span><span class="p">)</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+          </span><span class="kt">unsigned</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">new</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="n">tp</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="n">ch</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+
+          </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">saw_digit</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">*</span><span class="n">tp</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+          </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">new</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">255</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+          </span><span class="o">*</span><span class="n">tp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">new</span><span class="p">;</span><span class="w">
+          </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="w"> </span><span class="n">saw_digit</span><span class="p">)</span><span class="w">
+            </span><span class="p">{</span><span class="w">
+              </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">++</span><span class="n">octets</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+              </span><span class="n">saw_digit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">'.'</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">saw_digit</span><span class="p">)</span><span class="w">
+        </span><span class="p">{</span><span class="w">
+          </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">octets</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+          </span><span class="o">*++</span><span class="n">tp</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+          </span><span class="n">saw_digit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="k">else</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">octets</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+  </span><span class="n">memcpy</span><span class="w"> </span><span class="p">(</span><span class="n">dst</span><span class="p">,</span><span class="w"> </span><span class="n">tmp</span><span class="p">,</span><span class="w"> </span><span class="n">NS_INADDRSZ</span><span class="p">);</span><span class="w">
+  </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2023-04-09-faster-parse-ipv4.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:32 GMT -->
+</html>

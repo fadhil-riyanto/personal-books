@@ -1,0 +1,201 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/avx512memo.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:34:26 GMT -->
+<head>
+    <meta charset="utf-8" />
+    <link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/avx512memo.html" />
+    <link rel="alternate" hreflang="en" href="avx512memo.html" />
+    <title>AVX512 Memo</title>
+    <style type="text/css">
+        .red {
+            color: #FF0000;
+        }
+
+        h1 {
+            font-size: 15pt;
+            font-weight: bold;
+            background-color: #8288FD;
+            color: #FFFFFF;
+            padding: 2pt;
+        }
+
+        body {
+            font-family: sans-serif;
+            font-size: 10pt;
+        }
+
+        h2 {
+            font-weight: bold;
+            padding: 2pt 2pt 0pt 0pt;
+            font-size: 10pt;
+            border-bottom-style: solid;
+            border-bottom-width: 2px;
+            border-bottom-color: #0000FF;
+        }
+
+        h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: #0000FF;
+        }
+
+        dt {
+            font-weight: bold;
+        }
+
+        td {
+            background-color: #FFFFFF;
+        }
+
+        table {
+            background-color: #C0C0C0;
+        }
+
+        th {
+            background-color: #E0E0E0;
+        }
+
+        .srcprogdiv {
+            border: 1px solid #0000FF;
+            border-radius: 5px;
+            padding: 5px 10px 5px 10px;
+        }
+
+        srcprogdiv {
+        }
+
+        .intr {
+            color: #6778ED;
+        }
+
+        .IL {
+            color: black;
+        }
+        .operand {
+            font-style: italic;
+        }
+    </style>
+
+
+</head > 
+<body > 
+    <h1>AVX512 Memo</h1>
+
+<h2>Opmask</h2>
+    <p>Opmask registers can control each element to be processed or not to be processed.</p>
+    <p>There are eight 64-bit Opmask registers (K0 to K7). K0 cannot be be specified in { }.</p>
+    <p span class="intr">For intrinsics, a value of type __mmask8, __mmask16, __mmask32 or __mmask64 can be used for Opmask.</p>
+
+
+    <h3>Merge Mask {k1} <span class="intr">("_mask_" instrinsics)</span></h3> 
+    <p>For each element, if the corresponding mask bit is 0, the value in the destination is left unchanged.
+    <span class="intr">(copied from first argument)</span>.</p>
+    <p>Example</p>
+    <p><img src="masksample.png" /></p>
+    <ul>
+        <li>One mask bit per element. For BYTE instructions, 1 mask bit per 1 BYTE element. For QWORD instructions, 1 mask bit per 1 QWORD element.</li>
+        <li>Each opmask bit corresponds to the each element of the destination, rather than the source (except for some instructions).</li>
+
+    </ul>
+    <p>If no mask register is specified, all elements are processed.</p>
+    <h3>Zero Mask {k1}{z} <span class="intr">("_maskz_" intrinsics)</span></h3>
+    <p>For each element, if the corresponding mask bit is 0, the element of the destination is zero cleared.</p>
+    <p>Example</p>
+    <p><img src="maskzsample.png" /></p>
+    <ul>
+        <li>Zero mask cannot be specified if the destination is memory.</li>
+
+    </ul>
+
+    <h3>Opmask Register Instructions</h3> 
+    <p>Instructions to handle Opmask registers are listed 
+   <a href="opmaskinst.html" target="_blank">here</a>.</p>
+    <p></p>
+    <h3>Tips:</h3>
+    <ul>
+        <li>New style COMPARE and TEST instructions return the result to an opmask register.</li>
+        <li>COMPRESS instructions extract the elements with the corresponding opmask bits set, and pack them tightly to the right.</li>
+        <li>New style BLEND instructions choose the elements from two operands by the bits of opmask.</li>
+        <li>VPMOVM2Q / VPMOVM2D / VPMOVM2W / VPMOVM2B instruction expands each bit of opmask to QWORD / DWORD / WORD / BYTE.</li>
+    </ul>
+    <p>&nbsp;</p>
+<h2>m64bcst / m32bcst / m16bcst</h2>
+
+    <p>For 64-bit element instructions, specifying one 64-bit memory operand for m64bcst, like "qword bcst [rcx]", the 64-bit value is broadcasted to every element of the source operand.</p>
+    <p>For 32-bit element instructions, m32bcst can be specified.</p>
+    <p>For FP16 instructions, m16bcst can be specified.</p>
+    <p>For integer 16-bit / 8-bit element instructions, no bcst can be specified.</p>
+    <p>From register operands, bcst cannot be specified.</p>
+
+    <p>&nbsp;</p>
+<h2>Round Control {er}, Suppress-All-Exceptions {sae}</h2>
+    <p>Specifying {er} or {sae}, the exception masks and the round control of MXCSR are overridden only while the single instruction is being executed.</p>
+    <p>Available only for 512-bit instructions with no memory operand.</p>
+    <p class="intr">Specify the round control or sae in the last argument of "_round" instrinsics.</p>
+    <p>For most FP instructions, {er} can be specified. When {er} is specified, SAE is always applied.</p>
+    <table>
+        <tr>
+            <th></th>
+            <th>asm<br />{er}</th>
+            <th>intrinsics<br />the last argument</th>
+        </tr>
+        <tr>
+            <th>to nearest or even</th>
+            <td>{rn-sae}</td>
+            <td><span class="intr">_MM_FROUND_TO_NEAREST_INT</span></td>
+        </tr>
+        <tr>
+            <th>toward negative infinity</th>
+            <td>{rd-sae}</td>
+            <td><span class="intr">_MM_FROUND_TO_NEG_INF</span></td>
+        </tr>
+        <tr>
+            <th>toward positive infinity</th>
+            <td>{ru-sae}</td>
+            <td><span class="intr">_MM_FROUND_TO_POS_INF</span></td>
+        </tr>
+        <tr>
+            <th>toward zero</th>
+            <td>{rz-sae}</td>
+            <td><span class="intr">_MM_FROUND_TO_ZERO</span></td>
+        </tr>
+        <tr>
+            <th>(as specified in MXCSR)</th>
+            <td>specify nothing</td>
+            <td><span class="intr">_MM_FROUND_CUR_DIRECTION<br />or use intrisic without "_round"</span></td>
+        </tr>
+    </table>
+
+
+    <p>For no rounding instructions and instruction-specific rounding instructions, {sae} can be specified instead of {er}.</p>
+    <table>
+        <tr>
+            <th></th>
+            <th>asm<br />{sae}</th>
+            <th>intrinsics<br />the last argument</th>
+        </tr>
+        <tr>
+            <th>Suppress All Exceptions</th>
+            <td>{sae}</td>
+            <td><span class="intr">_MM_FROUND_NO_EXC</span></td>
+        </tr>
+        <tr>
+            <th>(as specified in MXCSR)</th>
+            <td>specify nothing</td>
+            <td><span class="intr">_MM_FROUND_CUR_DIRECTION<br />or use intrisic without "_round"</span></td>
+        </tr>
+    </table>
+    <p>When SAE is applied, MXCSR flags are not set.</p>
+
+
+    <hr />
+    <a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp;
+    <a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=ternlogcalc" target="_blank">Feedback</a>
+
+
+</body >
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/avx512memo.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:34:29 GMT -->
+</html >

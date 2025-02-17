@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/v_scroll.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Scroll pionowy &mdash; optymalizacja</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="scroll-pionowy-optymalizacja">
+<h1 class="title">Scroll pionowy &mdash; optymalizacja</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">9.03.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#typowy-scroll" id="toc-entry-2">Typowy scroll</a></li>
+<li><a class="reference internal" href="#optymalizacja" id="toc-entry-3">Optymalizacja</a></li>
+<li><a class="reference internal" href="#podsumowanie" id="toc-entry-4">Podsumowanie</a></li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>W artykule pokażę jak zminimalizować ilość przesyłanych danych przy
+przesuwanych w pionie napisach. Oczywiście można analogicznie postąpić przy
+scollach w poziomie.</p>
+<p>Poniżej zostały zdefiniowane wszystkie stałe i zmienne które będą
+wykorzystywane w przykładach.</p>
+<pre class="literal-block">
+const unsigned int img_width;  // rozmiar
+const unsigned int img_height; // obrazka
+
+const unsigned int text_height;// wysokość tekstu
+
+typedef pixel scanline[img_width]; // pojedyncza linia obrazu
+
+scanline image[img_height];  // bufor obraz
+scanline text [text_height]; // bufor dla 1 linii tekstu
+
+// funkcja wyświetla generuje napis w buforze 'text'
+void render_text(const char* string);
+</pre>
+</div>
+<div class="section" id="typowy-scroll">
+<h1>Typowy scroll</h1>
+<p>W poniższym pseudokodzie obraz jest przesuwany do góry.</p>
+<pre class="literal-block">
+int text_scanline = text_height;
+
+...
+while (stop == 0)
+  {
+   for (int i=0; i&lt;img_height-1; i++) // przesuń obraz o 1 linię do góry
+       image[i] = image[i+1];         // czasochłonne
+
+   if (text_scanline == text_height)  // &quot;wysunięto&quot; już całą linię tekstu
+      {                               // należy wygenerować nowy tekst
+       render_text(...);
+       text_scanline = 0;
+      }
+
+   image[img_height-1] = text[text_scanline++]; // przepisz do ostatniej linii
+                                                // obrazu jedną z linii tekstu
+
+   screen = image; // wyświetl obraz
+  }
+</pre>
+<p>Przesunięcie <tt class="docutils literal">image</tt> o 1 linię wymaga przesłania <tt class="docutils literal"><span class="pre">(img_height-1)*</span>
+img_width</tt> pikseli i tego należy się pozbyć.</p>
+</div>
+<div class="section" id="optymalizacja">
+<h1>Optymalizacja</h1>
+<p>Proponuję potraktować <tt class="docutils literal">image</tt> jako bufor okrężny scanlinów.</p>
+<pre class="literal-block">
+int text_scanline = text_height; // licznik wyświetlonych linii tekstu
+int top_line      = 0;           // wskaźnik początku bufora okrężnego
+
+while (stop == 0)
+  {
+  if (text_scanline == text_height)  // &quot;wysunięto&quot; już całą linię tekstu
+      {                               // należy wygenerować nowy tekst
+       render_text(...);
+       text_scanline = 0;
+      }
+
+   // przepisanie do ostatniej linii obrazu jednej z linii tekstu
+   // ostatnia w buforze okrężnym nie tablicy!
+   image[top_line] = text[text_scanline++];
+
+   / należy kopiować scanliny z bufora ekranu w trochę innej kolejności
+   n = 0;
+   for (i=top_line; i&lt;img_height; i++) // najpierw kopiujemy górną część
+       screen[n++] = image[i];
+
+   for (i=0; i&lt;top_line; i++)          // a następnie dolną
+       screen[n++] = image[i];
+
+   // zwiększamy top_line
+   top_line += (top_line+1) % img_height;
+  }
+</pre>
+<p>W przypadku gdy obliczenie reszty z dzielenia będzie kłopotliwe (np. pisząc
+w asemblerze) można użyć prostszego kodu:</p>
+<pre class="literal-block">
+if (++top_line == img_height) top_line=0;
+</pre>
+</div>
+<div class="section" id="podsumowanie">
+<h1>Podsumowanie</h1>
+<p>Przyrost prędkości będzie znaczny, zostało wyeliminowane praktycznie jedno
+przesyłanie bufora bardzo niewielkim kosztem.</p>
+<p>Poniżej zestawienie liczby przesłań <em>scanlinów</em> w obu metodach:</p>
+<ul class="simple">
+<li>podstawowa metoda: <tt class="docutils literal">2*img_height</tt>,</li>
+<li>po optymalizacji: <tt class="docutils literal">img_height+1</tt>.</li>
+</ul>
+<p>Teoretycznie można więc liczyć na około 200% wzrost prędkości.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/v_scroll.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

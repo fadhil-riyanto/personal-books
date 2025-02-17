@@ -1,0 +1,458 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2013-09-30-sse-trie.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:59 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SSE: trie lookup speedup</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="sse-trie-lookup-speedup">
+<h1 class="title">SSE: trie lookup speedup</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2013-09-30</td>
+</tr>
+<tr class="last-update field"><th class="docinfo-name">Last update:</th><td class="field-body">2017-02-14 (link to github, syntax highlighting)</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>Trie is a multiway tree where each edge is labelled by a letter;
+such trees are used as dictionaries. Lookup takes <span class="math">O(<i>k</i>)</span> time,
+where <span class="math"><i>k</i></span> is a string length.</p>
+<p>Trie node is defined in C:</p>
+<pre class="code cpp literal-block">
+<span class="k">typedef</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TrieNode</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="kt">bool</span><span class="w">        </span><span class="n">eow</span><span class="p">;</span><span class="w">        </span><span class="c1">// end of word marker
+</span><span class="w">    </span><span class="kt">int</span><span class="w">         </span><span class="n">n</span><span class="p">;</span><span class="w">          </span><span class="c1">// children count
+</span><span class="w">    </span><span class="kt">char</span><span class="o">*</span><span class="w">       </span><span class="n">letter</span><span class="p">;</span><span class="w">     </span><span class="c1">// list of edge labels
+</span><span class="w">    </span><span class="n">TrieNode</span><span class="o">**</span><span class="w">  </span><span class="n">children</span><span class="p">;</span><span class="w">   </span><span class="c1">// pointers to children nodes
+</span><span class="p">}</span>
+</pre>
+<p>Lookup procedure is simple.</p>
+<pre class="code cpp literal-block">
+<span class="kt">bool</span><span class="w"> </span><span class="nf">trie_lookup</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">root</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="o">*</span><span class="w"> </span><span class="n">word</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">root</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// go through edge labelled by i-th letter
+</span><span class="w">        </span><span class="n">node</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">trie_next</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">word</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb">NULL</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="c1">// we visited 'size' nodes, check if last
+</span><span class="w">    </span><span class="c1">// visited node is located at end-of-word
+</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">eow</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Function <tt class="docutils literal">trie_next</tt> returns a child node labelled with given letter.</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">);</span>
+</pre>
+<p>The implementation of this procedure determines overall searching
+and inserting time.</p>
+</div>
+<div class="section" id="analysis">
+<h1>Analysis</h1>
+<p>Following algorithms used by <tt class="docutils literal">trie_next</tt> has been studied:</p>
+<ol class="arabic simple">
+<li>linear search</li>
+<li>linear search with move-to-front strategy</li>
+<li>linear search with incremental move-to-front strategy</li>
+<li>linear search with minimized memory reads</li>
+<li>linear search optimized in SSE</li>
+<li>binary search</li>
+</ol>
+<div class="section" id="linear-search">
+<h2>Linear search</h2>
+<p>Implementation of <tt class="docutils literal">linear</tt>:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="p">;</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>This procedure performs at most <tt class="docutils literal">n</tt> reads from <tt class="docutils literal">letters</tt> array,
+and one from <tt class="docutils literal">children</tt> if letters has been found. Since reading
+<tt class="docutils literal">letters</tt> is done sequentially CPU caching helps.</p>
+</div>
+<div class="section" id="linear-search-with-move-to-front-strategy">
+<h2>Linear search with move-to-front strategy</h2>
+<p>Implementation of <tt class="docutils literal"><span class="pre">linear-mtf</span></tt>:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                        </span><span class="p">}</span><span class="w">
+
+                        </span><span class="kt">char</span><span class="w">      </span><span class="n">c0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">n0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">letter</span><span class="p">;</span><span class="w">
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c0</span><span class="p">;</span><span class="w">
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">n0</span><span class="p">;</span><span class="w">
+
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Thanks to MTF item located at index 0 is at the fast path of procedure,
+hit rate was about 50% in my tests.</p>
+<p>This procedure does 3 additional reads 4 additional writes on hit item
+with index greater than 0. These writes gives some penalty, but are
+amortized by fast-path execution.</p>
+</div>
+<div class="section" id="linear-search-with-incremental-move-to-front-strategy">
+<h2>Linear search with incremental move-to-front strategy</h2>
+<p>Implementation of <tt class="docutils literal"><span class="pre">linear-mtf-incr</span></tt>:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                                </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                        </span><span class="p">}</span><span class="w">
+
+                        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">prev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">i</span><span class="mi">-1</span><span class="p">;</span><span class="w">
+                        </span><span class="kt">char</span><span class="w">      </span><span class="n">c0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">prev</span><span class="p">];</span><span class="w">
+                        </span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">n0</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">prev</span><span class="p">];</span><span class="w">
+
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">prev</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">letter</span><span class="p">;</span><span class="w">
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">prev</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c0</span><span class="p">;</span><span class="w">
+                        </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">n0</span><span class="p">;</span><span class="w">
+
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">prev</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>First variant of MTF allows to random fluctuating element located at the
+fast-path, this variant &mdash; by moving item one position backward ---
+keep at index 0 <strong>most frequently</strong> used items.</p>
+</div>
+<div class="section" id="linear-search-with-minimized-memory-reads">
+<h2>Linear search with minimized memory reads</h2>
+<p>Implementation of <tt class="docutils literal"><span class="pre">linear-unrolled</span></tt>:</p>
+<pre class="code cpp literal-block">
+<span class="cp">#define ROUND_UP(size) (4*(((size) + 3)/4))
+</span><span class="w">
+</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">packed_byte</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">letter</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mh">0x01010101</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">+=</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">dword</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">*</span><span class="p">((</span><span class="kt">uint32_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+                </span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">dword</span><span class="w"> </span><span class="o">^</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">;</span><span class="w">
+
+                </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x000000ff</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">0</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0000ff00</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x00ff0000</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">2</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xff000000</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">3</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>This procedure reads 4 bytes in one iteration (when run on 32-bit machine),
+and also some parallelism is involved &mdash; comparison is done for 4 bytes
+at once.</p>
+<p>However, this procedure require array of length rounded up to 4 bytes,
+that costs additional memory.</p>
+</div>
+<div class="section" id="linear-search-optimized-in-sse">
+<h2>Linear search optimized in SSE</h2>
+<p>Implementation of <tt class="docutils literal">sse</tt>:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="kt">int</span><span class="w"> </span><span class="n">dummy</span><span class="p">;</span><span class="w">
+        </span><span class="n">__asm__</span><span class="w"> </span><span class="n">__volatile__</span><span class="w"> </span><span class="p">(</span><span class="w">
+                </span><span class="s">&quot;movzbl %%al, %%eax                 </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                </span><span class="s">&quot;imul   $0x01010101, %%eax, %%eax   </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                </span><span class="s">&quot;movd   %%eax, %%xmm0               </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                </span><span class="s">&quot;pshufd $0x00, %%xmm0, %%xmm0       </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;=a&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">dummy</span><span class="p">)</span><span class="w">
+                </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;a&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">letter</span><span class="p">)</span><span class="w">
+        </span><span class="p">);</span><span class="w">
+
+        </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="n">j</span><span class="p">;</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">n</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">+=</span><span class="mi">16</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">__asm__</span><span class="w"> </span><span class="n">__volatile__</span><span class="w"> </span><span class="p">(</span><span class="w">
+                        </span><span class="s">&quot;movdqa (%%eax), %%xmm1         </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                        </span><span class="s">&quot;pcmpeqb %%xmm0, %%xmm1         </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                        </span><span class="s">&quot;pmovmskb %%xmm1, %%eax         </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                        </span><span class="s">&quot;bsf %%eax, %%eax               </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                        </span><span class="s">&quot;setz %%ah                      </span><span class="se">\n</span><span class="s">&quot;</span><span class="w">
+                        </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;=a&quot;</span><span class="w"> </span><span class="p">(</span><span class="n">j</span><span class="p">)</span><span class="w">
+                        </span><span class="o">:</span><span class="w"> </span><span class="s">&quot;a&quot;</span><span class="w">  </span><span class="p">(</span><span class="o">&amp;</span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">i</span><span class="p">]))</span><span class="w">
+                </span><span class="p">);</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="n">j</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>This is quite naive implementation, that uses obvious SSE instruction
+like <tt class="docutils literal">pcmpeq</tt> and <tt class="docutils literal">pmovmskb</tt>. In one iteration 16 bytes are processed
+in parallel.</p>
+<p>The downside of this method is high setup time, that is really
+visible when arrays are short.</p>
+</div>
+<div class="section" id="binary-search">
+<h2>Binary search</h2>
+<p>Implementation of <tt class="docutils literal">binary</tt>:</p>
+<pre class="code cpp literal-block">
+<span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="nf">trie_next</span><span class="p">(</span><span class="n">TrieNode</span><span class="o">*</span><span class="w"> </span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">char</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="kt">int</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+        </span><span class="kt">int</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">n</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="p">;</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">c</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">letter</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="n">node</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">[</span><span class="n">c</span><span class="p">];</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">letter</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="p">)</span><span class="n">node</span><span class="o">-&gt;</span><span class="n">chars</span><span class="p">[</span><span class="n">c</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+                        </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">NULL</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Procedure use straightforward binary search implementation (yes, it has
+integer overflow bug).</p>
+</div>
+</div>
+<div class="section" id="experiments">
+<h1>Experiments</h1>
+<p>Test programs use two lists:</p>
+<ul class="simple">
+<li>dictionary &mdash; list of 99171 English words, <tt class="docutils literal"><span class="pre">/usr/share/dict/american-english</span></tt>
+from Debian;</li>
+<li>input words &mdash; list of 133861 English words, the split text of &quot;The
+Oddysey&quot; from Project Gutenberg.</li>
+</ul>
+<p>Each test program reads dictionary and build trie, then loads input
+words into simple array. Finally for each input word call <tt class="docutils literal">trie_lookup</tt>,
+and this is repeated 100 times.</p>
+<p>Tests were run on my old laptop with Pentium M.  Tests on recent CPU
+are coming.</p>
+<div class="section" id="statistics">
+<h2>Statistics</h2>
+<p>There are 227979 nodes in trie.</p>
+<div class="section" id="word-length">
+<h3>Word length</h3>
+<pre class="literal-block">
+len  |  count  |
+   0 |       0 |
+   1 |      52 |
+   2 |     182 |
+   3 |     845 | ===
+   4 |    3346 | ==============
+   5 |    6788 | ==============================
+   6 |   11278 | ==================================================
+   7 |   14787 | ==================================================================
+   8 |   15674 | ======================================================================
+   9 |   14262 | ===============================================================
+  10 |   11546 | ===================================================
+  11 |    8415 | =====================================
+  12 |    5508 | ========================
+  13 |    3236 | ==============
+  14 |    1679 | =======
+  15 |     893 | ===
+  16 |     382 | =
+  17 |     176 |
+  18 |      72 |
+  19 |      31 |
+  20 |      10 |
+  21 |       3 |
+  22 |       5 |
+  23 |       1 |
+</pre>
+</div>
+<div class="section" id="node-degree">
+<h3>Node degree</h3>
+<pre class="literal-block">
+len  |  count  |
+   0 |   67480 | ======================================
+   1 |  123210 | ======================================================================
+   2 |   24418 | =============
+   3 |    6432 | ===
+   4 |    3104 | =
+   5 |    1407 |
+   6 |     646 |
+   7 |     359 |
+   8 |     235 |
+   9 |     145 |
+  10 |     124 |
+  11 |      83 |
+  12 |      58 |
+  13 |      48 |
+  14 |      48 |
+  15 |      29 |
+  16 |      25 |
+  17 |      24 |
+  18 |      19 |
+  19 |      22 |
+  20 |      16 |
+  21 |      14 |
+  22 |      11 |
+  23 |       3 |
+  24 |       5 |
+  25 |       4 |
+  26 |       2 |
+  27 |       0 |
+  28 |       1 |
+  29 |       1 |
+  30 |       3 |
+  31 |       1 |
+  32 |       0 |
+  33 |       0 |
+  34 |       0 |
+  35 |       1 |
+  36 |       0 |
+  37 |       0 |
+  38 |       0 |
+  39 |       0 |
+  40 |       0 |
+  41 |       0 |
+  42 |       0 |
+  43 |       0 |
+  44 |       0 |
+  45 |       0 |
+  46 |       0 |
+  47 |       0 |
+  48 |       0 |
+  49 |       0 |
+  50 |       0 |
+  51 |       0 |
+  52 |       0 |
+  53 |       1 |
+</pre>
+</div>
+</div>
+<div class="section" id="results-pentium-m-clocked-at-1-5ghz">
+<h2>Results [Pentium M, clocked at 1,5GHz]</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="37%" />
+<col width="22%" />
+<col width="20%" />
+<col width="20%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">procedure</th>
+<th class="head">min [ms]</th>
+<th class="head">avg [ms]</th>
+<th class="head">max [ms]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>linear</td>
+<td>4501</td>
+<td>4517</td>
+<td>4543</td>
+</tr>
+<tr><td>linear-mtf</td>
+<td>4386</td>
+<td>4408</td>
+<td>4445</td>
+</tr>
+<tr><td>linear-mtf-incr</td>
+<td><strong>3923</strong></td>
+<td><strong>3941</strong></td>
+<td><strong>3963</strong></td>
+</tr>
+<tr><td>linear-unrolled</td>
+<td>4111</td>
+<td>4127</td>
+<td>4151</td>
+</tr>
+<tr><td>sse</td>
+<td>3951</td>
+<td>3970</td>
+<td>4005</td>
+</tr>
+<tr><td>binary</td>
+<td>4400</td>
+<td>4424</td>
+<td>4441</td>
+</tr>
+</tbody>
+</table>
+<p>As we see linear search is the worst, and binary search is not better.
+Unrolling loop as always helps, SSE instructions helps too.</p>
+<p>But the most surprising is that simple linear search with &quot;incremental&quot;
+move-to-front strategy beats all methods. As <a class="reference external" href="http://herpolhode.com/rob/">Rob Pike</a> said &quot;Fancy
+algorithms are slow when n is small, and n is usually small.&quot; Proved!</p>
+</div>
+</div>
+<div class="section" id="sources">
+<h1>Sources</h1>
+<p>Sample programs are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/sse-trie">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2013-09-30-sse-trie.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:59 GMT -->
+</html>

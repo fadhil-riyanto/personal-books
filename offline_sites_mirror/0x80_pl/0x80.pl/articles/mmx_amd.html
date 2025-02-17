@@ -1,0 +1,742 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/mmx_amd.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Rozszerzenia MMX firm AMD i Cyrix</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="rozszerzenia-mmx-firm-amd-i-cyrix">
+<h1 class="title">Rozszerzenia MMX firm AMD i Cyrix</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">31.01.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">5.07.2007</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wprowadzenie" id="toc-entry-1">Wprowadzenie</a></li>
+<li><a class="reference internal" href="#rozszerzenia-amd" id="toc-entry-2">Rozszerzenia AMD</a><ul>
+<li><a class="reference internal" href="#pmaxub-pminub" id="toc-entry-3">PMAXUB/PMINUB</a></li>
+<li><a class="reference internal" href="#maxsw-pminsw" id="toc-entry-4">MAXSW/PMINSW</a></li>
+<li><a class="reference internal" href="#pavgusb" id="toc-entry-5">PAVGUSB</a></li>
+<li><a class="reference internal" href="#pextrw" id="toc-entry-6">PEXTRW</a></li>
+<li><a class="reference internal" href="#pinsrw" id="toc-entry-7">PINSRW</a></li>
+<li><a class="reference internal" href="#pmovmskb" id="toc-entry-8">PMOVMSKB</a></li>
+<li><a class="reference internal" href="#maskmovq" id="toc-entry-9">MASKMOVQ</a></li>
+<li><a class="reference internal" href="#psadbw" id="toc-entry-10">PSADBW</a></li>
+<li><a class="reference internal" href="#pshufw" id="toc-entry-11">PSHUFW</a></li>
+<li><a class="reference internal" href="#pmuluhw" id="toc-entry-12">PMULUHW</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#rozszerzenia-cyrix" id="toc-entry-13">Rozszerzenia Cyrix</a><ul>
+<li><a class="reference internal" href="#pdistub" id="toc-entry-14">PDISTUB</a></li>
+<li><a class="reference internal" href="#pmagw" id="toc-entry-15">PMAGW</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wprowadzenie">
+<h1>Wprowadzenie</h1>
+<p>Główni konkurenci <a class="reference external" href="http://www.intel.com/">Intela</a>, czyli <a class="reference external" href="http://www.amd.com/">AMD</a> i Cyrix, podczas projektowania
+swoich implementacji MMX ruszyli głową i wprowadzili kilka rozszerzeń w
+stosunku do oryginalnego zestawu instrukcji. Okazały się na tyle
+interesujące i przydatne, że Intel wprowadził je do zestawu instrukcji
+wraz z SSE.</p>
+<p>Artykuł powstał, by pokazać co stracili posiadacze starych procesorów
+Pentium MMX.</p>
+</div>
+<div class="section" id="rozszerzenia-amd">
+<h1>Rozszerzenia AMD</h1>
+<div class="section" id="pmaxub-pminub">
+<h2>PMAXUB/PMINUB</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PMAXUB mmreg1, mmreg2/mem64
+PMINUB mmreg1, mmreg2/mem64
+</pre>
+<p><strong>Działanie</strong> (pokazane dla <tt class="docutils literal">PMAXUB</tt>):</p>
+<pre class="literal-block">
+mmreg1[ 0.. 7] = (mmreg1[ 0.. 7] &gt; mmreg2/mem64[ 0.. 7]) ? mmreg1[ 0.. 7] : mmreg2/mem64[ 0.. 7]
+mmreg1[ 8..15] = (mmreg1[ 8..15] &gt; mmreg2/mem64[ 8..15]) ? mmreg1[ 8..15] : mmreg2/mem64[ 8..15]
+
+... ; itd.
+
+mmreg1[56..63] = (mmreg1[56..63] &gt; mmreg2/mem64[56..63]) ? mmreg1[56..63] : mmreg2/mem64[56..63]
+</pre>
+<p><strong>Implementacja PMAXUB</strong>:</p>
+<pre class="literal-block">
+; mmreg1 = mm0   ; np. mm0 = |10|50|60|80|...
+; mmreg2 = mm1   ;     mm1 = | 5|80|60|90|...
+; niszczy: mm2, mm3
+
+pxor    mm3, mm3 ; mm3 = packed_byte(0x00)
+movq    mm2, mm1 ; ***
+
+psubusb mm2, mm0 ; mm2 = | 0|30| 0|10|...
+pcmpeq  mm2, mm3 ; mm2 = |ff|00|ff|00|...
+
+pand    mm0, mm2 ; mm0 = |10| 0|60| 0|...
+pandn   mm2, mm1 ; mm2 = | 0|80| 0|90|...
+
+por     mm0, mm2 ; mm0 = |10|80|60|90|...
+</pre>
+<p>Implementacja <tt class="docutils literal">PMINUB</tt> jest w zasadzie taka sama,
+wystarczy linijkę oznaczoną <tt class="docutils literal">***</tt> zamienić na <tt class="docutils literal">movq mm2, mm0</tt>.</p>
+<p>W analogiczny sposób można operować na słowach i dwusłowach bez znaku.</p>
+<p>Czytając ostatnio <strong>Assembly Programming Journal #5</strong> zwróciłem uwagę na
+kod Chrisa Dragana wyznaczania minimum i maksimum liczb bez znaku. Oto
+zastosowany algorytm:</p>
+<pre class="literal-block">
+int max(int a, int b)
+{
+ int diff_max;
+
+ if ((diff_max=b-a) &lt; 0) // odejmowanie z nasyceniem
+        diff_max = 0;
+
+ return a + diff_max;
+}
+</pre>
+<p>(W podobny sposób można obliczyć minimum).</p>
+<p>Odejmowanie z nasyceniem jest realizowane przez MMX w jednej instrukcji,
+wobec czego kod rozkazu <tt class="docutils literal">PMAXUB</tt> przedstawia się
+następująco:</p>
+<pre class="literal-block">
+;              a = mm0 = |10|50|60|80|...
+;              b = mm1 = | 5|80|60|90|...
+
+psubusb mm1, mm0 ; mm1 = | 0|30| 0|10|
+paddb   mm0, mm1 ; mm0 = |10|30|60|90|
+</pre>
+</div>
+<div class="section" id="maxsw-pminsw">
+<h2>MAXSW/PMINSW</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PMAXSW mmreg1, mmreg2/mem64
+PMINSW mmreg1, mmreg2/mem64
+</pre>
+<p><strong>Działanie</strong> (operacje na packed_word):</p>
+<pre class="literal-block">
+; min
+mmreg1 = (mmreg1 &lt; mmreg2/mem64) ? mmreg1 : mmreg2/mem64
+
+; max
+mmreg1 = (mmreg1 &gt; mmreg2/mem64) ? mmreg1 : mmreg2/mem64
+</pre>
+<p><strong>Implementacja PMAXSW</strong>:</p>
+<pre class="literal-block">
+; mmreg1 = mm0
+; mmreg2 = mm1
+
+movq    mm2, mm0
+pcmpgtw mm2, mm1 ; mm2 = (mm0 &gt; mm1) ? 0xffff : 0x0000 ***
+
+pand    mm0, mm2 ; mm0 = (mm0 &gt; mm1) ?    mm0 : 0x0000
+pandn   mm2, mm1 ; mm0 = (mm1 &gt; mm0) ?    mm1 : 0x0000
+por     mm0, mm1
+</pre>
+<p>Wystarczy zamienić rozkaz w linijce oznaczonej <tt class="docutils literal">***</tt> na <tt class="docutils literal">pcmpgtw
+mm2, mm0</tt>, by powyższy kod symulował działanie rozkazu <tt class="docutils literal">PMINSW</tt>.</p>
+</div>
+<div class="section" id="pavgusb">
+<h2>PAVGUSB</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+pavgusb mmreg1, mmereg2/mem
+</pre>
+<p><strong>Opis (operacje na packed_byte)</strong>:</p>
+<pre class="literal-block">
+mmreg1 = (mmreg1 + mmreg2 + 1) &gt;&gt; 1
+</pre>
+<p><strong>Implementacja 1</strong>:</p>
+<p>Ponieważ średnia jest liczona z trzech, a nie dwóch argumentów,
+najrozsądniej jest rozszerzyć zakresy liczb. Unika się wtedy wielu
+problemów z wykrywaniem przekroczenia zakresu.</p>
+<pre class="literal-block">
+; mmereg1 = mm0
+; mmereg2 = mm1
+
+pxor mm4, mm4      ; mm5 = packed_word(0x0000)
+
+movq mm2, mm0
+movq mm3, mm1
+
+punpcklbw mm0, mm4 ;
+punpckhbw mm2, mm4 ; mm2:mm0 = extend_bw(mm0)
+
+punpcklbw mm1, mm4 ;
+punpckhbw mm3, mm4 ; mm3:mm1 = extend_bw(mm1)
+
+pcmpeqw   mm5, mm5 ; mm5 = packed_word(0xffff)
+psubw     mm4, mm5 ; mm3 = packed_word(0x0001)
+
+paddw     mm0, mm1 ; mm2:mm0 += mm3:mm1
+paddw     mm2, mm3 ;
+
+paddw     mm0, mm4 ; mm2:mm0 += 1
+paddw     mm2, mm4 ;
+
+psrlw     mm0, 1   ; /2
+psrlw     mm2, 1   ; /2
+
+packuswb  mm0, mm2 ; mm0 = packed_uw2ub(mm2:mm0)
+</pre>
+<p><strong>Implementacja 2</strong> [5.07.2007]:</p>
+<p>Lepszy sposób realizacji instrukcji <tt class="docutils literal">pavgb</tt> (czy <tt class="docutils literal">pavgusb</tt>),
+który równolegle wykonuje działanie na bajtach bez znaku:</p>
+<pre class="literal-block">
+mm1[i] = (mm1[i] + mm2[i] + 1) &gt;&gt; 1, i=0..7
+</pre>
+<p>Metodę pokażę na przykładzie dla jednego bajtu:</p>
+<pre class="literal-block">
+-- a, b - argumenty (bajty)
+
+a1 = (a &amp; 0xfe) &gt;&gt; 1     -- a1, b1 - starsze 7 bitów
+b1 = (b &amp; 0xfe) &gt;&gt; 1
+
+cc = (a | b) &amp; 0x01      -- bit przeniesienia z pozycji 0
+                         -- dla działania a + b + 1
+
+avg = a1 + a2 + cc       -- średnia (a + b + 1) &gt;&gt; 1
+</pre>
+<p>Jedna bardzo miła cecha tej metody, to także możliwość zastosowania
+jej w zwykłym, nie-MMX-owym kodzie.  Np.:</p>
+<pre class="literal-block">
+; eax, ebx - wektory 4 bajtów
+
+movl    %eax, %ecx
+orl     %ebx, %ecx
+andl    $0x01010101, %ecx       ; ecx = cc
+
+shrl    $1, %eax
+andl    $0x7f7f7f7f, %eax       ; eax = a1
+
+shrl    $1, %ebx
+andl    $0x7f7f7f7f, %ebx       ; ebx = b1
+
+addl    %ebx, %eax
+addl    %ecx, %eax              ; eax = avg
+</pre>
+<p>Z MMX-em będzie tylko taka różnica, że trzeba maski bitowe albo mieć
+załadowane do jakiś rejestrów, albo odczytywać z pamięci.</p>
+</div>
+<div class="section" id="pextrw">
+<h2>PEXTRW</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PEXTRW reg32, mmreg, imm8
+</pre>
+<p><strong>Opis</strong>:</p>
+<pre class="literal-block">
+index = imm[1:0]*16
+
+reg32[31:16] = 0
+reg32[15: 0] = mmreg[index+15:index]
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<pre class="literal-block">
+; reg32 = eax
+; mmreg = mm0
+; imm8  = ?
+
+index equ (imm8 &amp; 0x3)*16
+
+psrlq mm0, index      ; umieść wymagane słowo na pozycji 0
+
+movd  eax, mm0        ; przepisz do rejestru
+and   eax, 0x0000ffff ; i wyzeruj starsze słowo
+</pre>
+</div>
+<div class="section" id="pinsrw">
+<h2>PINSRW</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PINSRW mmreg, reg32, imm8
+</pre>
+<p><strong>Opis</strong>:</p>
+<pre class="literal-block">
+index = imm8[1:0]*16
+
+mmreg[index+15:index] = reg32[15:0]
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<pre class="literal-block">
+; mmreg = mm0
+; reg32 = eax
+; imm8  = ?
+
+index equ (imm8 &amp; 0x3)*16 ; np. index=2*16=32
+
+movq    mm1, mm0
+
+pcmpeqw mm0, mm0   ; mm1 = |ffff|ffff|ffff|ffff|
+psrlq   mm0, 3*16  ; mm1 = |0000|0000|0000|ffff|
+
+movd    mm2, eax   ; mm2 = |0000|0000|xxxx|aaaa|
+pand    mm2, mm0   ; mm2 = |0000|0000|0000|aaaa|
+
+psllq   mm2, index ; mm2 = |0000|aaaa|0000|0000|
+psll1   mm0, index ; mm0 = |0000|ffff|0000|0000|
+
+pandn   mm0, mm1   ; mm0 = (not mm0) and mm2
+por     mm0, mm2
+</pre>
+<p>Jeśli maska <tt class="docutils literal">|0000|0000|0000|ffff|</tt> jest w pamięci i dodatkowo
+założymy, że starsze słowo <tt class="docutils literal">reg32</tt> jest wyzerowane, to kod będzie
+krótszy.</p>
+<pre class="literal-block">
+movq    mm1, mm0
+movq    mm0, [mmx_mask]
+
+movd    mm2, eax   ; mm2 = |0000|0000|xxxx|aaaa|
+psllq   mm2, index ; mm2 = |0000|aaaa|0000|0000|
+psll1   mm0, index ; mm0 = |0000|ffff|0000|0000|
+pandn   mm0, mm1   ; mm0 = (not mm0) and mm2
+por     mm0, mm2
+</pre>
+</div>
+<div class="section" id="pmovmskb">
+<h2>PMOVMSKB</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PMOVMSKB reg32, mmreg
+</pre>
+<p><strong>Opis:</strong> z najstarszych bitów każdego bajtu tworzy jeden bajt</p>
+<pre class="literal-block">
+reg32[31:8] = 0
+reg32[7] = mmreg[63]
+reg32[6] = mmreg[55]
+reg32[5] = mmreg[47]
+reg32[4] = mmreg[39]
+reg32[3] = mmreg[31]
+reg32[2] = mmreg[23]
+reg32[1] = mmreg[15]
+reg32[0] = mmreg[7]
+</pre>
+<p><strong>Implementacja #1</strong>:</p>
+<pre class="literal-block">
+; mmreg = mm0
+; reg32 = eax
+; mask  = packed_byte(0x01)
+
+                   ; mm0 = axxxxxxx bxxxxxxx cxxxxxxx dxxxxxxx exxxxxxx fxxxxxxx gxxxxxxx hxxxxxxx
+psrlq mm0, 7       ;
+pand  mm0, [maxsk] ; mm0 = _______a _______b _______c _______d _______e _______f _______g _______h
+
+; A = (A &gt;&gt;  7) | A
+movq  mm1, mm0     ; mm1 = _______a _______b _______c _______d _______e _______f _______g _______h
+psrlq mm0, 7       ; mm0 = ________ ______a_ ______b_ ______c_ ______d_ ______e_ ______f_ ______g_
+por   mm0, mm1     ; mm0 = _______a ______ab ______bc ______cd ______de ______ef ______fg ______gh
+
+; A = (A &gt;&gt; 14) | A
+movq  mm1, mm0     ; mm1 = _______a ______ab ______bc ______cd ______de ______ef ______fg ______gh
+psrlq mm0, 14      ; mm0 = ________ ________ _____a__ ____ab__ ____bc__ ____cd__ ____de__ ____ef__
+por   mm0, mm1     ; mm0 = _______a ______ab _____abc ____abcd ____bcde ____cdef ____defg ____efgh
+
+; A = (A &gt;&gt; 28) | A
+movq  mm1, mm0     ; mm1 = _______a ______ab _____abc ____abcd ____bcde ____cdef ____defg ____efgh
+psrlq mm0, 28      ; mm0 = ________ ________ ________ ________ ___a____ __ab____ _abc____ abcd____
+por   mm0, mm1     ; mm0 = _______a ______ab _____abc ____abcd ___abcde __abcdef _abcdefg **abcdefgh**
+
+movd  eax, mm0
+and   eax, 0x000000ff
+</pre>
+<p><strong>Implementacja #2</strong>:</p>
+<pre class="literal-block">
+segment .text
+
+psrlq   mm0, 7       ; przesuń MSB na pozycję 0
+pand    mm0, [mask]  ; pozostaw tylko bity 0
+
+                     ; mm0 =  | _______a _______b | _______c _______d | _______e _______f | _______g _______h |
+pmaddwd mm0, [const]
+
+; starsze dwusłowo:
+; A   = | ________ ________ | _______b _______a | * ((1 &lt;&lt; 1) + (1 &lt;&lt;  8)) = | ________ _______b | ______ba ______a_ |
+; B   = | ________ ________ | _______d _______c | * ((1 &lt;&lt; 3) + (1 &lt;&lt; 10)) = | ________ _____d__ | ____dc__ ____c___ |
+;
+; A+B = | ________ _____d_b | ____**dcba** ____c_a_ |
+;
+; młodsze słowo analogicznie
+
+movq     mm1, mm0    ; mm1 = | ________ _____d_b | ____dcba ____c_a_ | ________ _____h_f | ____hgfe ____g_e_ |
+
+psrlq    mm0, 4      ; mm0 = | ________ ________ | _____d_b ____dcba | ____c_a_ ________ | _h_f____ hgfe____ |
+psrlq    mm1, 40     ; mm1 = | ________ ________ | ________ ________ | ________ ________ | _____d_b ____dcba |
+por      mm0, mm1    ; mm0 = | ________ ________ | ________ ________ | ________ ________ | _h_f_d_b hgfedcba |
+
+movd     eax, mm0          ; eax = | _h_f_d_b hgfedcba |
+and      eax, 0x000000ff   ; eax = | ________ hgfedcba |
+
+segment .data
+
+const dw ((1 &lt;&lt; 1) + (1 &lt;&lt; 8))
+      dw ((1 &lt;&lt; 3) + (1 &lt;&lt; 10))
+
+      dw ((1 &lt;&lt; 1) + (1 &lt;&lt; 8))
+      dw ((1 &lt;&lt; 3) + (1 &lt;&lt; 10))
+
+mask  dd 0101010h, 0101010h
+</pre>
+</div>
+<div class="section" id="maskmovq">
+<h2>MASKMOVQ</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+MASKMOVQ mmreg1, mmreg2 (edi)
+</pre>
+<p><strong>Opis:</strong> przypisanie warunkowe bajtów</p>
+<pre class="literal-block">
+memory[edi][63:56] = mmreg2[63] ? mmreg1[63:56] : memory[edi][63:56]
+memory[edi][55:48] = mmreg2[55] ? mmreg1[55:48] : memory[edi][55:48]
+memory[edi][47:40] = mmreg2[47] ? mmreg1[47:40] : memory[edi][47:40]
+memory[edi][39:32] = mmreg2[39] ? mmreg1[39:32] : memory[edi][39:32]
+memory[edi][31:24] = mmreg2[31] ? mmreg1[31:24] : memory[edi][31:24]
+memory[edi][23:16] = mmreg2[23] ? mmreg1[23:16] : memory[edi][23:16]
+memory[edi][15: 8] = mmreg2[15] ? mmreg1[15: 8] : memory[edi][15: 8]
+memory[edi][ 7: 0] = mmreg2[7]  ? mmreg1[ 7: 0] : memory[edi][ 7: 0]
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<p>Jedyny istotny problem to wygenerowanie maski.</p>
+<pre class="literal-block">
+; mmreg1 = mm0
+; mmreg2 = mm1
+
+; wygenerowanie w mm3 packed_byte(0x80)
+pcmpeqw  mm3, mm3
+psllw    mm3, 8
+packsswb mm3, mm3
+
+; generacja maski dla mmreg1
+pand     mm1, mm3
+pcmpeqb  mm1, mm3
+
+; wykonanie warunku
+pand     mm0, mm3
+pandn    mm3, [edi]
+por      mm0, mm3
+
+; zapis do pamięci
+movq    [edi], mm0
+</pre>
+</div>
+<div class="section" id="psadbw">
+<h2>PSADBW</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PSADBW mmreg1, mmreg2
+</pre>
+<p><strong>Opis</strong>:</p>
+<pre class="literal-block">
+mmreg1[63:16] = 0
+mmreg1[15: 0] = abs(mmreg1[ 7: 0] - mmreg2[ 7: 0]) +
+                abs(mmreg1[15: 8] - mmreg2[15: 8]) +
+                abs(mmreg1[23:16] - mmreg2[23:16]) +
+                abs(mmreg1[31:24] - mmreg2[31:24]) +
+                abs(mmreg1[39:32] - mmreg2[39:32]) +
+                abs(mmreg1[47:40] - mmreg2[47:40]) +
+                abs(mmreg1[55:48] - mmreg2[55:48]) +
+                abs(mmreg1[63:56] - mmreg2[63:56])
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<p>Pierwszym krokiem jest policzenie modułów różnic dla każdego bajtu,
+następnie należy do siebie dodać każdy bajt (co jest chyba najbardziej
+czasochłonne).</p>
+<pre class="literal-block">
+; mmreg1 = mm0
+; mmreg1 = mm1
+
+; obliczenie modułu różnic (za Intel MMX Developers Guide)
+movq    mm2, mm0 ;
+psubusb mm0, mm1 ; tam gdzie różnica jest mniejsza od zera wynik jest zerem
+psubusb mm1, mm2 ;
+por     mm0, mm1 ; połączenie wyników: mm0 = abs(mm0-mm1)
+                 ; mm0 = |h|g|f|e|d|c|b|a|
+
+; rozszerzania zakresu liczb bez znaku z bajtu do słowa
+movq      mm1, mm0
+punpcklbw mm0, mm0 ; mm0 = |d|d|c|c|b|b|a|a|
+psrlw     mm0, 8   ; mm0 = |0|d|0|c|0|b|0|a| = |d|c|b|a|
+
+punpckhbw mm1, mm1 ; mm1 = |h|h|g|g|f|f|e|e|
+psrlw     mm1, 8   ; mm1 = |0|h|0|g|0|f|0|e| = |h|g|f|e|
+
+; sumowanie        ; mm0 = |   d    |   c    |   b    |   a    |
+paddw     mm0, mm1 ; mm0 = |   dh   |   cg   |   bf   |   ae   |
+
+movq      mm1, mm0
+psllq     mm1, 16  ; mm1 = |   cg   |   bf   |   ae   |    0   |
+paddw     mm0, mm1 ; mm0 = |  cdgh  |  bcfg  |  abef  |   ae   |
+
+movq      mm1, mm0
+psllq     mm1, 32  ; mm1 = |  abef  |   ae   |    0   |    0   |
+paddw     mm0, mm1 ; mm0 = |**abcdefgh**| ... reszta nieważna .... |
+
+psrlq     mm0, 48  ; przesuń najstarsze słowo na pozycję zero
+
+movd      eax, mm0
+</pre>
+</div>
+<div class="section" id="pshufw">
+<h2>PSHUFW</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PSHUFW mmreg1, mmreg2, imm8
+</pre>
+<p><strong>Opis:</strong> rozmieszczenie słów zgodnie z podanym schematem</p>
+<pre class="literal-block">
+index3 = imm8[7:6] * 16
+index2 = imm8[5:4] * 16
+index1 = imm8[3:2] * 16
+index0 = imm8[1:0] * 16
+
+temp   = mmreg2
+
+mmreg1[63:48] = temp[index3+15:index3]
+mmreg1[47:32] = temp[index2+15:index2]
+mmreg1[31:16] = temp[index1+15:index1]
+mmreg1[15:0]  = temp[index0+15:index0]
+</pre>
+<p><strong>Przykład</strong>:</p>
+<pre class="literal-block">
+; mm0 = |d|c|b|a|
+
+pshuf mm1, mm0, 0xe3 ; 0xe3 = 11 10 00 11b
+                     ; nr0  = 3
+                     ; nr1  = 0
+                     ; nr2  = 2
+                     ; nr3  = 3
+
+                     ; mm1 = |d|c|a|d|
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<pre class="literal-block">
+; mmreg1 = mm1
+; mmreg2 = mm0
+
+index0 equ ((imm8 &gt;&gt; 0 &amp; 3*16 ; 16
+index1 equ ((imm8 &gt;&gt; 2 &amp; 3*16 ; 32
+index2 equ ((imm8 &gt;&gt; 4 &amp; 3*16 ; 48
+index3 equ ((imm8 &gt;&gt; 6 &amp; 3*16 ;  0
+
+                       ; mm0 = d c b a
+pxor    mm1, mm1       ; mm1 = 0 0 0 0
+pcmpeqb mm2, mm2       ; mm2 = f f f f
+psllq   mm2, 48        ; mm2 = f 0 0 0
+
+movq    mm3, mm0       ; mm3 = d c b a
+psllq   mm3, 48-index0 ; mm3 = b a 0 0
+pand    mm3, mm2       ; mm3 = b 0 0 0
+psrlq   mm3, 48        ; mm3 = 0 0 0 b
+por     mm1, mm3       ; mm1 = 0 0 0 b
+
+movq    mm3, mm0       ; mm3 = d c b a
+psllq   mm3, 48-index1 ; mm3 = c 0 0 0
+pand    mm3, mm2       ; mm3 = c 0 0 0
+psrlq   mm3, 32        ; mm3 = 0 0 c 0
+por     mm1, mm3       ; mm1 = 0 0 c b
+
+movq    mm3, mm0       ; mm3 = d c b a
+psllq   mm3, 48-index2 ; mm3 = d c b a
+pand    mm3, mm2       ; mm3 = d 0 0 0
+psrlq   mm3, 16        ; mm3 = 0 d 0 0
+por     mm1, mm3       ; mm1 = 0 d c b
+
+movq    mm3, mm0       ; mm3 = d c b a
+psllq   mm3, 48-index3 ; mm3 = a 0 0 0
+pand    mm3, mm2       ; mm3 = a 0 0 0
+por     mm1, mm3       ; mm1 = a d a b
+</pre>
+</div>
+<div class="section" id="pmuluhw">
+<h2>PMULUHW</h2>
+<p>Rozkaz ten jest podobny do <tt class="docutils literal">PMULHW</tt>, ale operuje na liczbach bez
+znaku. Więc dla argumentów z przedziału <tt class="docutils literal">0x0000</tt> do <tt class="docutils literal">0x7fff</tt>
+wyniki zwracane przez oba rozkazy będą takie same, dla pozostały będą się
+różnić. Ta cecha zostanie wykorzystana; otóż słowa <tt class="docutils literal">A</tt> i <tt class="docutils literal">B</tt>
+można zapisać jako:</p>
+<pre class="literal-block">
+a = A &amp; 0x7fff + A &amp; 0x8000 = lo(A) + msb(A) &lt;&lt; 15
+b = B &amp; 0x7fff + B &amp; 0x8000 = lo(B) + msb(B) &lt;&lt; 15
+</pre>
+<p>wtedy mnożenie ma postać:</p>
+<pre class="literal-block">
+a*b = lo(A)*lo(B) + lo(A)*(msb(B) &lt;&lt; 15) + lo(B)*(msb(A) &lt;&lt; 15) + (msb(A) &amp; msb(B)) &lt;&lt; 30
+</pre>
+<p>Rozkład znaczących bitów (<tt class="docutils literal">x</tt>) dla poszczególnych czynników jest następujący:</p>
+<pre class="literal-block">
+   starsze słowo   |    młodsze słowo
+---- ---- ---- ----|---- ---- ---- ----
+0000 xxxx xxxx xxxx|**x**xxx xxxx xxxx xxxx  lo(A)*lo(B)
+0xxx xxxx xxxx xxxx|**x**000 0000 0000 0000  lo(A)*(msb(B) &lt;&lt; 15)
+0xxx xxxx xxxx xxxx|**x**000 0000 0000 0000  lo(B)*(msb(A) &lt;&lt; 15)
+00x0 0000 0000 0000|0000 0000 0000 0000  (msb(A) &amp; msb(B)) &lt;&lt; 30
+</pre>
+<p>O tym czy młodsze słowo wpływa na starsze decydują pogrubione bity: tak więc
+faktycznie potrzebne jest najstarszy bit wyniku <tt class="docutils literal"><span class="pre">lo(A)*lo(B)</span></tt>, oraz
+najmłodsze <tt class="docutils literal">lo(A)</tt> i <tt class="docutils literal">lo(B)</tt>. Wyrażenie wyznaczające starsze
+słowo można zapisać w sposób następujący:</p>
+<pre class="literal-block">
+result  = lo(A)*lo(B) &gt;&gt; 30    # wyznaczone przez pmulhw
+tmp     = lo(A)*lo(B) &amp; 0xffff # wyznaczone przez pmullw
+tmp     = tmp &gt;&gt; 15
+
+if msb(B):
+        result += lo(A) &gt;&gt; 1
+        tmp    += lo(A) &gt;&gt; 15
+if msb(A):
+        result += lo(B) &gt;&gt; 1
+        tmp    += lo(B) &gt;&gt; 15
+if msb(A) &amp; msb(B):
+        result += 1 &lt;&lt; 14   # 0x4000
+
+result += tmp &gt;&gt; 1
+</pre>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+pmuluhw mmreg1, mmreg2/mem64
+</pre>
+<p><strong>Opis:</strong> (rozkaz działa na packed_word)</p>
+<pre class="literal-block">
+mmreg1 = ((unsigned)mmreg1 * (unsigned)mmreg2/mem64) &gt;&gt; 16
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<pre class="literal-block">
+; mm0 - mmreg1 (A)
+; mm1 - mmreg2 (B)
+
+movq mm2, mm0
+movq mm3, mm1
+
+pand mm0, [pw_0x7ffff] ; mm0 = lo(A)
+pand mm1, [pw_0x7ffff] ; mm1 = lo(B)
+pand mm2, [pw_0x80000] ; mm2 = (msb(A) &lt;&lt; 15)
+pand mm3, [pw_0x80000] ; mm3 = (msb(B) &lt;&lt; 15)
+
+; result  = lo(A)*lo(B) &gt;&gt; 30    # wyznaczone przez pmulhw
+; tmp     = lo(A)*lo(B) &amp; 0xffff # wyznaczone przez pmullw
+
+movq   mm7, mm0          ; zachowaj lo(A)
+movq   mm6, mm1          ; i lo(B)
+pmulhw mm0, mm1          ; mm0 = result
+pmullw mm1, mm7          ; mm1 = tmp &gt;&gt; 15
+psrlw  mm1, 15
+
+;if msb(B):
+;       result += lo(A) &gt;&gt; 1
+;       tmp    += lo(A) &gt;&gt; 15
+
+pcmpeqw mm3, [pw_0x8000] ; mm3[i] = msb(B[i]) ? 0xffff : 0x0000
+pand    mm7, mm3         ;
+
+psrlw   mm7, 1           ; result += lo(A) &gt;&gt; 1
+paddw   mm0, mm7
+psrlw   mm7, 14          ; tmp    += lo(A) &gt;&gt; 15
+paddw   mm1, mm7
+
+;if msb(A):
+;       result += lo(B) &gt;&gt; 1
+;       tmp    += lo(B) &gt;&gt; 15
+
+pcmpeqw mm2, [pw_0x8000] ; mm2[i] = msb(A[i]) ? 0xffff : 0x0000
+pand    mm6, mm2         ;
+
+psrlw   mm6, 1           ; result += lo(B) &gt;&gt; 1
+paddw   mm0, mm6
+psrlw   mm6, 14          ; tmp    += lo(B) &gt;&gt; 15
+paddw   mm1, mm6
+
+;if msb(A) &amp; msb(B):
+;       result += 1 &lt;&lt; 14   # 0x4000
+
+pand    mm2, mm3
+pand    mm2, [pw_0x4000]
+paddw   mm0, mm2
+
+;result += tmp &gt;&gt; 1
+
+psrlw   mm1, 1
+paddw   mm0, mm1
+</pre>
+</div>
+</div>
+<div class="section" id="rozszerzenia-cyrix">
+<h1>Rozszerzenia Cyrix</h1>
+<p>Zaprezentowane rozkazy w procesorach Cyrix używają tzw. <em>implied
+registers</em> &mdash; numer rejestru nie jest żadnym z podanych, lecz jest w jakiś
+sposób obliczany (nie mam dokumentacji, więc nie potrafię nic więcej
+powiedzieć).</p>
+<div class="section" id="pdistub">
+<h2>PDISTUB</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PDISTUB mmreg1, mmreg2
+</pre>
+<p><strong>Opis:</strong> (rozkaz operuje na packed_byte)</p>
+<pre class="literal-block">
+mmreg1 = abs(mmreg1-mmreg2)
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<pre class="literal-block">
+; mmreg1 = mm0
+; mmreg2 = mm1
+
+movq    mm2, mm0
+psubusb mm2, mm0 ; zostają tylko różnice większe od zera
+psubusb mm0, mm1 ;
+</pre>
+</div>
+<div class="section" id="pmagw">
+<h2>PMAGW</h2>
+<p><strong>Składnia</strong>:</p>
+<pre class="literal-block">
+PMAGW mmreg1, mmreg2/mem64
+</pre>
+<p><strong>Opis:</strong> (rozkaz operuje na packed_word ze znakiem)</p>
+<pre class="literal-block">
+mmreg1 = (abs(mmreg1) &gt; abs(mmreg2)) ? mmreg1 : mmreg2
+</pre>
+<p><strong>Implementacja</strong>:</p>
+<pre class="literal-block">
+; mmreg1 = mm0
+; mmreg2 = mm1
+
+movq  mm2, mm0   ;
+movq  mm4, mm0   ;
+psraw mm4, 15    ;
+pxor  mm2, mm4   ;
+psubw mm2, mm4   ; mm2 = abs(mm0)
+
+movq  mm3, mm1   ;
+movq  mm4, mm1   ;
+psraw mm4, 15    ;
+pxor  mm3, mm4   ;
+psubw mm3, mm4   ; mm3 = abs(mm1)
+
+pcmpgtw mm2, mm3 ; mm2 = (abs(mm0) &gt; abs(mm1)) ? 0xffff : 0x0000;
+
+pand    mm0, mm2 ; zamaskuj słowa w mm0
+pandn   mm2, mm1 ; i mm1
+por     mm0, mm2 ; połącz
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/mmx_amd.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

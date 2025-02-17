@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/log2.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Oszacowanie log2</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="oszacowanie-log2">
+<h1 class="title">Oszacowanie log2</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">10.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">14.12.2003</td>
+</tr>
+</tbody>
+</table>
+<div class="section" id="czesc-calkowita-log-sub-2-sub">
+<h1>Część całkowita <span class="math">log<sub>2</sub></span></h1>
+<p>Wartość liczby zmiennoprzecinkowej jest liczona wg wzoru:</p>
+<p><span class="cmath"><i>x</i> =  &minus; 1<sup>S</sup> &sdot; (1 + <i>mantissa</i>) &sdot; 2<sup><i>exponent</i> + <i>bias</i></sup></span></p>
+<p>Część całkowita <span class="math">log<sub>2</sub>(<i>x</i>)</span> z tej liczby to dokładnie
+<span class="math"><i>exponent</i> &minus; <i>bias</i></span>.</p>
+<pre class="literal-block">
+; eax - liczba o pojedynczej precyzji (float)
+
+and eax, 0x7fffffff ; zerowanie bitu znaku
+shr eax, 23         ; |0000 0000|0000 0000|0000 0000|exp+bias |
+sub  al, 127        ; |0000 0000|0000 0000|0000 0000|exponent |
+</pre>
+<p>To powinno wystarczyć do większości zastosowań i jak widać kod jest bardzo
+prosty.</p>
+</div>
+<div class="section" id="aproksymacja-log-sub-2-sub">
+<h1>Aproksymacja <span class="math">log<sub>2</sub></span></h1>
+<p>Znormalizowana mantysa należy do przedziału <span class="math">[1..2)</span> (dokładnie
+<span class="math">[1..8388607/8388608)</span>). Poniżej przedstawiono wykresy funkcji <span class="math"><i>x</i> &minus; 1</span>
+(kolor czerwony) i <span class="math">log<sub>2</sub>(<i>x</i>)</span> (kolor niebieski), dla <span class="math"><i>x</i><i>in</i>[1..2)</span>.</p>
+<img alt="wykres funkcji log2x i x-1 dla x=1..2" class="align-center" src="img/log2.gif" />
+<p>Jak widać w tym zakresie funkcja <span class="math">log<sub>2</sub>(<i>x</i>)</span> jest prawie liniowa, można
+więc aproksymować ją wartością <em>mantissa</em>. Ze wzoru można obliczyć
+wartość <span class="math">1.0 + <i>mantissa</i></span>, gdy zostanie wyzerowany wykładnik:</p>
+<pre class="literal-block">
+; eax - liczba o pojedynczej precyzji (float)
+
+bias equ 127
+
+and eax, 0x7fffff       ; wyzeruj wykładnik i bit znaku
+or  eax, (0+bias) &lt;&lt; 23 ; ustaw nowy wykładnik (0x3f800000)
+</pre>
+<p>Maksymalna różnica (błąd bezwzględny) pomiędzy <span class="math">log<sub>2</sub>(<i>x</i>) &minus; (<i>x</i> &minus; 1)</span>
+w przedziale <span class="math">[1, 2]</span> to mniej więcej <span class="math">0.086</span>. Błąd bezwzględny można
+zmniejszyć o połowę, gdy użyta zostanie prosta o równaniu <span class="math"><i>x</i> &minus; 0.957</span>.</p>
+<pre class="literal-block">
+segment .data
+
+temp dd 0              ; bufor dla operacji FPU
+p    dd -128.0 + 0.043 ; poprawka
+
+segment .text
+; eax - liczba o pojedynczej precyzji (float)
+
+and eax, 0x7fffff       ; wyzeruj wykładnik i bit znaku
+mov ebx, eax
+
+shr eax, 23             ;
+sub  al, 127            ; eax = exponent
+
+and ebx, 0x7fffff       ;
+or  ebx, 0x3f8000       ; ebx = 1.0+mantissa
+
+mov   [temp], eax
+fistp [temp]            ; st0  = exponent
+
+mov   [temp], ebx
+fadd  [temp]            ; st0 += 1.0+mantissa
+fadd  [p]               ; st0 += p
+
+fstp  [temp]            ; temp = st0
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/log2.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:40 GMT -->
+</html>

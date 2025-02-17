@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-03-22-cpp-bitset-vs-byteset.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>C++ bitset vs array</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="c-bitset-vs-array">
+<h1 class="title">C++ bitset vs array</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-03-22</td>
+</tr>
+</tbody>
+</table>
+<p>The C++ bitset conserves a memory, but at cost of speed access. The bitset must
+be slower than a set represented as a plain old array, at least when sets
+are small (say a few hundred elements).</p>
+<p>Lets look at this simple functions:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// set_test.cpp
+</span><span class="w">
+</span><span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;stdint.h&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;bitset&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">128</span><span class="p">;</span><span class="w">
+
+</span><span class="k">typedef</span><span class="w"> </span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte_set</span><span class="p">[</span><span class="n">size</span><span class="p">];</span><span class="w">
+
+</span><span class="kt">bool</span><span class="w"> </span><span class="nf">any_in_byteset</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="n">byte_set</span><span class="w"> </span><span class="n">set</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0u</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">set</span><span class="p">[</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">]])</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+
+</span><span class="k">typedef</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">bitset</span><span class="o">&lt;</span><span class="n">size</span><span class="o">&gt;</span><span class="w"> </span><span class="n">bit_set</span><span class="p">;</span><span class="w">
+
+</span><span class="kt">bool</span><span class="w"> </span><span class="nf">any_in_bitset</span><span class="p">(</span><span class="kt">uint8_t</span><span class="o">*</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="n">bit_set</span><span class="w"> </span><span class="n">set</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0u</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">size</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">set</span><span class="p">[</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">]])</span><span class="w">
+                        </span><span class="k">return</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">return</span><span class="w"> </span><span class="nb">false</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The file was compiled with <tt class="docutils literal">g++ <span class="pre">-std=c++11</span> <span class="pre">-O3</span> set_test.cpp</tt>; Assembly
+code of the core of <tt class="docutils literal">any_in_byteset</tt>:</p>
+<pre class="literal-block">
+28: 0f b6 10              movzbl (%eax),%edx
+2b: 83 c0 01              add    $0x1,%eax
+2e: 80 3c 11 00           cmpb   $0x0,(%ecx,%edx,1)
+32: 75 0c                 jne    40
+34: 39 d8                 cmp    %ebx,%eax
+36: 75 f0                 jne    28
+</pre>
+<p>Statement <tt class="docutils literal">if <span class="pre">(set[data[i]])</span> return true</tt> are lines 28, 2e and 32,
+i.e.: load from memory, compare and jump. Instructions 2b, 34 and 36
+handles the for loop.</p>
+<p>Now look at assembly code of <tt class="docutils literal">any_in_bitset</tt>:</p>
+<pre class="literal-block">
+5f: 0f b6 13              movzbl (%ebx),%edx
+62: b8 01 00 00 00        mov    $0x1,%eax
+67: 89 d1                 mov    %edx,%ecx
+69: 83 e1 1f              and    $0x1f,%ecx
+6c: c1 ea 05              shr    $0x5,%edx
+6f: d3 e0                 shl    %cl,%eax
+71: 85 44 94 18           test   %eax,0x18(%esp,%edx,4)
+75: 75 39                 jne    b0
+</pre>
+<p>All these instructions implements the if statement! Again, we have a load
+from memory (5f), but checking which bit is set requires much more work.
+The input (<tt class="docutils literal">edx</tt>) is split to the lower part &mdash; i.e. bit number (67, 6c) and
+the higher part &mdash; i.e. word index (6c). The last step is to check if a bit is
+set in a word &mdash; GCC used variable shift left (6f), but x86 has <tt class="docutils literal">BT</tt>
+instruction, so in the perfect code we would have two instructions less.</p>
+<p>However, as we see a simple access in the bitset is much more complicated
+than simple memory fetch from byteset. For small sets memory fetches are
+well cached and smaller number of instruction improves performance. For
+really large sets cache misses would kill performance, then bitset is
+much better choice.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-03-22-cpp-bitset-vs-byteset.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

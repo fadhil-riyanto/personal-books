@@ -1,0 +1,16 @@
+HTTrack3.49-5 launched on Mon, 17 Feb 2025 06:38:32 at https://eli.thegreenplace.net/
+(httrack https://eli.thegreenplace.net/ )
+
+Information, Warnings and Errors reported for this mirror:
+note:	the hts-log.txt file, and hts-cache folder, may contain sensitive information,
+	such as username/password authentication for websites mirrored in this project
+	do not share these files/folders if you want these information to remain private
+
+07:01:05	Warning: 	Retry after error -4 (No data (connection closed)) at link https://eli.thegreenplace.net/2014/04/02/dynamically-generating-python-test-cases (from https://eli.thegreenplace.net/archives/2014)
+07:01:07	Warning: 	Retry after error -4 (No data (connection closed)) at link https://eli.thegreenplace.net/2014/03/30/summary-of-reading-january-march-2014 (from https://eli.thegreenplace.net/archives/2014)
+07:49:32	Warning: 	File not parsed, looks like binary: https://eli.thegreenplace.net/images/2022/meerkat.webp
+08:14:50	Error: 	"Not Found" (404) at link https://eli.thegreenplace.net/tag/articles/ (from https://eli.thegreenplace.net/2009/04/28/my-articles-published-in-a-book)
+08:21:44	Error: 	"Not Found" (404) at link https://eli.thegreenplace.net/2008/08/23/integrating-the-platform-sdk-into-ms-visual-c-express/ (from https://eli.thegreenplace.net/2006/12/03/a-complete-c-development-environment-from-microsoft-free)
+
+HTTrack Website Copier/3.49-5 mirror complete in 1 hours 43 minutes 20 seconds : 3922 links scanned, 3917 files written (62700715 bytes overall), 2718 files updated [12978558 bytes received at 2093 bytes/sec], 47077152 bytes transferred using HTTP compression in 2718 files, ratio 24%, 1.0 requests per connection
+(2 errors, 3 warnings, 0 messages)

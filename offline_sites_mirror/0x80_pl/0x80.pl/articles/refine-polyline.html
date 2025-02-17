@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/refine-polyline.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:00 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Upraszczanie łamanej aproksymującej wykres funkcji</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="upraszczanie-lamanej-aproksymujacej-wykres-funkcji">
+<h1 class="title">Upraszczanie łamanej aproksymującej wykres funkcji</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">26.02.2007</td>
+</tr>
+</tbody>
+</table>
+<p>Jeden ze sposobów wykreślenia wykresów funkcji polega na dostatecznie
+gęstym próbkowaniu wartości funkcji &mdash; otrzymany w ten sposób ciąg
+punktów traktowany jest jako wierzchołki łamanej, którą już można w
+łatwy sposób wizualizować zarówno na urządzeniach rastrowych, jak
+i wektorowych (plotery).</p>
+<p>Powiedzmy, że uzyskaliśmy ciąg złożony z kilkuset lub kilku, albo
+nawet kilkudziesięciu tysięcy punktów.  Jednak na ogół będzie tak,
+że część tych punktów będzie współliniowa, może nie zawsze dokładnie,
+ale przynajmniej z jakimś niewielkim marginesem błędu.  Można więc
+część z punktów po prostu usunąć, co nie wpłynie znacząco na obraz,
+a nawet pozostanie niezauważone.</p>
+<p>Algorytm, który to wykonuje jest bardzo prosty.</p>
+<ul class="simple">
+<li>Dany jest ciąg punktów <span class="math">P<sub><i>i</i></sub></span> i punkt początkowy
+<span class="math">S = P<sub><i>j</i></sub></span> (początkowo <span class="math"><i>j</i> = 0</span>).</li>
+<li>Brany jest punkt <span class="math">E = P<sub><i>j</i> + <i>k</i></sub></span>, gdzie <span class="math"><i>k</i> = 2, 3, 4, &hellip;</span>.</li>
+<li>Wyznaczana jest prosta <span class="math">L</span> przechodząca przez punkty <span class="math">S, E</span>.</li>
+<li>Następnie wyznaczana jest maksymalna wartość <span class="math"><i>k</i></span> dla której
+wszystkie punkty z przedziału <span class="math"><i>j</i> + 1&hellip;<i>j</i> + <i>k</i> &minus; 1</span> są w odległości
+nie większej niż pewna stała <span class="math"><i>d</i><sub>max</sub></span>.</li>
+<li>Po wyznaczeniu krańcowej wartości, o ile <span class="math"><i>k</i> &ge; 2</span>, usuwane są
+wszystkie punkty z przedziału <span class="math"><i>j</i> + 1&hellip;<i>j</i> + <i>k</i> &minus; 1</span>; po czym
+<span class="math"><i>j</i> := <i>j</i> + 1</span>.</li>
+</ul>
+<p>Oczywiście zamiast usuwania punktów, można utworzyć nową listę,
+zawierającą punkty <span class="math">S</span>; wówczas w ostatnim kroku
+<span class="math"><i>j</i> := <i>j</i> + <i>k</i></span>.</p>
+<p><strong>Uwaga</strong>: dobrze jest stosować ten algorytm w przestrzeni widoku
+(ekranu), tj. dane powinny zostać przynajmniej przeskalowane do zadanej
+wysokości i szerokości widoku.</p>
+<p><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/refine_polyline.py">Implementacja w Pythonie</a>:</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">refine_polyline</span><span class="p">(</span><span class="n">points</span><span class="p">,</span> <span class="n">dmax</span><span class="p">):</span><span class="w">
+</span>    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">points</span><span class="p">)</span><span class="w">
+</span>    <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">:</span><span class="w">
+</span>        <span class="k">return</span> <span class="n">points</span><span class="w">
+
+</span>    <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span><span class="w">
+</span>    <span class="n">j</span> <span class="o">=</span> <span class="mi">0</span><span class="w">
+
+</span>    <span class="k">while</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span><span class="w">
+</span>        <span class="n">flat</span> <span class="o">=</span> <span class="kc">True</span><span class="w">
+</span>        <span class="n">k</span>    <span class="o">=</span> <span class="mi">2</span><span class="w">
+</span>        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">n</span><span class="o">-</span><span class="n">j</span><span class="p">):</span><span class="w">
+</span>            <span class="c1"># S</span><span class="w">
+</span>            <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w">
+
+</span>            <span class="c1"># E</span><span class="w">
+</span>            <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span> <span class="o">=</span> <span class="n">points</span><span class="p">[</span><span class="n">j</span><span class="o">+</span><span class="n">k</span><span class="p">]</span><span class="w">
+
+</span>            <span class="c1"># equation of line that passes through points S and E</span><span class="w">
+</span>            <span class="n">a</span> <span class="o">=</span> <span class="n">y2</span> <span class="o">-</span> <span class="n">y1</span><span class="w">
+</span>            <span class="n">b</span> <span class="o">=</span> <span class="n">x1</span> <span class="o">-</span> <span class="n">x2</span><span class="w">
+</span>            <span class="n">c</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">a</span><span class="o">*</span><span class="n">x1</span> <span class="o">+</span> <span class="n">b</span><span class="o">*</span><span class="n">y1</span><span class="p">)</span><span class="w">
+</span>            <span class="n">D</span> <span class="o">=</span> <span class="n">sqrt</span><span class="p">(</span><span class="n">a</span><span class="o">*</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="o">*</span><span class="n">b</span><span class="p">)</span><span class="w">
+
+</span>            <span class="c1"># Check if all vertices in range P[j+1..j+k-1]</span><span class="w">
+</span>            <span class="c1"># lie at distance not greater then dmax from</span><span class="w">
+</span>            <span class="c1"># the line</span><span class="w">
+</span>            <span class="n">flat</span> <span class="o">=</span> <span class="kc">True</span><span class="w">
+</span>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">xrange</span><span class="p">(</span><span class="n">j</span><span class="o">+</span><span class="mi">1</span><span class="p">,</span> <span class="n">j</span><span class="o">+</span><span class="n">k</span><span class="p">):</span><span class="w">
+</span>                <span class="k">if</span> <span class="nb">abs</span><span class="p">(</span><span class="n">a</span><span class="o">*</span><span class="n">points</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">b</span><span class="o">*</span><span class="n">points</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">c</span><span class="p">)</span><span class="o">/</span><span class="n">D</span> <span class="o">&gt;</span> <span class="n">dmax</span><span class="p">:</span><span class="w">
+</span>                    <span class="n">flat</span> <span class="o">=</span> <span class="kc">False</span><span class="w">
+</span>                    <span class="k">break</span><span class="w">
+
+</span>            <span class="k">if</span> <span class="n">flat</span><span class="p">:</span><span class="w">
+</span>                <span class="c1"># flat, try advance k</span><span class="w">
+</span>                <span class="k">continue</span><span class="w">
+</span>            <span class="k">else</span><span class="p">:</span><span class="w">
+</span>                <span class="c1"># not flat, use k from previous iteration and break</span><span class="w">
+</span>                <span class="n">k</span> <span class="o">=</span> <span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="w">
+</span>                <span class="k">break</span><span class="w">
+
+</span>        <span class="c1"># save point S</span><span class="w">
+</span>        <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">points</span><span class="p">[</span><span class="n">j</span><span class="p">])</span><span class="w">
+</span>        <span class="n">j</span> <span class="o">=</span> <span class="n">j</span> <span class="o">+</span> <span class="n">k</span><span class="w">
+</span>    <span class="c1">#while</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="n">result</span>
+</pre>
+<p>I przykładowy wynik (rasteryzacja: Inkscape) dla wykresu pewnej
+funkcji &mdash; zostało wzięte 1000 próbek, po uproszczeniu powyższym
+algorytmem: 114 (<span class="math"><i>d</i><sub>max</sub></span> rzędu 0.1 [w przestrzeni ekranu]).
+Nie powiem na którym obrazku jest mniej punktów.</p>
+<img alt="img/refine_polyline_high.png" src="img/refine_polyline_high.png" />
+<img alt="img/refine_polyline_low.png" src="img/refine_polyline_low.png" />
+<p>Źródła SVG obrazków:</p>
+<ul class="simple">
+<li><a class="reference external" href="img/refine_polyline_high.svg">refine_polyline_high.svg</a> (31,3kB) &mdash; 1000 punktów</li>
+<li><a class="reference external" href="img/refine_polyline_low.svg">refine_polyline_low.svg</a> (2,3kB) &mdash; 114 punktów</li>
+</ul>
+<hr class="docutils" />
+<p>Przedstawiona metoda zakłada, że dane są dokładne.  Aproksymowanie
+łamanej utworzonej z danych zakłóconych jest również możliwe, zobacz:
+<a class="reference external" href="http://www.jarno.demon.nl/polygon.htm">http://www.jarno.demon.nl/polygon.htm</a>.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/refine-polyline.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:04 GMT -->
+</html>

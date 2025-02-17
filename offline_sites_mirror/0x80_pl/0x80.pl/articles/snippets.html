@@ -1,0 +1,1226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/snippets.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:39 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Snippets</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="snippets">
+<h1 class="title">Snippets</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">3.03.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">7.09.2016 (<strong>Petr Kobalicek</strong> zauważył błąd w implementacji <tt class="docutils literal">paddb</tt>), 19.08.2008</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#normalizacja-wskaznika" id="toc-entry-1">Normalizacja wskaźnika</a></li>
+<li><a class="reference internal" href="#powielanie-bajtu" id="toc-entry-2">Powielanie bajtu</a><ul>
+<li><a class="reference internal" href="#x86" id="toc-entry-3">x86</a></li>
+<li><a class="reference internal" href="#mmx" id="toc-entry-4">MMX</a></li>
+<li><a class="reference internal" href="#sse" id="toc-entry-5">SSE</a></li>
+<li><a class="reference internal" href="#sse3" id="toc-entry-6">SSE3</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#wzorzec-bitowy-na-maske" id="toc-entry-7">Wzorzec bitowy na maskę</a></li>
+<li><a class="reference internal" href="#transpozycja-bitow" id="toc-entry-8">Transpozycja bitów</a></li>
+<li><a class="reference internal" href="#odpowiedniki-rozkazow-bt-btc-bts-i-btr" id="toc-entry-9">Odpowiedniki rozkazów BT, BTC, BTS i BTR</a></li>
+<li><a class="reference internal" href="#odpowiednik-rozkazu-bswap" id="toc-entry-10">Odpowiednik rozkazu BSWAP</a></li>
+<li><a class="reference internal" href="#odpowiedniki-rozkazow-bsf-i-bsr" id="toc-entry-11">Odpowiedniki rozkazów BSF i BSR</a></li>
+<li><a class="reference internal" href="#konwersja-float-na-int" id="toc-entry-12">Konwersja float na int</a></li>
+<li><a class="reference internal" href="#obrot-punktu-2d-fpu" id="toc-entry-13">Obrót punktu 2D (FPU)</a></li>
+<li><a class="reference internal" href="#cxchg-conditional-xchg-x86" id="toc-entry-14">cxchg &mdash; Conditional XCHG (x86)</a></li>
+<li><a class="reference internal" href="#nswap-nibble-swap-x86-mmx" id="toc-entry-15">nswap &mdash; Nibble Swap (x86, MMX)</a></li>
+<li><a class="reference internal" href="#generacja-maski" id="toc-entry-16">Generacja maski</a></li>
+<li><a class="reference internal" href="#mnozenie-rownolegle-x86" id="toc-entry-17">Mnożenie równoległe (x86)</a></li>
+<li><a class="reference internal" href="#wersja-x86-rozkazu-paddb" id="toc-entry-18">Wersja x86 rozkazu paddb</a></li>
+<li><a class="reference internal" href="#stricmp" id="toc-entry-19"><tt class="docutils literal">stricmp</tt></a></li>
+<li><a class="reference internal" href="#population-count" id="toc-entry-20">Population Count</a><ul>
+<li><a class="reference internal" href="#x86-naiwne-podejscie" id="toc-entry-21">x86 &mdash; naiwne podejście</a></li>
+<li><a class="reference internal" href="#rozkazy-ssse3-oraz-tablice" id="toc-entry-22">rozkazy SSSE3 oraz tablice</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#implementacja-funkcji-modf-fpu" id="toc-entry-23">Implementacja funkcji modf() (FPU)</a></li>
+<li><a class="reference internal" href="#implementacja-funkcji-pow-x-y-fpu" id="toc-entry-24">Implementacja funkcji <tt class="docutils literal">pow(x, y)</tt> (FPU)</a></li>
+<li><a class="reference internal" href="#min-max-cmov" id="toc-entry-25">min/max (cmov)</a></li>
+<li><a class="reference internal" href="#implementacja-funkcji-intpow-double-int" id="toc-entry-26">Implementacja funkcji intpow(double, int)</a></li>
+<li><a class="reference internal" href="#wyswietlanie-liczb-floating-point-fpu" id="toc-entry-27">Wyświetlanie liczb floating-point (FPU)</a></li>
+<li><a class="reference internal" href="#extract-bit-string" id="toc-entry-28">Extract Bit String</a></li>
+<li><a class="reference internal" href="#mnozenie-wektora-4x1-przez-macierz-4x4-fpu" id="toc-entry-29">Mnożenie wektora 4x1 przez macierz 4x4 (FPU)</a></li>
+<li><a class="reference internal" href="#x86-rownolegle-tworzenie-maski-dla-niezerowych-bajtow-5-07-2007" id="toc-entry-30">x86: równoległe tworzenie maski dla niezerowych bajtów (5.07.2007)</a></li>
+<li><a class="reference internal" href="#tworzenie-maski-z-ustawionymi-wyzerowanymi-bitami-na-mlodszych-pozycjach-19-08-2007" id="toc-entry-31">Tworzenie maski z ustawionymi/wyzerowanymi bitami na młodszych pozycjach (19.08.2007)</a></li>
+</ul>
+</div>
+<div class="section" id="normalizacja-wskaznika">
+<h1>Normalizacja wskaźnika</h1>
+<p>W programach działających w trybie rzeczywistym wynik porównywania
+wskaźników nie jest jednoznaczny. Jeden adres fizyczny może być
+reprezentowany przez 4096 różnych adresów logicznych. Liczba adresów
+logicznych wynosi <span class="math">2<sup>32</sup></span> (segment i offset mają po 16 bitów),
+natomiast jest zaadresowanie tylko <span class="math">2<sup>20</sup></span> bajtów, co daje
+<span class="math">2<sup>12</sup></span> powtarzających się adresów.</p>
+<p>Adres fizyczny jest 20-bitowy i wyznacza się go ze wzoru:</p>
+<pre class="literal-block">
+adres fizyczny = segment*16 + offset = segment &lt;&lt; 4 + offset
+</pre>
+<p>Normalizacja polega na przypisaniu wartości segmentu 16 najstarszych bitów
+adresu fizycznego, natomiast przesunięciu 4 najmłodszych, dzięki temu zapis
+będzie zawsze jednoznaczny.</p>
+<p><strong>8086</strong>:</p>
+<pre class="literal-block">
+; wejście/wyjście: ax - segment = |ssss ssss|ssss ssss|
+;                  dx - offset  = |oooo oooo|oooo oooo|
+
+mov cx, dx  ; cx = |0000 oooo|oooo oooo|
+shr cx, 4   ;
+
+add ax, cx  ; ax = znormalizowany segment
+and dx, 0fh ; dx = znormalizowany offset
+</pre>
+<p><strong>80386</strong>:</p>
+<pre class="literal-block">
+; wejście/wyjście: eax - segment
+;                  edx - offset
+
+and eax, 0000ffffh ; może nie być potrzebne gdy jesteśmy pewni,
+and edx, 0000ffffh ; że starsze słowa są równe zero
+
+shl eax, 4         ; adres fizyczny
+add eax, edx       ;
+
+mov edx, eax
+
+shr eax, 4         ; ax - znormalizowany segment
+and edx, byte 0fh  ; dx - znormalizowany offset
+                   ; tak zapisany rozkaz ma 3 bajty, zamiast 5
+                   ; (stała jest rozszerzana ze znakiem)
+</pre>
+</div>
+<div class="section" id="powielanie-bajtu">
+<h1>Powielanie bajtu</h1>
+<p>Problem przedstawia się następująco: jak mając słowo
+<tt class="docutils literal">|00|00|00|aa|</tt>, uzyskać <tt class="docutils literal">|aa|aa|aa|aa|</tt>?</p>
+<div class="section" id="x86">
+<h2>x86</h2>
+<p>Pierwszy sposób, najciekawszy chyba, pokazał <em>Ervin
+Toth</em> (Ervin/AbaddoN) w magazynie <em>Imphobia #9</em>.</p>
+<pre class="literal-block">
+; eax = 0x000000aa
+
+imul eax, 0x01010101 ; zmieniając mnożnik można uzyskać dowolne
+                     ; ułożenie bajtu w podwójnym słowie, np.
+                     ; 0x00010101 da 0x00aaaaaa
+</pre>
+<p>Jeśli mnożenie jest względnie szybkie (3-4 cykle opóźnienia), to jak
+najbardziej użycie tej metody ma sens, w przeciwnym razie można obyć
+się bez mnożenia:</p>
+<pre class="literal-block">
+; eax = 0x000000ab
+
+mov   ah, al ; eax = 0x0000abab
+mov   bx, ax
+shl  eax, 16 ; eax = 0xabab0000
+mov   ax, bx ; eax = 0xabababab
+</pre>
+</div>
+<div class="section" id="mmx">
+<h2>MMX</h2>
+<pre class="literal-block">
+; eax = |0000|00ab|
+
+movd      mm0, eax  ; mm0 = |0000|0000|0000|00ab|
+punpcklbw mm0, mm0  ; mm0 = |0000|0000|0000|abab|
+punpcklbw mm0, mm0  ; mm0 = |0000|0000|abab|abab|
+
+; tutaj już można przesłać zawartość mm0 do rejestru 32-bitowego
+
+punpcklbw mm0, mm0  ; mm0 = |abab|abab|abab|abab|
+</pre>
+</div>
+<div class="section" id="sse">
+<h2>SSE</h2>
+<p>W SSE dostępny jest rozkaz <tt class="docutils literal">pshuwf</tt>, który rozmieszcza słowa
+w rejestrze źródłowym zgodnie z indeksami zapisanymi w stałej
+natychmiastowej:</p>
+<pre class="literal-block">
+; eax = |0000|00ab|
+
+mov     ah, al         ; eax = |0000|abab|
+movd   mm0, eax        ; mm0 = |0000|0000|0000|abab|
+pshufw mm0, mm0, 0x00  ; mm0 = |abab|abab|abab|abab|
+</pre>
+</div>
+<div class="section" id="sse3">
+<h2>SSE3</h2>
+<p>W SSE3 dostępny jest rozkaz <tt class="docutils literal">pshufb</tt>, który rozmieszcza bajty w
+rejestrze docelowym XMM zgodnie z indeksami zapisanymi w argumencie
+źródłowym:</p>
+<pre class="literal-block">
+; eax = |0000|00ab|
+
+pxor    %xmm0, %xmm0   ; wszystkie indeksy równe zero
+movd    %eax,  %xmm1
+pshufb  %xmm0, %xmm1   ; xmm1 -&gt; na wszystkich pozycjach
+                       ; zawartość zerowego elementu xmm1, tj. %al
+</pre>
+</div>
+</div>
+<div class="section" id="wzorzec-bitowy-na-maske">
+<h1>Wzorzec bitowy na maskę</h1>
+<p>Problem polega na zamianie wzorca bitowego, np. <tt class="docutils literal">|0101 1110|</tt>, na
+maskę bajtów, czyli: <tt class="docutils literal">|00|ff|00|ff|ff|ff|ff|00|</tt>. Jednym z
+zastosowań może być zamiana obrazów 1bpp na 8bpp lub 32bpp.</p>
+<p><strong>80386</strong>:</p>
+<pre class="literal-block">
+;wejście: al = |10100110|
+;wyjście: ecx:edx
+
+add  al, al ; al = |01001100|, CF = 1 = MSB(al)
+sbb  ch, ch ; ecx= |xx|xx|ff|xx|
+
+add  al, al ; al = |10011000|, CF = 0 -- add al, al jest równoważne shl al, 1
+sbb  cl, cl ; ecx= |xx|xx|ff|00|
+
+shl ecx, 16 ; ecx= |ff|00|xx|xx|
+
+add  al, al ; al = |00110000|, CF = 1
+sbb  ch, ch ; ecx= |ff|00|ff|xx|
+
+add  al, al ; al = |01100000|, CF = 0
+sbb  cl, cl ; ecx= |ff|00|ff|00|
+
+; -- analogicznie należy postąpić dla edx
+</pre>
+<p><strong>MMX</strong>:</p>
+<pre class="literal-block">
+; wejście: eax = |xx|xx|xx|ab|
+;          0xab = 0b10101011
+; wyjście: mm0
+; niszczy: mm1
+
+segment .data
+
+; maska dla bitów - pozycja bitu jest równa pozycji bajtu
+mmx_bits db 1 &lt;&lt; 0 ; 0x01
+            1 &lt;&lt; 1 ; 0x02
+            1 &lt;&lt; 2 ; 0x04
+            1 &lt;&lt; 3 ; 0x08
+            1 &lt;&lt; 4 ; 0x10
+            1 &lt;&lt; 5 ; 0x20
+            1 &lt;&lt; 6 ; 0x40
+            1 &lt;&lt; 7 ; 0x80
+
+segment .text
+
+movq      mm1, [mmx_bits]
+
+movd      mm0, eax ; mm0 = |00|00|00|00|xx|xx|xx|ab|
+punpcklbw mm0, mm0 ;
+punpcklbw mm0, mm0 ;
+punpcklbw mm0, mm0 ; mm0 = |ab|ab|ab|ab|ab|ab|ab|ab|
+
+pand      mm0, mm1 ; mm0 = |80|00|20|00|08|00|02|01|
+pcmpeqb   mm0, mm1 ; mm0 = |ff|00|ff|00|ff|00|ff|ff|
+                   ; mm0 = (mm0==mmx_bits) ? 0xff : 0x00
+</pre>
+</div>
+<div class="section" id="transpozycja-bitow">
+<h1>Transpozycja bitów</h1>
+<p>Celem jest zamiana kolejności bitów w słowie, np. <tt class="docutils literal">11001010b <span class="pre">-&gt;</span>
+01010011b</tt>. Może być przydatne przy operacji flipX dla obrazów 1bpp.</p>
+<p>Transpozycja bitów w bajcie (1):</p>
+<pre class="literal-block">
+; 28-08-01 14:09:29
+; wejście: al
+; wyjście: bl
+; niszczy: cx
+
+        mov  cx, 8 ; 8 bitów
+_transp:
+                   ; al = 1000 0011
+        rol  al, 1 ; al = 0000 0111, CF=1
+                   ; bl = 0000 0000
+        rcr  bl, 1 ; bl = 1000 0000
+        loop _transp
+</pre>
+<p>Transpozycja bitów w bajcie (2):</p>
+<pre class="literal-block">
+; 28-08-01 14:09:29
+; wejście: al
+; wyjście: bl
+; niszczy: cx
+
+        mov cx, 8
+        xor bl, bl
+_transp:
+        shr al, 1  ; CF = LSB(al)
+        adc bl, bl ; czyli:
+                   ; shr bl,bl
+                   ; bl[0] = CF
+        loop _transp
+</pre>
+<p>Transpozycja bitów w słowie 32-bitowym:</p>
+<pre class="literal-block">
+; wejście: eax
+; wyjście: eax
+; modyfikuje: ebx
+                               ; ebx = ...edcba
+        mov ebx, eax           ; ebx = ...edcba
+        shr ebx, 1             ; ebx = ....edcb
+        and eax, 01010101h     ; eax = ...e0c0a
+        and ebx, 01010101h     ; ebx = ....0d0b
+                               ;
+        lea eax, [ebx + eax*2] ; eax = ....cdab
+                               ; zamień kolejność 2 sąsiednich bitów
+
+        mov ebx, eax           ; zamień kolejność
+        shr ebx, 2             ; dwóch sąsiednich pól 2-bitowych
+        and eax, 03030303h     ;
+        and ebx, 03030303h     ;
+                               ;
+        lea eax, [ebx + eax*4] ;
+
+        mov ebx, eax           ; zamień kolejność
+        shr ebx, 4             ; tetrad
+        and eax, 0f0f0f0fh     ;
+        and ebx, 0f0f0f0fh     ;
+                               ;
+        shl eax, 4             ;
+        or  eax, ebx           ;
+
+        bswap eax              ; i bajtów
+</pre>
+<p>Kod wykorzystujący rozkazy MMX2, przedstawione raczej jako ciekawostka. :-)</p>
+<pre class="literal-block">
+; wejście: al
+; wyjście: al
+; niszczone: eax, mm0, mm1
+
+        pxor      mm1, mm1
+
+        movd      mm0, eax      ; mm0 = |00|00|00|00|00|00|00|al|
+        punpcklbw mm0, mm0      ; mm0 = |00|00|00|00|00|00|al|al|
+        pshufw    mm0, mm0, 00h ; mm0 = |al|al|al|al|al|al|al|al|
+
+
+        ; w k-tym bajcie zostawiany jest k-ty bit
+        pand      mm0, {80h,40h,20h,10h,08h,04h,02h,01h}
+
+        ; następnie generowana jest **negacja** maski
+        pcmpeqb   mm0, mm1
+
+        ; po czym zostawiane są bity na pozycjach 8-k
+        pandn     mm0, {01h,02h,04h,08h,10h,20h,40h,80h}
+
+        ; na końcu wszystkie bity są łączone w 1 bajt
+        psadbw    mm0, mm0
+
+        movd      eax, mm0
+</pre>
+<p>Z użyciem rozkazów dostępnych w <a class="reference external" href="http://pl.wikipedia.org/wiki/SSSE3">SSSE3</a> możliwa jest
+szybka transpozycja bitowa słów 128-bitowych!  Zobacz w osobnym
+<a class="reference external" href="sse-bitblock-transpose.html">artykule</a>.</p>
+</div>
+<div class="section" id="odpowiedniki-rozkazow-bt-btc-bts-i-btr">
+<h1>Odpowiedniki rozkazów BT, BTC, BTS i BTR</h1>
+<p>W pierwszych procesorach Pentium produkowanych przez Intela te rozkazy były
+bardzo wolne. Poniżej przedstawiam ich zamienniki.</p>
+<p><strong>BT</strong>:</p>
+<pre class="literal-block">
+; składnia             : bt ax, bit
+; oryginalna instrukcja: 4 cykle
+; poniższy kod         : 3 cykle -- pplain
+;
+; niszczy: bx
+
+        mov bx, ax          ;
+        and bx, ~(1 &lt;&lt; bit) ; bx = ax and not (1 shl bit)
+
+        ; Jeśli bit w ax był ustawiony to wartość bx zmieni się (zmaleje!),
+        ; w przeciwnym razie pozostanie niezmieniona.
+
+        cmp bx, ax          ; CF = bx &lt; ax
+</pre>
+<p><strong>BTC, BTR i BTS</strong>:</p>
+<pre class="literal-block">
+; składnia             : btc ax, bit
+;                        btr ax, bit
+;                        bts ax, bit
+; oryginalna instrukcja: 7 cykle
+; poniższy kod         : 3 cykle -- pplain, uwzględniając parowanie instrukcji
+; niszczy: bx, cx
+
+mov cx, ax                      ; cx = ax
+mov bx, ax                      ;
+and bx, ~(1 &lt;&lt; bit)             ; bx = ax and not (1 shl bit)
+
+xor ax,   1 &lt;&lt; bit   ; dla BTC zaneguj,
+;and ax, ~(1 &lt;&lt; bit) ; dla BTR wyzeruj,
+;or  ax,   1 &lt;&lt; bit  ; dla BTS ustaw bit w ax
+
+cmp bx, cx                      ; zobacz komentarz do BT
+</pre>
+</div>
+<div class="section" id="odpowiednik-rozkazu-bswap">
+<h1>Odpowiednik rozkazu BSWAP</h1>
+<p>Któż ma teraz 286? Ale dla sportu można sobie napisać odpowiednik
+tego rozkazu.:-)</p>
+<p>Służy on do zamiany kolejności bajtów w podwójnym słowie, jego głównym
+zastosowaniem jest konwersja danych pomiędzy konwencjami zapisu
+<em>little-endian</em> (np.  procesory Intela) i <em>big-endian</em> (np. procesory
+Motoroli, protokoły sieciowe). W zapisie <em>little-endian</em> młodszy bajt
+znajduje się pod mniejszym adresem.</p>
+<pre class="literal-block">
+; wejście: eax
+; wyjście: eax
+
+             ; eax = 0x44332211
+xchg  al, ah ; eax = 0x44331122
+rol  eax, 16 ; eax = 0x11224433
+xchg  al, ah ; eax = 0x11223344
+</pre>
+<p>Zamiast rozkazu <tt class="docutils literal">xchg al, ah</tt> można użyć <tt class="docutils literal">rol ax, 8</tt> (kod
+autorstwa <em>barta/xtreem</em>).</p>
+<pre class="literal-block">
+; wejście: eax
+; wyjście: eax
+
+mov  edx, eax          ; edx = | a | b | c | d |
+rol  edx, 8            ; edx = | b | c | d | a |
+ror  eax, 8            ; eax = | d | a | b | c |
+
+and  edx, 000ff00ffh   ; edx = | 0 | c | 0 | a |
+and  eax, 0ff00ff00h   ; eax = | d | 0 | b | 0 |
+
+or   eax, edx          ; eax = | d | c | b | a |
+</pre>
+</div>
+<div class="section" id="odpowiedniki-rozkazow-bsf-i-bsr">
+<h1>Odpowiedniki rozkazów BSF i BSR</h1>
+<p>Na procesorze Pentium czas wykonywanie tych rozkazów waha się pomiędzy 7 a
+70 cyklami. Przedstawiony poniżej kod wymaga w najgorszym przypadku
+wykonania 24 prostych instrukcji, w najlepszym 14.</p>
+<p>Idea przedstawionego algorytmu jest bardzo prosta, opiera się na
+wyszukiwaniu binarnym: otóż z każdym krokiem
+zawężamy przedział poszukiwań, albo inaczej ujmując zwiększamy
+rozdzielczość algorytmu. Czyli na początku lokalizowany jest najmłodsze
+słowo zawierające ustawione bity, następnie w tym słowie poszukuję się
+najmłodszego, niezerowego bajtu, w nim z kolei szuka się najmłodszej
+niezerowej tetrady itd.</p>
+<p>Właściwie wybór jest pomiędzy młodszy/starszy, tak więc rozmiar obiektu
+zmniejsza się dwukrotnie po każdym kroku algorytmu. Jak łatwo policzyć
+liczba kroków wynosi <span class="math">log<sub>2</sub><i>n</i></span>, gdzie <span class="math"><i>n</i></span> to ilość bitów w
+słowie binarnym.</p>
+<pre class="literal-block">
+; implementacja BSF
+; wejście: eax
+; wyjście: ebx - pozycja pierwszego, ustawionego bitu
+
+soft_bsf:
+        mov  ebx, 2           ; ebx = 2
+                              ; zostały pogrubione sprawdzane części dworda
+                              ; eax = |0000 0010 0010 0000|**0000 0000 0000 0000**|
+
+        test eax, 0x0000ffff  ; sprawdź czy w młodszym słowie są
+                              ; ustawione jakiekolwiek bity
+        jnz   .skip1          ; jeśli nie, to znaczy, że ustawione bity są
+                              ; tylko w starszym słowie
+        shr  eax, 16          ; eax = |0000 0000 0000 0000|0000 0010 **0010 0000**|
+        add  ebx, byte 16     ; ebx = 18
+.skip1:
+
+        test eax, 0x000000ff  ; sprawdź czy w młodszym bajcie są
+                              ; ustawione jakiekolwiek bity
+        jnz   .skip2
+        shr  eax, 8
+        add  ebx, byte 8
+.skip2:
+
+        shr  eax, 16          ; eax = |0000 0000 0000 0000|0000 0010 0010 **0000**|
+        test eax, 0x0000000f  ; sprawdź tetrady
+        jnz   .skip3
+        shr  eax, 4           ; eax = |0000 0000 0000 0000|0000 0000 0010 00**10**|
+        add  ebx, byte 4      ; ebx = 22
+.skip3:
+
+        test eax, 0x00000003  ; sprawdź 2-bitowe pole
+        jnz   .skip4
+        shr  eax, 2
+        add  ebx, byte 2
+.skip4:
+
+        shr  eax, 4           ; eax = |0000 0000 0000 0000|0000 0000 0010 001**0**|
+        shr   al, 1           ; CF  = LSB(eax) = 0
+        sub  ebx, 0           ; ebx = 22
+        ret
+</pre>
+</div>
+<div class="section" id="konwersja-float-na-int">
+<h1>Konwersja float na int</h1>
+<p>Przy użyciu rozkazów FPU konwersja liczby zmiennoprzecinkowej na liczbę
+całkowitą, dodatkowo uzyskujemy zaokrąglanie zgodne z ustawieniami pola
+RountControl w rejestrze kontrolnym koprocesora.</p>
+<pre class="literal-block">
+fld  [float]   ; 1 cykl
+fild [integer] ; 6 cykli
+</pre>
+<p>Rozkazy SSE, SSE2 i 3DNow również wspierają konwersje. Przy czym rozkazy
+SSE mogą to robić dwojako:</p>
+<ul class="simple">
+<li>używając funkcji <tt class="docutils literal">round</tt> &mdash; dla operacji SSE wprowadzono
+rejestr MXCSR analogiczny do kontrolnego koprocesora, jest też pole
+RC, które umożliwia ustawienie sposobu zaokrąglania</li>
+<li>używając funkcji <tt class="docutils literal">trunc</tt> &mdash; bez względu na ustawienia pola
+RC część ułamkowa jest ucinana</li>
+</ul>
+<p>Rozkazy z pierwszej grupy zestawiono w tabelce. Dla każdego rozkazu
+istnieje odpowiednik z grupy drugiej &mdash; faktycznie operacje na polach
+bitowych są identyczne; mnenoniki są prawie takie same, z tą różnicą
+że dodana została druga literka <tt class="docutils literal">T</tt>, np. <tt class="docutils literal">CVTTPS2DQ</tt>.</p>
+<p><strong>CVTPD2DQ xmm1, xmm2/mm128</strong> (double -&gt; dword):</p>
+<pre class="literal-block">
+xmm1[31-0]   = round(xmm2[63-0])
+xmm1[63-32]  = round(xmm2[127-64])
+xmm1[127-64] = 0``
+</pre>
+<p><strong>CVTPS2DQ xmm1, xmm2/mm128</strong> (float -&gt; dword):</p>
+<pre class="literal-block">
+xmm1[31-0]   = round(xmm2[31-0])
+xmm1[63-32]  = round(xmm2[63-32])
+xmm1[95-64]  = round(xmm2[95-64])
+xmm1[127-96] = round(xmm2[127-96])
+</pre>
+<p><strong>CVTPD2PI mm, xmm/mm128a</strong> (double -&gt; dword):</p>
+<pre class="literal-block">
+mm[31-0]  = round(xmm[63-0])
+mm[63-32] = round(xmm[127-64])
+</pre>
+<p><strong>CVTPS2PI mm, xmm/mm128</strong> (float -&gt; dword):</p>
+<pre class="literal-block">
+mm[31-0]  = round(xmm[31-0])
+mm[63-32] = round(xmm[63-32])
+</pre>
+<p><strong>CVTSD2SI reg32, xmm/mm64</strong> (double -&gt; dword):</p>
+<pre class="literal-block">
+reg32[31-0] = round(xmm[63-0])
+</pre>
+<p><strong>CVTSS2SI reg32, xmm/mm32</strong> (float -&gt; dword):</p>
+<pre class="literal-block">
+reg32[31-0] = round(xmm[31-0])
+</pre>
+<p>Przedstawię teraz od kuchni algorytm owej konwersji (ograniczę się do
+ucinania).</p>
+<p>Liczbę floating point opisuje równanie:</p>
+<p><span class="cmath">( &minus; 1)<sup><i>sign</i></sup> &sdot; (1 + <i>mantissa</i>) &sdot; 2<sup><i>exp</i> + <i>bias</i></sup></span></p>
+<p>natomiast rozkład bitów w dwusłowie przedstawia się następująco:</p>
+<img alt="sign: 1 bit; exp+bias: 8 bitów; mantissa: 23 bity" class="align-center" src="img/float_format.png" />
+<p>Jeśli zostaną wyzerowane bity 23-31 (czyli pola <tt class="docutils literal">sign</tt> i
+<tt class="docutils literal">exponent+bias</tt>), to wartość dworda (liczona w naturalnym kodzie
+binarnym) wyniesie <span class="math"><i>mantissa</i>2<sup>23</sup></span>. Gdy mantysa zostanie
+uzupełniona, czyli zostanie ustawiony bit 23, to wartość ta wyniesie
+<span class="math">(1 + <i>mantissa</i>)2<sup>23</sup></span>. Rozkład bitów poniżej (<strong>x</strong> oznacza dowolną
+wartość):</p>
+<pre class="literal-block">
+0000 0000 1xxx xxxx xxxx xxxx xxxx xxxx
+</pre>
+<p>Pozostaje jeszcze uwzględnić czynniki <span class="math">2<sup><i>exponent</i> + <i>bias</i></sup></span> &mdash; mnożenie
+przez potęgę dwójki jest równoważne przesunięciu bitowemu w lewo gdy wykładnik
+jest dodatni, w prawo gdy jest ujemny; wartość przesunięcia jest oczywiście
+równa (modułowi) wykładnika, tj. <span class="math"><i>exponent</i> &minus; <i>bias</i> &minus; 23</span>.</p>
+<p>Jeśli liczba zostanie przesunięta o więcej niż 24 bity w prawo to jej
+wartość będzie zawsze równa 0. Z kolei jeśli przesunięcie w lewo przekroczy
+7 pozycji to będzie znaczyło, że liczba zmiennoprzecinkowa jest większa od
+<span class="math">2<sup>31</sup></span>, czyli przekracza maksymalną wartość liczby ze znakiem.</p>
+<p>Poniżej słowa ubrane zostały w kod (w poprzedniej wersji tego artykułu
+kod był w asemblerze, niestety nie był w ogóle czytelny).</p>
+<pre class="literal-block">
+#include &lt;errno.h&gt;
+#include &lt;limits.h&gt;
+
+extern int errno;
+
+typedef unsigned int dword; // 32 bity
+
+const int bias = 127;
+typedef union {
+        struct {
+           dword mantissa  : 23;
+           dword exp_biased: 8;
+           dword sign      : 1;
+        } fields;
+        float value;
+} IEEE_float;
+
+int float2int(float value) {
+
+    IEEE_float fp;
+    fp.value = value;
+
+    /* d = (1+mantissa)*2^23 */
+    int d   = (1 &lt;&lt; 23) | fp.fields.mantissa;
+
+    /* exp = exponent */
+    int exp = (int)fp.fields.exp_biased - bias - 23;
+
+    if (exp &lt; -23) /* aba(value) &lt; 1.0 */
+        return 0;
+    else
+        if (exp &gt; 7) { /* abs(value) &gt; 2^30 */
+            errno = ERANGE;
+            return (fp.fields.sign) ? INT_MIN : INT_MAX;
+        }
+        else {
+          if (exp &gt; 0)
+                 d &lt;&lt;= exp;
+          else
+                 d &gt;&gt;= -exp;
+          return (fp.fields.sign) ? -d : d;
+        }
+}
+</pre>
+</div>
+<div class="section" id="obrot-punktu-2d-fpu">
+<h1>Obrót punktu 2D (FPU)</h1>
+<p>Wszystkie obliczenie są wykonywane na liczbach zmiennoprzecinkowych
+pojedynczej precyzji (4 bajty).</p>
+<pre class="literal-block">
+; x' = x*cos(a) - y*sin(a)
+; y' = x*sin(a) + y*cos(a)
+;
+; ca := cos(a)
+; sa := sin(a)
+;
+
+;                   st0    st1    st2    st3    st4    st5
+fld    dword [x] ;  x
+fld    dword [a] ;  a      x
+fsincos          ;  ca     sa     x
+fld    dword [y] ;  y      ca     sa     x
+
+; x'
+fld    st0       ;  y      y      ca     sa     x
+fmul   st3       ;  y*sa   y      ca     sa     x
+fld    st4       ;  x      y*sa   y      ca     sa     x
+fmul   st3       ;  x*ca   y*sa   y      ca     sa     x
+fsubrp st1       ;  x'     y      ca     sa     x
+
+; y'
+fxch   st4       ;  y      ca     sa     x      x'
+fmulp  st1       ;  y*ca   sa     x      x'
+fxch   st2       ;  x      sa     y*ca   x'
+fmulp  st1       ;  x*sa   y*ca   x'
+faddp  st1       ;  y'     x'
+
+fstp   dword [y]
+fstp   dword [x]
+</pre>
+</div>
+<div class="section" id="cxchg-conditional-xchg-x86">
+<h1>cxchg &mdash; Conditional XCHG (x86)</h1>
+<p>Poniższy kod zamienia dwie liczby, pod warunkiem że najstarszy bit
+<tt class="docutils literal">ecx</tt> jest ustawiony. Kod jest bez rozgałęzień.</p>
+<pre class="literal-block">
+; wejście: eax, ebx
+;          ecx - &quot;warunek&quot;
+;
+                ; MSB(ecx)=1          MSB(ecx)=0
+
+sar ecx, 31     ; ecx=0xffffffff      =0x00000000
+
+mov edx, ebx    ;
+sub edx, eax    ;
+and edx, ecx    ; edx = ebx-eax       =0x00000000
+
+add eax, edx    ; eax = ebx           =eax          -- bo, eax+ebx-eax=ebx
+sub ebx, edx    ; ebx = eax           =ebx          -- bo, ebx-ebx+eax=eax
+</pre>
+</div>
+<div class="section" id="nswap-nibble-swap-x86-mmx">
+<h1>nswap &mdash; Nibble Swap (x86, MMX)</h1>
+<p>Zamiana kolejności tetrad</p>
+<p><strong>Sposób 1</strong>:</p>
+<pre class="literal-block">
+; wejście: eax = |hg|fe|dc|ba|
+; wyjście: eax = |ab|cd|ef|gh|
+
+rol    al, 4 ; eax = |hg|fe|dc|ab|
+rol    ah, 4 ; eax = |hg|fe|cd|ab|
+bswap eax    ; eax = |ab|cd|fe|hg|
+rol    al, 4 ; eax = |ab|cd|fe|gh|
+rol    ah, 4 ; eax = |ab|cd|ef|gh|
+</pre>
+<p><strong>Sposób 2</strong>:</p>
+<pre class="literal-block">
+; wejście: eax = |hg|fe|dc|ba|
+; wyjście: eax = |ab|cd|ef|gh|
+; niszczy: ebx
+
+mov   ebx, eax
+and   eax, 0x0f0f0f0f ; eax = |0g|0e|0c|0a|
+and   ebx, 0xf0f0f0f0 ; ebx = |h0|f0|d0|b0|
+
+shl   eax, 4          ; eax = |g0|e0|c0|a0|
+shr   ebx, 4          ; ebx = |0h|0f|0d|0b|
+
+or    eax, ebx        ; eax = |gh|ef|cd|ab|
+bswap eax             ; eax = |ab|cd|ef|gh|
+</pre>
+</div>
+<div class="section" id="generacja-maski">
+<h1>Generacja maski</h1>
+<pre class="literal-block">
+; wejście: eax
+; wyjście: eax -- bajty z ustawionymi MSB mają wartość 0xff, pozostałe 0x00
+; niszczy: ebx
+
+                    ; np. 10101101 01110100 11010100 11010101
+and eax, 0x80808080 ; eax=10000000|00000000|10000000|10000000
+
+mov ecx, eax
+
+mov ebx, eax        ;
+shr ebx, 7          ; ebx=00000001|00000000|00000001|00000001|
+
+sub eax, ebx        ; eax=01111111|00000000|01111111|01111111|
+or  eax, ecx        ; eax=11111111|00000000|11111111|11111111|
+</pre>
+<p>W analogiczny sposób można postąpić przy słowach bitowych nie będących
+bajtami, np. przy dodawaniu pikseli 15/16bpp.</p>
+</div>
+<div class="section" id="mnozenie-rownolegle-x86">
+<h1>Mnożenie równoległe (x86)</h1>
+<p>Jeśli czynniki mnożenia mieszczą się w zakresie bajtu (0...255), to można
+zastosować taki trik:</p>
+<pre class="literal-block">
+; wejście: a,b,c - liczby 0..255 (załóżmy że to stałe)
+
+xor eax, eax ;
+mov   al, b  ;
+shl eax, 16  ;
+mov   al, a  ; eax = |0|b|0|a|
+
+movzx ebx, c
+mul   ebx    ; eax = |b*c|a*c|
+</pre>
+<p>Wyniki mnożeń nie wypływają na siebie.</p>
+</div>
+<div class="section" id="wersja-x86-rozkazu-paddb">
+<h1>Wersja x86 rozkazu paddb</h1>
+<pre class="literal-block">
+; wejście: eax, ebx - packed bytes
+
+mov ecx, eax
+xor ecx, ebx
+
+and eax, 0x7f7f7f7f ; zerowanie MSB
+and ebx, 0x7f7f7f7f ;
+
+add eax, ebx
+
+and ecx, 0x80808080
+xor eax, ecx
+</pre>
+<p>Wersja zoptymalizowana na Pentium:</p>
+<pre class="literal-block">
+mov ecx, eax        ; 1
+and eax, 0x7f7f7f7f ; -
+xor ecx, ebx        ; 2
+and ebx, 0x7f7f7f7f ; -
+add eax, ebx        ; 3
+and ecx, 0x80808080 ; -
+xor eax, ecx        ; 4
+</pre>
+</div>
+<div class="section" id="stricmp">
+<h1><tt class="docutils literal">stricmp</tt></h1>
+<p>Jeśli dwa łańcuchy będą zawierać <strong>wyłącznie</strong> małe bądź duże litery
+ASCII, porównanie ich bez względu na rozmiar liter będzie bardzo proste.</p>
+<pre class="literal-block">
+; edi - łańcuch A
+; esi - łańcuch B
+; eax - wynik zgodny z konwencją stricmp
+
+stricmp:
+
+.compare:
+        mov  al, [edi]
+        mov  ah, [esi]
+
+        or   al, al     ; znak '\0'?
+        jz   .end
+        or   ah, ah     ; znak '\0'?
+        jz   .end
+
+        xor  al, ah     ; litery mogą różnić się
+                        ; co najwyżej 5 bitem
+
+        test al, 0xdf   ; jeśli różnią się jakimś innym bitem
+        jz   .end       ; kończ
+
+        inc  edi
+        inc  esi
+
+        jmp .compare
+
+.end:
+
+movzx ebx, [edi]
+movzx eax, [esi]
+
+sub   eax, ebx
+ret
+</pre>
+</div>
+<div class="section" id="population-count">
+<h1>Population Count</h1>
+<div class="section" id="x86-naiwne-podejscie">
+<h2>x86 &mdash; naiwne podejście</h2>
+<p>Obliczenie ilości ustawionych bitów w dwusłowie.</p>
+<pre class="literal-block">
+; ebx - argument
+; eax - wynik
+
+popcount:
+        mov eax, 0
+        mov  ah, 32     ; ilość bitów
+.count:
+        rol ebx, 1
+        adc  al, 0
+        loop .count
+
+        movzx eax, al
+        ret
+</pre>
+</div>
+<div class="section" id="rozkazy-ssse3-oraz-tablice">
+<h2>rozkazy SSSE3 oraz tablice</h2>
+<p>Zobacz w osobnym <a class="reference external" href="../notesen/2008-05-24-sse-popcount.html">artykule</a>.</p>
+</div>
+</div>
+<div class="section" id="implementacja-funkcji-modf-fpu">
+<h1>Implementacja funkcji modf() (FPU)</h1>
+<p>Funkcja <tt class="docutils literal">modf</tt> rozbija liczbę zmiennoprzecinkową na część ułamkową i całkowitą.</p>
+<pre class="literal-block">
+; wejście:
+;       st0 - x
+; wyjście:
+;       st0 - floor(x)
+;       st1 - fract(x)
+_modf:
+                     ; st0         st1         st2
+                     ; x
+        fld1         ; 1           x
+        fld   st1    ; x           1           x
+        fprem        ; fract(x)    1           x
+        fxch  st2    ; x           1           fract(x)
+        fsub  st2    ; floor(x)    1           fract(x)
+        fxch         ; 1           floor(x)    fract(x)
+        fcomp st1    ; floor(x)    fract(x)
+        ret
+</pre>
+<p>Wykorzystano fakt, że <tt class="docutils literal">fprem</tt> wykonuje operację
+<tt class="docutils literal">st0 := st0 - <span class="pre">floor(st0/st1)*st1</span></tt>.</p>
+<p>Jeśli koprocesor jest ustawiony w tryb ucinania (ang. <em>truncate</em>), tj.
+pole RC słowa kontrolnego zawiera wartość <tt class="docutils literal">11b</tt> to można użyć
+alternatywnego kodu.</p>
+<pre class="literal-block">
+_modf:
+                      ; st0         st1         st2
+                      ; x
+        fld  st0      ; x           x
+        frndint       ; floor(x)    x
+        fsub st1, st0 ; floor(x)    x-floor(x)=
+                                    fract(x)
+        ret
+
+
+; al: 00b - round to nearest
+;     01b - round down
+;     10b - round up
+;     11b - round toward zero
+;
+; RC_temp dw ?
+
+setRCfield:
+        fstcw   [RC_temp]
+        and     ax, 11b
+        shl     ax, 10     ; pole RC zajmuje bity 10 i 11
+
+        and     word [RC_temp], 0xf3ff
+        or      word [RC_temp], ax
+
+        fldcw   [RC_temp]
+        ret
+</pre>
+</div>
+<div class="section" id="implementacja-funkcji-pow-x-y-fpu">
+<h1>Implementacja funkcji <tt class="docutils literal">pow(x, y)</tt> (FPU)</h1>
+<p>Użyjemy tożsamości <span class="math"><i>x</i><sup><i>y</i></sup> = 2<sup><i>y</i>log2(<i>x</i>)</sup></span>.</p>
+<p>Rozkaz <tt class="docutils literal">fly2x</tt> oblicza wartość wyrażenia <span class="math"><i>y</i>log<sub>2</sub><i>x</i></span> (ozn. <strong>W</strong>).
+Obliczania potęg dwójki realizuje rozkaz <tt class="docutils literal">f2xm1</tt>: (<span class="math">2<sup><i>x</i></sup> &minus; 1</span>),
+jednak argumentem mogą być wyłącznie liczby z przedziału <span class="math">( &minus; 1,  + 1)</span>.</p>
+<p>Skorzystajmy zatem z kolejnej tożsamości:
+<span class="math">2<sup><i>a</i> + <i>b</i></sup> = 2<sup><i>a</i></sup> &sdot; 2<sup><i>b</i></sup></span>,
+przy czym <span class="math"><i>a</i> = floor(W)</span> i <span class="math"><i>b</i> = <i>fract</i>(W)</span>.</p>
+<pre class="literal-block">
+; wejście
+;       st0 - x
+;       st1 - y
+; wyjście:
+;       x^y
+
+  power:
+                                ; st0           st1           st2  ...      st7
+                                ; x             y
+        fyl2x                   ; W
+        fld1                    ; 1             W
+        fld   st1               ; W             1             W
+
+        fprem                   ; fract(W)      1             W
+
+        f2xm1                   ; 2^fract(W)-1  1             W
+        fadd  st1               ; 2^fract(W)    1             W
+
+        fincstp                 ; 1             W                           2^fract(W)
+        fscale                  ; 2^floor(W)    W
+        fdecstp                 ; 2^fract(W)    2^floor(W)    W
+
+        fmulp st1               ; 2^W           W
+        ffree st1               ; 2^W
+
+        ret
+</pre>
+<p>Przypomnę tylko, że rozkaz <tt class="docutils literal">fscale</tt> wykonuje następującą operację
+<tt class="docutils literal">st0.wykładnik += floor(st1)</tt>.</p>
+</div>
+<div class="section" id="min-max-cmov">
+<h1>min/max (cmov)</h1>
+<pre class="literal-block">
+; min
+; eax, ebx - argumenty
+; eax      - wynik
+
+; if (a &lt; b) a = b
+
+cmp   eax, ebx
+cmovl eax, ebx  ; lub cmovb dla liczb bez znaku
+</pre>
+</div>
+<div class="section" id="implementacja-funkcji-intpow-double-int">
+<h1>Implementacja funkcji intpow(double, int)</h1>
+<p>Obliczenie potęgi z wykładnikiem będącym potęgą dwójki (<span class="math"><i>x</i><sup>2<sup><i>k</i></sup></sup></span>)
+wymaga zaledwie <em>k</em> mnożeń:</p>
+<pre class="literal-block">
+while (k--)
+        x *= x;
+</pre>
+<p>Z kolei każdą liczbę można reprezentować jako sumę potęg dwójki (system
+binarny). Korzystając z własności pokazanej wyżej, oraz ze wzoru na
+iloczyn potęg o tych samych podstawach można zapisać następujący algorytm:</p>
+<pre class="literal-block">
+double intpow(double x, unsigned int exponent)
+{
+ double result = 1.0;
+ for (bit=0; bit&lt;k; bit++)
+     {
+       if (bitset(exponent, bit))
+          result *= x;
+
+       x *= x;      // obliczenie x^(2^(i+1))
+     }
+ return result;
+}
+</pre>
+<p>Koszt stały algorytmu to <span class="math"><i>k</i></span> mnożeń, w zależności od ilości
+ustawionych bitów wykładnika może wykonać się od <span class="math">0</span> do <span class="math"><i>k</i></span>
+dodatkowych mnożeń. Liczba <span class="math"><i>k</i></span> to pozycja najstarszego
+<strong>ustawionego</strong> bitu wykładnika.</p>
+<pre class="literal-block">
+; wejście:
+;       st0 - x
+;       eax - wykładnik (liczba bez znaku!)
+; wyjście
+;       st0 - x^eax
+
+intpow:
+                         ; st0         st1
+                         ; x
+        fld1             ; 0           x
+        fxch             ; x           1
+
+   .loop:
+        test eax, eax
+        jz   .endloop
+
+        shr  eax, 1
+        jnc  .skip       ; if (bitset(exponent, bit))
+        fmul st1, st0    ;     result *= x;
+   .skip:
+
+        fmul st0, st0    ; x *= x;
+        jmp  .loop
+.endloop:
+                         ; st0         st1
+                         ; x^k         x^eax
+        fcomp            ; x^eax
+</pre>
+</div>
+<div class="section" id="wyswietlanie-liczb-floating-point-fpu">
+<h1>Wyświetlanie liczb floating-point (FPU)</h1>
+<p>Rozkaz <tt class="docutils literal">fbstp</tt> zapisuje <strong>część całkowitą</strong> <tt class="docutils literal">st0</tt> jako liczbę BCD
+(spakowaną).  Część całkowita jest uzyskiwana poprzez zaokrąglenie
+<tt class="docutils literal">st0</tt> zgodnie z metodą ustawioną w polu <tt class="docutils literal">RC</tt>.  Zapisywanych jest
+maksymalnie 18 cyfr (9 bajtów), w dodatkowym bajcie zapisywany jest
+znak.</p>
+<pre class="literal-block">
+; wejście:
+;       esi - adres 10-bajtowego bufora na liczby BCD
+;       edi - adres 19-bajtowego bufora na zapis ASCII (znak+18 cyfr)
+;       st0 - konwertowana liczba
+
+float_convert:
+        pushad
+
+        fbstp [esi]           ; konwertowany element jest usuwany ze stosu
+
+        add esi, byte 8       ; zaczynamy od końca łańcucha BCD
+
+        mov  al, [esi+1]      ; if ((al=[esi + 1]) &amp; 0x80)
+        test al, 0x80         ;   [edi++] = byte('+');
+        jnz  .plus            ; else
+  .minus:                     ;   [edi++] = byte('+');
+        mov [edi], byte '-'   ;
+        jmp .endif            ;
+   .plus:                     ;
+        mov [edi], byte '+'   ;
+  .endif:                     ;
+        inc edi               ;
+
+        mov ecx, 9
+.unpackBCD:
+        movzx  ax, byte [edi] ; al := [edi--], ah := 0
+        dec   edi             ;
+
+                              ; ax = |0|0|B|A|
+        rol    al, 4          ; ax = |0|0|A|B|
+        shl    ax, 4          ; ax = |0|A|B|0|  -- zamiast tych dwu rozkazów (shl, shr)
+        shr    al, 4          ; ax = |0|A|0|B|  -- można użyć rozkazu 'aam 16' (db 0xd4,0x10)
+
+        add    ax, 0x3030     ; konwersja na ASCII
+
+        mov [edi], ax         ; zapisanie dwóch znaków
+        add  edi , byte 2     ; do łańcucha
+
+        loop .unpackBCD
+
+        popad
+        ret
+</pre>
+<p>Rozkaz <tt class="docutils literal">fbstp</tt> zapisuje wszystkie cyfry, także zera
+nieznaczące, należy usunąć je samodzielnie:</p>
+<pre class="literal-block">
+; edi -&gt; łańcuch ASCII
+
+        syscall WRITE, stdout, edi, 1   ; wyświetl znak
+
+        inc edi
+        mov ecx, 17
+.skip_leading_zeros:        ; ecx = 17
+        mov al, [edi]       ; while ([edi] == '0') edi++, ecx--;
+        cmp al, '0'         ;
+        jne .end            ; write(stdout, edi, ecx+1)
+
+        inc edi
+        dec ecx
+        jz  .end
+        jmp .skip_leading_zeros
+    .end:
+
+        inc ecx
+
+        ; tutaj &quot;jakoś&quot; zapisujemy znak na wyjście
+        syscall WRITE, stdout, edi, ecx
+</pre>
+</div>
+<div class="section" id="extract-bit-string">
+<h1>Extract Bit String</h1>
+<p>Funkcja wyciąga ciąg bitów z qworda, podawany jest początek ciągu i jego
+długość.  Funkcja została przesłana na grupę pl.comp.programming.</p>
+<pre class="literal-block">
+; wejście:
+;        cl - pozycja ciągu (0..31)
+;        ch - długość ciągu bitów (0..31)
+;       esi - adres qworda
+; wyjście:
+;       eax - wartość (ze znakiem)
+
+extract_signed:
+
+                          ; np. cl = 26
+                          ;     ch = 11
+        mov eax, [esi+0]  ; eax = |abcd ef00|0000 0000|0000 0000|0000 0000|
+        mov ebx, [esi+4]  ; ebx = |0000 0000|0000 0000|0000 0000|000A BCDE|
+
+        shrd eax, ebx, cl ; eax = |0000 0000|0000 0000|0000 0ABC|DEab edef|
+
+        mov  cl, 32       ;  cl = 32-ch
+        sub  cl, ch
+
+        shl  eax, cl      ; eax = |ABCD Eabe|def0 0000|0000 0000|0000 0000|
+        sar  eax, cl      ; eax = |AAAA AAAA|AAAA AAAA|AAAA AABC|DEab edef| -- 'shl' dla unsigned
+
+        ret
+</pre>
+</div>
+<div class="section" id="mnozenie-wektora-4x1-przez-macierz-4x4-fpu">
+<h1>Mnożenie wektora 4x1 przez macierz 4x4 (FPU)</h1>
+<p>Macierz <span class="math">M</span> zawiera przekształcenia geometryczne, przemnożenie jej
+przez wektor <strong>V</strong> spowoduje przekształcenie wektora. Macierz może być
+<em>column-majority</em> lub <em>row-majority</em> &mdash; w zależności od tego wektor
+jest mnożony prawo- lub lewostronnie.</p>
+<p>Na rysunku przedstawiono macierz <em>row-majority</em>, czyli takiej gdzie
+mnożone są wiersze:</p>
+<img alt="macierz row-majority" class="align-center" src="img/mat.gif" />
+<ul class="simple">
+<li><span class="math"><i>s</i></span> &mdash; informacja o skalowaniu<sup>*</sup></li>
+<li><span class="math"><i>o</i></span> &mdash; informacja o obrotach i pochylaniu</li>
+<li><span class="math">T</span> &mdash; wektor translacji</li>
+<li><span class="math">P</span> &mdash; informacja o perspektywie</li>
+</ul>
+<p><cite>*</cite> &mdash; zaznaczony na szaro minor 3x3 to <em>de facto</em> skumulowana
+informacja o skalowaniu, obrocie i pochyleniu.</p>
+<p>Przy mnożeniu macierzy, tak naprawdę, liczone są <strong>iloczyny skalarne</strong>
+(ang. <em>dot product</em>) wiersza (w przypadku <em>row-majority</em>) z wektorem.
+Stałym argumentem funkcji <tt class="docutils literal">dot_product</tt> jest wektor <span class="math">V</span>,
+optymalizacja polega na tym, by współrzędne wektora były ładowane
+jednokrotnie na stos koprocesora.</p>
+<pre class="literal-block">
+; 10-08-01
+%define offset
+
+x equ 0
+y equ 4
+z equ 8
+w equ 12
+
+    mov si, offset matrix
+    mov di, offset vector_out
+    mov cl, 4
+                            ; st0    st1    st2    st3    st4    st5
+    fld dword [vector_in+w] ;  w
+    fld dword [vector_in+z] ;  z      w
+    fld dword [vector_in+y] ;  y      z      w
+    fld dword [vector_in+x] ;  x      y      z      w
+
+.loop:                      ; zmiana zawartości stosu koprocesora przy
+                            ; jednym mnożeniu skalarnym
+
+    fld  st0                ;  x      x      y      z      w
+    fmul dword [si]         ; ax      x      y      z      w
+    fld  st2                ;  y     ax      x      y      z      w
+    fmul dword [si+4]       ; by     ax      x      y      z      w
+    faddp st1               ; ax+by   x      y      z      w
+
+    fld st3                 ;  z    ax+by    x      y      z      w
+    fmul dword [si+8]       ; cz    ax+by    x      y      z      w
+    faddp st1               ;ax+by+cz x      y      z      w
+    fld st4                 ;  w     abc     x      y      z      w
+    fmul dword [si+12]      ; dw     abc     x      y      z      w
+    faddp st1               ; abc+dw  x      y      z      w
+
+                            ; [di] &lt;- ax+by+cz+dw
+    fstp dword [di]         ;  x      y      z      w
+
+    add di, 4               ; następna współrzędna z 'vector_out'
+    add si, 4*4             ; następny wiersz w macierzy 'matrix'
+
+    dec cl                  ; pętla
+    jnz .loop               ; /
+
+    fcompp                  ;  y      w
+    fcompp                  ; wszystkie rej. FPU są puste
+</pre>
+</div>
+<div class="section" id="x86-rownolegle-tworzenie-maski-dla-niezerowych-bajtow-5-07-2007">
+<h1>x86: równoległe tworzenie maski dla niezerowych bajtów (5.07.2007)</h1>
+<p>Specyfikacja dla jednego bajtu:</p>
+<pre class="literal-block">
+mask = (x != 0) ? 0xff | 0x00
+</pre>
+<p>(Działanie analogiczne do MMX-owych funkcji <tt class="docutils literal">pcmpXX</tt>).</p>
+<p>Metoda:</p>
+<pre class="literal-block">
+-- x - argument (bajt)
+
+a = x &amp; 0x80               -- najstarszy bit
+b = x &amp; 0x7f               -- 7 młodszych bitów
+
+c = b + 0x7f               -- najstarszy bit =1, gdy którykolwiek
+                              bit b był ustawiony
+d = (c | a) &amp; 0x80         -- najstarszy bit =1, gdy x != 0
+
+mask = d | (d - (d &gt;&gt; 7))
+</pre>
+<p>Kod x86:</p>
+<pre class="literal-block">
+; eax - wektor 4 bajtów
+
+movl %eax, %ebx
+andl $0x80808080, %ebx          ; ebx = a
+
+andl $0x7f7f7f7f, %eax          ; eax = b
+addl $0x7f7f7f7f, %eax          ; eax = c
+
+orl  %ebx, %eax
+andl $0x80808080, %eax          ; eax = d
+
+movl %eax, %ebx                 ; ebx = d (zapisane)
+movl %eax, %ecx                 ; ecx = d
+
+shrl $7, %ebx                   ; ebx = d &gt;&gt; 7
+subl %ebx, %eax                 ; eax = d - (d &gt;&gt; 7)
+orl  %ecx, %eax                 ; eax = d | (d - (d &gt;&gt; 7))
+</pre>
+</div>
+<div class="section" id="tworzenie-maski-z-ustawionymi-wyzerowanymi-bitami-na-mlodszych-pozycjach-19-08-2007">
+<h1>Tworzenie maski z ustawionymi/wyzerowanymi bitami na młodszych pozycjach (19.08.2007)</h1>
+<p>Maska jest postaci: a) <tt class="docutils literal">1111110000000000</tt> lub b) <tt class="docutils literal">0000111111111111</tt>,
+gdzie parametrem jest pozycja pierwszego zgaszonego/zapalonego bitu
+liczona od zera.</p>
+<p>Maskę a) można utworzyć w następujący sposób:</p>
+<pre class="literal-block">
+; eax - pozycja bitu
+; edx - maska
+                       ; eax = 17
+xor %edx, %edx         ; 00000000 00000000 00000000 00000000 &lt;- LSB
+bts %eax, %edx         ; 00000000 00000010 00000000 00000000
+dec %edx               ; 00000000 00000001 11111111 11111111
+</pre>
+<p>natomiast b) tak:</p>
+<pre class="literal-block">
+; eax - pozycja bitu
+; edx - maska
+                       ; eax = 17
+mov $-1,  %edx         ; 11111111 11111111 11111111 11111111 &lt;- LSB
+bts %eax, %edx         ; 11111111 11111101 11111111 11111111
+inc %edx               ; 11111111 11111110 00000000 00000000
+</pre>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/snippets.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:41 GMT -->
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binopv5.php?f=vprorvd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:36 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/binopv5.php?f=vprorvd" />
+<link rel="alternate" hreflang="en" href="binopv50dfe.html?f=vprorvd" />
+<title>vprorvd</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VPRORVD - Packed ROtate Right Variable Dword<br /></h2>
+VPROLVD<span class="operand"> xmm1{k1}{z}, xmm2, xmm3/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128i _mm_rorv_epi32(__m128i a, __m128i b)</span><br />
+<span class="intr">__m128i _mm_mask_rorv_epi32(__m128i s, __mmask8 k, __m128i a, __m128i b)</span><br />
+<span class="intr">__m128i _mm_maskz_rorv_epi32(__mmask8 k, __m128i a, __m128i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_dword_2.png" /><br />
+<div style="padding-left: 110px">For each DWORD, rotate (1) to the right by the number of bits specified by (2) and set the result to (3).</div>
+<div style="height: 30px"></div>
+VPROLVD<span class="operand"> ymm1{k1}{z}, ymm2, ymm3/m256/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256i _mm256_rorv_epi32(__m256i a, __m256i b)</span><br />
+<span class="intr">__m256i _mm256_mask_rorv_epi32(__m256i s, __mmask8 k, __m256i a, __m256i b)</span><br />
+<span class="intr">__m256i _mm256_maskz_rorv_epi32(__mmask8 k, __m256i a, __m256i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_dword_3.png" /><br />
+<div style="padding-left: 110px">For each DWORD, rotate (1) to the right by the number of bits specified by (2) and set the result to (3).</div>
+<div style="height: 30px"></div>
+VPROLVD<span class="operand"> zmm1{k1}{z}, zmm2, zmm3/m512/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512i _mm512_rorv_epi32(__m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_mask_rorv_epi32(__m512i s, __mmask16 k, __m512i a, __m512i b)</span><br />
+<span class="intr">__m512i _mm512_maskz_rorv_epi32(__mmask16 k, __m512i a, __m512i b)</span><br />
+<div style="height: 2px;"></div><img src="binop_dword_4.png" /><br />
+<div style="padding-left: 110px">For each DWORD, rotate (1) to the right by the number of bits specified by (2) and set the result to (3).</div>
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vprorvd" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/binopv5.php?f=vprorvd by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:47:36 GMT -->
+</html>

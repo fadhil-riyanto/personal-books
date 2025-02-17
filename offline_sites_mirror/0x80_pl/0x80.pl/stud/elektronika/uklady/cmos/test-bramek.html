@@ -1,0 +1,35 @@
+Test bramek CMOS NOR/NAND/EXOR
+* Wojciech Mu³a, 11-12.10.2005
+
+* 0,1,0,1
+Va	1 0	PWL(
++		0.00m 0V
++		1.00m 0V
++		1.01m 9V
++		2.00m 9V
++		2.01m 0V
++		3.00m 0V
++		3.01m 9V
++		4.00m 9V
++		4.01m 0V)
+
+* 0,0,1,1
+Vb	2 0	PWL(
++		0.00m 0V
++		2.00m 0V
++		2.01m 9V
++		4.00m 9V
++		4.01m 0V)
+
+Vdd	10 0		10V
+Xnor	1 2 3 10	CMOS_NOR
+Xnand	1 2 4 10	CMOS_NAND
+Xexor	1 2 5 10	CMOS_EXOR
+
+.include bramki_cmos.spice 
+
+* analiza
+.tran 0.1m 4.1m
+.plot V(1) V(2) V(3) V(4) V(5)
+
+.end

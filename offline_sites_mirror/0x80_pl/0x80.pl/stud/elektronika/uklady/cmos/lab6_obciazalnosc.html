@@ -1,0 +1,26 @@
+Zale¿no¶æ napiêcia wyj¶ciowego bramki NOR od pr±du obci±¿enia
+* Wojciech Mu³a, 13.10.2005
+
+Vdd	10 0		10V
+
+M1	5 1 10 10	t_pmos
+M2	2 1  5 10	t_pmos
+M3	2 1  0  0	t_nmos
+M4	2 1  0  0	t_nmos
+
+Vin	1 0		0V
+R	2 3		100Ohm
+Iout	0 3		200uA
+
+.model t_nmos NMOS(level=1 Vto=1.5V)
+.model t_pmos PMOS(level=1 Vto=-1.5V)
+
+* analiza
+.DC Iout 0m -400u -1u
+
+*
+*.plot DC V(1) V(2) v(2,3)
+.options nopage
+.print DC V(2)
+
+.end

@@ -1,0 +1,13 @@
+HTTrack3.49-5 launched on Sun, 16 Feb 2025 23:23:03 at https://oska874.gitbooks.io/process-scheduling-in-linux/content/
+(httrack https://oska874.gitbooks.io/process-scheduling-in-linux/content/ )
+
+Information, Warnings and Errors reported for this mirror:
+note:	the hts-log.txt file, and hts-cache folder, may contain sensitive information,
+	such as username/password authentication for websites mirrored in this project
+	do not share these files/folders if you want these information to remain private
+
+23:23:04	Warning: 	Found for https://oska874.gitbooks.io/robots.txt
+23:23:04	Warning: 	File has moved from https://oska874.gitbooks.io/robots.txt to https://oska874.gitbooks.io/robots.txt/content/
+
+HTTrack Website Copier/3.49-5 mirror complete in 51 seconds : 37 links scanned, 36 files written (1860502 bytes overall) [1026170 bytes received at 20120 bytes/sec], 1333958 bytes transferred using HTTP compression in 31 files, ratio 35%, 12.3 requests per connection
+(No errors, 2 warnings, 0 messages)

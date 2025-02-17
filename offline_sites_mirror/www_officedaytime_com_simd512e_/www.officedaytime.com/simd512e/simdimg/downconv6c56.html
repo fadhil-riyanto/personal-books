@@ -1,0 +1,77 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/downconv.php?f=vpmovdb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:05 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/downconv.php?f=vpmovdb" />
+<link rel="alternate" hreflang="en" href="downconv6c56.html?f=vpmovdb" />
+    <title>vpmovdb</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+</style>
+</head>
+<body>
+<h2>VPMOVDB - Packed MOVe Dword Byte<br></h2>
+DWORD → BYTE&nbsp;&nbsp;&nbsp;&nbsp;copy lowest 8-bit.<br><br>
+VPMOVDB <span class="operand">xmm1 {k1}{z}, xmm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m128i  _mm_cvtepi32_epi8(__m128i  a)</span><br>
+<span class="intr">__m128i  _mm_mask_cvtepi32_epi8(__m128i  s, __mmask8  k, __m128i  a)</span><br>
+<span class="intr">__m128i  _mm_maskz_cvtepi32_epi8(__mmask8  k, __m128i  a)</span><br>
+<div style="height: 2px;"></div><img src="downconv_dword_byte_reg_128.png" /><br />
+<div style="height: 30px"></div>
+VPMOVDB <span class="operand">m32 {k1}, xmm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">void  _mm_mask_cvtepi32_storeu_epi8(void* d, __mmask8  k, __m128i  a)</span><br>
+<div style="height: 2px;"></div><img src="downconv_dword_byte_mem_128.png" /><br />
+<div style="height: 30px"></div>
+VPMOVDB <span class="operand">xmm1 {k1}{z}, ymm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">__m128i  _mm256_cvtepi32_epi8(__m256i  a)</span><br>
+<span class="intr">__m128i  _mm256_mask_cvtepi32_epi8(__m128i  s, __mmask8  k, __m256i  a)</span><br>
+<span class="intr">__m128i  _mm256_maskz_cvtepi32_epi8(__mmask8  k, __m256i  a)</span><br>
+<div style="height: 2px;"></div><img src="downconv_dword_byte_reg_256.png" /><br />
+<div style="height: 30px"></div>
+VPMOVDB <span class="operand">m64 {k1}, ymm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br>
+<span class="intr">void  _mm256_mask_cvtepi32_storeu_epi8(void* d, __mmask8  k, __m256i  a)</span><br>
+<div style="height: 2px;"></div><img src="downconv_dword_byte_mem_256.png" /><br />
+<div style="height: 30px"></div>
+VPMOVDB <span class="operand">xmm1 {k1}{z}, zmm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br>
+<span class="intr">__m128i  _mm512_cvtepi32_epi8(__m512i  a)</span><br>
+<span class="intr">__m128i  _mm512_mask_cvtepi32_epi8(__m128i  s, __mmask16  k, __m512i  a)</span><br>
+<span class="intr">__m128i  _mm512_maskz_cvtepi32_epi8(__mmask16  k, __m512i  a)</span><br>
+<div style="height: 2px;"></div><img src="downconv_dword_byte_reg_512.png" /><br />
+<div style="height: 30px"></div>
+VPMOVDB <span class="operand">m128 {k1}, zmm2</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br>
+<span class="intr">void  _mm512_mask_cvtepi32_storeu_epi8(void* d, __mmask16  k, __m512i  a)</span><br>
+<div style="height: 2px;"></div><img src="downconv_dword_byte_mem_512.png" /><br />
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vpmovdb" target="_blank">Feedback</a>
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/downconv.php?f=vpmovdb by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:44:11 GMT -->
+</html>

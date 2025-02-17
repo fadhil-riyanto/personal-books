@@ -1,0 +1,427 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/tree_layout/index.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:33 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Automatyczne rysowanie dowolnych drzew</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="automatyczne-rysowanie-dowolnych-drzew">
+<h1 class="title">Automatyczne rysowanie dowolnych drzew</h1>
+
+<p>Ostatnio zmieniany: 22.03.2007</p>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#wstep" id="toc-entry-1">Wstęp</a></li>
+<li><a class="reference internal" href="#zalozenia-wstepne" id="toc-entry-2">Założenia wstępne</a></li>
+<li><a class="reference internal" href="#metoda-1" id="toc-entry-3">Metoda 1</a><ul>
+<li><a class="reference internal" href="#drzewa-binarne" id="toc-entry-4">Drzewa binarne</a></li>
+<li><a class="reference internal" href="#binarne-drzewa-pelne" id="toc-entry-5">Binarne drzewa pełne</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#metoda-2" id="toc-entry-6">Metoda 2</a></li>
+<li><a class="reference internal" href="#dodatek" id="toc-entry-7">Dodatek</a></li>
+<li><a class="reference internal" href="#do-pobrania" id="toc-entry-8">Do pobrania</a><ul>
+<li><a class="reference internal" href="#zrodla" id="toc-entry-9">Źrodła</a></li>
+<li><a class="reference internal" href="#demo-tkinter" id="toc-entry-10">Demo (Tkinter)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="wstep">
+<h1>Wstęp</h1>
+<p>Przedstawione niżej metody służą do automatycznego rozmieszczania
+elementów graficznych reprezentujących węzły w drzewiastych
+strukturach danych.  Dają całkiem przyzwoite wyniki.</p>
+<p>Oczywiście istnieją już programy które to robią &mdash; jak choćby
+wyśmienity, darmowy <a class="reference external" href="http://www.graphviz.org/">Graphviz</a> &mdash; ale też czasem z różnych względów
+nie zawsze można takowych użyć.</p>
+<p>Właściwie w opisanych metodach chodzi wyłącznie o
+rozmieszczenie węzłów w poziomie.  Natomiast odstępy pomiędzy
+kolejnymi poziomami należy &bdquo;jakoś&rdquo; ustalić.  W przykładach
+wziąłem ok. 2-4 wysokości najwyższego węzła; z resztą byłoby
+dobrze dać końcowemu użytkownikowi jakąś możliwość wpływania
+na te odstępy.</p>
+</div>
+<div class="section" id="zalozenia-wstepne">
+<h1>Założenia wstępne</h1>
+<p>Węzły są reprezentowane jakąś figurą geometryczną: kołem,
+prostokątem, prostokątem z zaokrąglonymi rogami, czy
+czymkolwiek innym &mdash; w opisywanych algorytmach nie ma to
+większego znaczenia, ponieważ brane są tylko skrajne wymiary
+figur (<em>pudełko otaczające</em>).</p>
+<p>Węzły można łatwo dosuwać do innych &mdash; każdy ma metodę
+&bdquo;ustaw minimalne x na określoną wartość&rdquo; (<tt class="docutils literal">setminx</tt>).</p>
+<p>Z węzła można łatwo sięgnąć do rodzica oraz do pierwszego i
+ostatniego dziecka, a także do następnego/poprzedniego węzła
+na tym samym poziomie.  Dla osób zaznajomionych z <a class="reference external" href="http://www.w3.org/">DOM</a> zapewne
+będą znane takie nazwy własności węzła jak:</p>
+<ul class="simple">
+<li><tt class="docutils literal">parentNode</tt>  (rodzic),</li>
+<li><tt class="docutils literal">firstChild</tt>  (pierwsze dziecko &bdquo;od lewej&rdquo;),</li>
+<li><tt class="docutils literal">lastChild</tt>   (ostatnie dziecko &bdquo;najbardziej na prawo&rdquo;),</li>
+<li><tt class="docutils literal">nextSibling</tt> (kolejny brat &bdquo;na prawo&rdquo;),</li>
+<li><tt class="docutils literal">prevSibling</tt> (poprzedni brat &bdquo;na lewo&rdquo;).</li>
+</ul>
+</div>
+<div class="section" id="metoda-1">
+<h1>Metoda 1</h1>
+<center>
+<object data="tree_m1.svg" type="image/svg+xml" width="460" height="244">
+        <embed src="tree_m1.svg" type="image/svg+xml" width="460" height="244" />
+</object>
+</center><p>Zaleta:</p>
+<ol class="arabic simple">
+<li>Do rozmieszczenia węzłów wymaga jednokrotnego przejścia drzewa
+metodą <em>postorder</em>.</li>
+</ol>
+<p>Wady:</p>
+<ol class="arabic simple">
+<li>Przeważnie tworzy szerokie obrazy.</li>
+<li>Szerokość wszystkich węzłów musi być jednakowa (lub prawie
+jednakowa) &mdash; wydaje mi się, że to akurat nie jest aż tak wielka
+wada.</li>
+</ol>
+<p>Dana jest globalna współrzędna <span class="math">X<sub>C</sub></span>.  Wszystkie już
+rozmieszczone węzły znajdują się po lewej stronie prostej
+<span class="math">X = X<sub>C</sub></span>, natomiast jeszcze nie przetworzone <strong>na
+pewno</strong> zostaną umieszczone na prawo od niej.</p>
+<p>Pojedynczy krok algorytmu przedstawia się następująco:</p>
+<ol class="arabic">
+<li><p class="first">Wyznaczanie pozycji węzła.</p>
+<blockquote>
+<ul class="simple">
+<li>Po przetworzeniu wszystkich potomków środek węzła (na osi
+<span class="math">X</span>) jest wyznaczany jako średnia arytmetyczna środków
+pierwszego i ostatniego dziecka.</li>
+<li>Jeśli natomiast węzeł jest liściem, to zostaje &bdquo;dosunięty&rdquo; do
+<span class="math">X</span> &mdash; tzn. minimalna współrzędna pudełka otaczającego
+jest równa <span class="math"><i>x</i><sub>min</sub> = X<sub>C</sub> + <i>s</i></span>,  gdzie <span class="math"><i>s</i></span> to pewna
+stała (dająca jakiś odstęp).</li>
+</ul>
+</blockquote>
+</li>
+<li><p class="first">Następnie uaktualniana jest współrzędna graniczna
+<span class="math">X<sub>C</sub></span> &mdash; nie może być ona mniejsza niż <span class="math"><i>x</i><sub>max</sub></span>
+pudełka otaczającego poddrzew danego węzła, ani mniejsza niż
+<span class="math"><i>x</i><sub>max</sub></span> pudełka otaczającego samego węzła.
+W tym celu wystarczy zapamiętać <span class="math"><i>x</i><sub>max</sub></span> pudełka
+otaczającego poddrzewa zapisanego w <tt class="docutils literal">lastChild</tt> oraz
+oczywiście wyznaczyć <span class="math"><i>x</i><sub>max</sub></span> pudełka otaczającego
+węzła &mdash; i wziąć maksimum obu wartości.</p>
+</li>
+</ol>
+<p>Poniżej funkcja Pythonowa, która realizuje ten algorytm (zadziwiająco
+krótka, prawda?).</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">TreeLayout</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">space</span><span class="p">):</span><span class="w">
+</span>    <span class="k">assert</span> <span class="n">node</span> <span class="o">!=</span> <span class="kc">None</span><span class="w">
+
+</span>    <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">childNodes</span><span class="p">:</span><span class="w">
+</span>        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">node</span><span class="o">.</span><span class="n">childNodes</span><span class="p">:</span><span class="w">
+</span>            <span class="n">x</span> <span class="o">=</span> <span class="n">TreeLayout</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">space</span><span class="p">)</span><span class="w">
+
+</span>        <span class="n">node</span><span class="o">.</span><span class="n">cx</span> <span class="o">=</span> <span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">firstChild</span><span class="o">.</span><span class="n">cx</span> <span class="o">+</span> <span class="n">node</span><span class="o">.</span><span class="n">lastChild</span><span class="o">.</span><span class="n">cx</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="w">
+</span>        <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">node</span><span class="o">.</span><span class="n">maxx</span><span class="p">())</span><span class="w">
+</span>    <span class="k">else</span><span class="p">:</span><span class="w">
+</span>        <span class="n">node</span><span class="o">.</span><span class="n">setminx</span><span class="p">(</span><span class="n">x</span> <span class="o">+</span> <span class="n">space</span><span class="p">)</span><span class="w">
+</span>        <span class="k">return</span> <span class="n">node</span><span class="o">.</span><span class="n">maxx</span><span class="p">()</span>
+</pre>
+<div class="section" id="drzewa-binarne">
+<h2>Drzewa binarne</h2>
+<p>Uproszczona metoda 1. przystosowana do rysowania drzew binarnych;
+pochodzi z <a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/BSP-tree-tkdemo.py">BSP-tree-tkdemo.py</a>.  Dla tych struktur metoda sprawuje
+się bardzo dobrze!</p>
+<pre class="code python literal-block">
+<span class="k">def</span> <span class="nf">BinaryTreeLayout</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">space</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mf">0.0</span><span class="p">):</span><span class="w">
+</span>    <span class="k">if</span> <span class="n">root</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span><span class="w">
+</span>        <span class="k">return</span> <span class="n">x</span><span class="w">
+
+</span>    <span class="n">root</span><span class="o">.</span><span class="n">width</span> <span class="o">=</span> <span class="mi">20</span><span class="w">
+
+</span>    <span class="n">x</span> <span class="o">=</span> <span class="n">BinaryTreeLayout</span><span class="p">(</span><span class="n">root</span><span class="o">.</span><span class="n">left</span><span class="p">,</span>  <span class="n">space</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span><span class="w">
+</span>    <span class="n">x</span> <span class="o">=</span> <span class="n">BinaryTreeLayout</span><span class="p">(</span><span class="n">root</span><span class="o">.</span><span class="n">right</span><span class="p">,</span> <span class="n">space</span><span class="p">,</span> <span class="n">x</span><span class="o">+</span><span class="n">space</span><span class="p">)</span><span class="w">
+
+</span>    <span class="k">if</span> <span class="n">root</span><span class="o">.</span><span class="n">left</span> <span class="ow">and</span> <span class="n">root</span><span class="o">.</span><span class="n">right</span><span class="p">:</span><span class="w">
+</span>        <span class="n">root</span><span class="o">.</span><span class="n">cx</span> <span class="o">=</span> <span class="p">(</span><span class="n">root</span><span class="o">.</span><span class="n">left</span><span class="o">.</span><span class="n">cx</span> <span class="o">+</span> <span class="n">root</span><span class="o">.</span><span class="n">right</span><span class="o">.</span><span class="n">cx</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="w">
+</span>    <span class="k">elif</span> <span class="n">root</span><span class="o">.</span><span class="n">left</span><span class="p">:</span><span class="w">
+</span>        <span class="n">root</span><span class="o">.</span><span class="n">cx</span> <span class="o">=</span> <span class="n">roo</span><span class="o">.</span><span class="n">left</span><span class="o">.</span><span class="n">cx</span><span class="w">
+</span>    <span class="k">elif</span> <span class="n">root</span><span class="o">.</span><span class="n">right</span><span class="p">:</span><span class="w">
+</span>        <span class="n">root</span><span class="o">.</span><span class="n">cx</span> <span class="o">=</span> <span class="n">roo</span><span class="o">.</span><span class="n">right</span><span class="o">.</span><span class="n">cx</span><span class="w">
+</span>    <span class="k">else</span><span class="p">:</span><span class="w">
+</span>        <span class="n">root</span><span class="o">.</span><span class="n">cx</span>    <span class="o">=</span> <span class="n">x</span><span class="w">
+</span>        <span class="k">return</span> <span class="n">root</span><span class="o">.</span><span class="n">cx</span> <span class="o">+</span> <span class="n">root</span><span class="o">.</span><span class="n">width</span><span class="o">/</span><span class="mi">2</span><span class="w">
+
+</span>    <span class="k">return</span> <span class="n">x</span>
+</pre>
+</div>
+<div class="section" id="binarne-drzewa-pelne">
+<h2>Binarne drzewa pełne</h2>
+<p><strong>Założenie</strong>: wszystkie węzły mają jednakową szerokość.</p>
+<p>Jeśli znana jest maksymalna głębokość <span class="math"><i>h</i><sub>max</sub></span> drzewa binarnego
+można dość łatwo wyprowadzić wzory na położenie poszczególnych węzłów
+drzewa pełnego.</p>
+<p>Można również później nanieść istniejące dowolne drzewo na taką
+strukturę &mdash; ma to tę zaletę, że gdy węzeł ma tylko jeden następnik
+wizualizowane są relacje: lewy, prawy syn; w przypadku pozostałych
+metod ta informacja jest tracona.</p>
+<p>Położenie węzła zależy od dwóch parametrów:</p>
+<ul class="simple">
+<li>głębokości (<span class="math"><i>h</i></span>)</li>
+<li>pozycji na danym poziomie, liczony od lewej, od zera (<span class="math"><i>p</i></span>)</li>
+</ul>
+<p>Do wyznaczenia współrzędnej <span class="math"><i>x</i></span> <strong>środka</strong> węzła potrzebne
+są natomiast:</p>
+<ul class="simple">
+<li><span class="math"><i>d</i> = <i>h</i><sub>max</sub> &minus; <i>h</i></span></li>
+<li>pozycja <span class="math"><i>p</i></span></li>
+<li>połowa odległości między środkami węzłów na ostatnim
+poziomie &mdash; <span class="math">S</span></li>
+</ul>
+<p>Przesunięcie na danym poziomie wynosi <span class="math"><i>x</i><sub><i>s</i></sub> = (2<sup><i>d</i></sup> &minus; 1) &sdot; S</span>,
+natomiast odległość między węzłami na tym poziomie
+<span class="math">S<sub><i>d</i></sub> = 2<sup><i>d</i> + 1</sup> &sdot; S</span>.  Ostatecznie współrzędna <span class="math"><i>x</i></span>
+wynosi:</p>
+<p><span class="cmath"><i>x</i> = <i>x</i><sub><i>s</i></sub> + <i>p</i> &sdot; S<sub><i>d</i></sub></span></p>
+<p>Można więc nie zagłębiając się poniżej danego węzła prawidłowo
+pozycjonować węzeł.  Jedna podstawowa wada: uzyskane obrazy
+są bardzo szerokie.</p>
+<p>Jak obliczyć <span class="math"><i>p</i></span>?  Początkowa wartość wynosi 0 (w korzeniu),
+a przechodząc drzewo w głąb należy dopisywać <strong>na koniec</strong> bit
+o wartości 0 gdy skręcamy w lewo, albo 1 &mdash; gdy w prawo.</p>
+<ul>
+<li><p class="first">Przykładowy funkcja:</p>
+<pre class="literal-block">
+def do_layout(node, h, h_max, S, p):
+        if node is None:
+                return
+
+        d   = h_max - h
+        x_s = (2**d - 1)*S
+        S_d = (2**(d+1))*S
+        node.cx = x_s + p*S_d
+
+        if node.left:
+                do_layout(node.left,  h+1, h_max, S, 2*p)
+        if node.right:
+                do_layout(node.right, h+1, h_max, S, 2*p+1)
+</pre>
+</li>
+<li><p class="first">Przykładowy program <a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tree_layout/tree_layout_demo2.py">tree_layout_demo2.py</a>
+(Tkinter)</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="metoda-2">
+<h1>Metoda 2</h1>
+<center>
+<object data="tree_m2.svg" type="image/svg+xml" width="238" height="244">
+        <embed src="tree_m2.svg" type="image/svg+xml" width="238" height="244" />
+</object>
+</center><p>Przedstawiony niżej algorytm jest nieco bardziej złożony, ale daje
+lepsze rezultaty.</p>
+<p>W pierwszym kroku wszystkie węzły na każdym poziomie są do siebie ściśle
+dosuwane, tzn. tak że kraniec jednego węzła jest blisko kolejnego (dodawany
+jest także pewien niewielki odstęp między nimi).</p>
+<p>Następnie drzewo jest przeglądane <strong>poziomami</strong> od dołu &mdash; od poziomu
+przedostatniego aż do korzenia:</p>
+<ul>
+<li><p class="first">Węzły na każdym poziomie są przeglądane od lewej do prawej; liście są
+pomijane.</p>
+</li>
+<li><p class="first">Jeśli węzeł ma dzieci, to wyznaczany jest jego <strong>pożądany środek</strong>
+<span class="math"><i>x</i><sub>D</sub></span> (wyznaczam średnią środka pierwszego i ostatniego dziecka,
+można próbować inaczej).  Teraz należy rozważyć aktualne położenie
+środka węzła (<span class="math"><i>x</i><sub>C</sub></span>) względem obliczonego <span class="math"><i>x</i><sub>D</sub></span>.</p>
+<blockquote>
+<ul class="simple">
+<li>Jeśli <span class="math"><i>x</i><sub>C</sub> &lt <i>x</i><sub>D</sub></span> (bardziej na lewo) to należy przesunąć
+w prawo ten węzeł <strong>oraz</strong> wszystkich jego sąsiadów znajdujących się
+na prawo &mdash; te węzły nie zostały jeszcze przetworzone.
+Przesunięcie wynosi <span class="math"><i>dx</i> = <i>x</i><sub>D</sub> &minus; <i>x</i><sub>C</sub></span>.</li>
+<li>Jeśli <span class="math"><i>x</i><sub>C</sub> &gt <i>x</i><sub>D</sub></span> to nie można przesunąć tego węzła w lewo,
+mogą tam przecież znajdować się inne węzły z tego samego poziomu.
+Dlatego należy przesunąć w prawo o <span class="math"><i>x</i><sub>C</sub> &minus; <i>x</i><sub>D</sub></span> jednostek
+całe <strong>poddrzewa</strong> tego węzła oraz wszystkich jego sąsiadów z prawej.
+Dlaczego nie wystarczy tylko tego węzła?  Ponieważ na niższych
+poziomach  węzły są już rozmieszczone i trzeba zachować ich wzajemne
+położenie.</li>
+</ul>
+</blockquote>
+</li>
+</ul>
+<p>Jak widać sam algorytm nie jest przesadnie skomplikowany.  Należy tylko
+tak zorganizować drzewo, aby można było łatwo odczytać jego poziom oraz
+wszystkich sąsiadów z prawej.  Ja po prostu utworzyłem listy węzłów
+dla każdego z poziomów, a węzły drzewa zawierają dodatkowe pole
+informujące o poziomie i położeniu na wspomnianej liście.</p>
+<pre class="code cpp literal-block">
+<span class="n">def</span><span class="w"> </span><span class="n">TreeLayout2</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">space</span><span class="p">)</span><span class="o">:</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="n">node</span><span class="o">:</span><span class="w">    </span><span class="err">#</span><span class="w"> </span><span class="n">empty</span><span class="w"> </span><span class="n">tree</span><span class="w">
+        </span><span class="k">return</span><span class="w">
+
+    </span><span class="k">class</span><span class="w"> </span><span class="nc">Dummy</span><span class="o">:</span><span class="w"> </span><span class="n">pass</span><span class="w">
+
+    </span><span class="n">d</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Dummy</span><span class="p">()</span><span class="w">
+    </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[]</span><span class="w">
+
+    </span><span class="n">def</span><span class="w"> </span><span class="n">fill_rows</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">level</span><span class="p">)</span><span class="o">:</span><span class="w">
+
+        </span><span class="cp"># add node to node's list assigned to certain level
+</span><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="n">len</span><span class="p">(</span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">level</span><span class="o">+</span><span class="mi">1</span><span class="o">:</span><span class="w">
+            </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">].</span><span class="n">append</span><span class="p">(</span><span class="n">node</span><span class="p">)</span><span class="w">
+
+        </span><span class="nl">else</span><span class="p">:</span><span class="w"> </span><span class="err">#</span><span class="w"> </span><span class="k">this</span><span class="w"> </span><span class="n">level</span><span class="w"> </span><span class="n">is</span><span class="w"> </span><span class="n">visited</span><span class="w"> </span><span class="n">first</span><span class="w"> </span><span class="n">time</span><span class="w">
+            </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">.</span><span class="n">append</span><span class="p">([])</span><span class="w">
+            </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="n">node</span><span class="p">]</span><span class="w">
+
+        </span><span class="cp"># each node has info about it position in d.levels table
+</span><span class="w">        </span><span class="n">node</span><span class="p">.</span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">len</span><span class="p">(</span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">])</span><span class="mi">-1</span><span class="w">
+        </span><span class="n">node</span><span class="p">.</span><span class="n">level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">level</span><span class="w">
+
+        </span><span class="cp"># place new node at end of the row
+</span><span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">index</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="o">:</span><span class="w">
+            </span><span class="n">prevnode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="n">node</span><span class="p">.</span><span class="n">level</span><span class="p">][</span><span class="n">node</span><span class="p">.</span><span class="n">index</span><span class="mi">-1</span><span class="p">]</span><span class="w">
+            </span><span class="n">node</span><span class="p">.</span><span class="n">setminx</span><span class="p">(</span><span class="n">prevnode</span><span class="p">.</span><span class="n">maxx</span><span class="p">()</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">space</span><span class="p">)</span><span class="w">
+        </span><span class="nl">else</span><span class="p">:</span><span class="w">
+            </span><span class="n">node</span><span class="p">.</span><span class="n">setminx</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="err">#</span><span class="w"> </span><span class="n">first</span><span class="w"> </span><span class="n">node</span><span class="w">
+
+        </span><span class="cp"># process node's children
+</span><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="n">child</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">childNodes</span><span class="o">:</span><span class="w">
+            </span><span class="n">fill_rows</span><span class="p">(</span><span class="n">child</span><span class="p">,</span><span class="w"> </span><span class="n">level</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="w">
+
+    </span><span class="n">def</span><span class="w"> </span><span class="n">do_layout</span><span class="p">()</span><span class="o">:</span><span class="w">
+
+        </span><span class="n">def</span><span class="w"> </span><span class="n">translate_child</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">dx</span><span class="p">)</span><span class="o">:</span><span class="w">
+            </span><span class="k">for</span><span class="w"> </span><span class="n">child</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">childNodes</span><span class="o">:</span><span class="w">
+                </span><span class="n">translate_tree</span><span class="p">(</span><span class="n">child</span><span class="p">,</span><span class="w"> </span><span class="n">dx</span><span class="p">)</span><span class="w">
+
+        </span><span class="n">def</span><span class="w"> </span><span class="n">translate_tree</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">dx</span><span class="p">)</span><span class="o">:</span><span class="w">
+            </span><span class="n">node</span><span class="p">.</span><span class="n">cx</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">dx</span><span class="w">
+            </span><span class="k">for</span><span class="w"> </span><span class="n">child</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">childNodes</span><span class="o">:</span><span class="w">
+                </span><span class="n">translate_tree</span><span class="p">(</span><span class="n">child</span><span class="p">,</span><span class="w"> </span><span class="n">dx</span><span class="p">)</span><span class="w">
+
+        </span><span class="k">for</span><span class="w"> </span><span class="n">row</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">reversed</span><span class="p">(</span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="o">:</span><span class="mi">-1</span><span class="p">])</span><span class="o">:</span><span class="w">
+            </span><span class="k">for</span><span class="w"> </span><span class="n">parent</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">row</span><span class="o">:</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="k">not</span><span class="w"> </span><span class="n">parent</span><span class="p">.</span><span class="n">hasChildNodes</span><span class="p">()</span><span class="o">:</span><span class="w">      </span><span class="err">#</span><span class="w"> </span><span class="n">skip</span><span class="w"> </span><span class="n">leafs</span><span class="w">
+                    </span><span class="k">continue</span><span class="w">
+
+                </span><span class="cp"># calucate desired center of node
+</span><span class="w">                </span><span class="n">cx</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">parent</span><span class="p">.</span><span class="n">firstChild</span><span class="p">.</span><span class="n">cx</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">parent</span><span class="p">.</span><span class="n">lastChild</span><span class="p">.</span><span class="n">cx</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="w">
+                </span><span class="n">dx</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">cx</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">parent</span><span class="p">.</span><span class="n">cx</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="n">cx</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="n">parent</span><span class="p">.</span><span class="n">cx</span><span class="o">:</span><span class="w">
+                    </span><span class="cp"># move dx units right nodes at parent level, starting
+</span><span class="w">                    </span><span class="cp"># from the parent node
+</span><span class="w">                    </span><span class="n">row1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="n">parent</span><span class="p">.</span><span class="n">level</span><span class="p">]</span><span class="w">
+                    </span><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">xrange</span><span class="p">(</span><span class="n">parent</span><span class="p">.</span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">len</span><span class="p">(</span><span class="n">row1</span><span class="p">))</span><span class="o">:</span><span class="w">
+                        </span><span class="n">row1</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">cx</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">dx</span><span class="w">
+                </span><span class="n">elif</span><span class="w"> </span><span class="n">cx</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">parent</span><span class="p">.</span><span class="n">cx</span><span class="o">:</span><span class="w">
+                    </span><span class="cp"># move -dx units right subtrees of parent
+</span><span class="w">                    </span><span class="cp"># and it's neightbours on right
+</span><span class="w">                    </span><span class="n">row1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">d</span><span class="p">.</span><span class="n">levels</span><span class="p">[</span><span class="n">parent</span><span class="p">.</span><span class="n">level</span><span class="p">]</span><span class="w">
+                    </span><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">xrange</span><span class="p">(</span><span class="n">parent</span><span class="p">.</span><span class="n">index</span><span class="p">,</span><span class="w"> </span><span class="n">len</span><span class="p">(</span><span class="n">row1</span><span class="p">))</span><span class="o">:</span><span class="w">
+                        </span><span class="n">translate_child</span><span class="p">(</span><span class="n">row1</span><span class="p">[</span><span class="n">i</span><span class="p">],</span><span class="w"> </span><span class="o">-</span><span class="n">dx</span><span class="p">)</span><span class="w">
+
+    </span><span class="n">fill_rows</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w">
+    </span><span class="n">do_layout</span><span class="p">()</span>
+</pre>
+</div>
+<div class="section" id="dodatek">
+<h1>Dodatek</h1>
+<p>Ponieważ podczas testów powyższych algorytmów nie zawsze odpowiadało mi
+tworzenie losowych drzew, a jednocześnie opisywanie bezpośrednio w kodzie
+programu struktury drzewa jest mało przyjemne, dlatego napisałem prosty
+parser definicji drzew, który akceptuje składnię podobną do tej stosowanej
+w Graphviz.</p>
+<pre class="literal-block">
+# komentarz
+
+# powinien istnieć dokładnie jeden korzeń (nazwę korzenia
+# ustala argument funkcji parse_tree_def, domyślnie
+# jest to właśnie 'root'
+
+# 1. Tworzenie struktury drzewa:
+# węzły A i B są dziećmi korzenia
+root -&gt; A
+root -&gt; B
+
+# węzeł A ma trzy dzieci
+A    -&gt; C
+A    -&gt; D
+A    -&gt; E
+
+# a węzeł C jedno
+C    -&gt; F
+
+# 2. Określanie kształtu węzłów
+# tworzenie węzła: nazwa = kształt parametry rozdzielone przecinkami
+A    = rectangle &quot;b&quot;, 20, 30
+B    = rectangle &quot;c&quot;, 20, 30
+root = circle    &quot;a&quot;, 10
+
+# kopiowanie definicje innych węzłów
+C    = A
+D    = A
+E    = C
+F    = A
+</pre>
+<p>Kolejność tworzenia dowiązań, definiowania kształtu węzłów, ani
+ich kopiowania nie gra roli.</p>
+<p>Procedura zapamiętuje razem z węzłem jaki kształt został mu
+przypisany (łańcuch <tt class="docutils literal">classname</tt>) i jakie podano parametry
+(lista parametrów <tt class="docutils literal">parameters</tt>).  Aplikacja powinna
+przetworzyć wynikowe drzewo na swoją własną reprezentację.</p>
+<p>Przykładowa funkcja konwertująca:</p>
+<pre class="code cpp literal-block">
+<span class="n">def</span><span class="w"> </span><span class="n">convert</span><span class="p">(</span><span class="n">node</span><span class="p">,</span><span class="w"> </span><span class="n">drawing</span><span class="p">,</span><span class="w"> </span><span class="n">level</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">:</span><span class="w">
+    </span><span class="s">&quot;&quot;&quot;</span><span class="w">
+    </span><span class="n">Function</span><span class="w"> </span><span class="n">converts</span><span class="w"> </span><span class="n">tree</span><span class="w"> </span><span class="n">returned</span><span class="w"> </span><span class="n">by</span><span class="w"> </span><span class="n">parse_tree_def</span><span class="w">
+    </span><span class="n">into</span><span class="w"> </span><span class="n">tree</span><span class="w"> </span><span class="n">used</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="k">this</span><span class="w"> </span><span class="n">demo</span><span class="o">:</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="n">parses</span><span class="w"> </span><span class="n">parameters</span><span class="w">
+    </span><span class="k">and</span><span class="w"> </span><span class="n">creates</span><span class="w"> </span><span class="n">nodes</span><span class="w"> </span><span class="n">of</span><span class="w"> </span><span class="n">given</span><span class="w"> </span><span class="n">shape</span><span class="w"> </span><span class="k">and</span><span class="w"> </span><span class="n">size</span><span class="w">
+    </span><span class="s">&quot;&quot;&quot;</span><span class="w">
+    </span><span class="n">def</span><span class="w"> </span><span class="n">create</span><span class="p">(</span><span class="n">classname</span><span class="p">,</span><span class="w"> </span><span class="n">parameters</span><span class="p">)</span><span class="o">:</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="n">classname</span><span class="p">.</span><span class="n">lower</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;circle&quot;</span><span class="o">:</span><span class="w">   </span><span class="err">#</span><span class="w"> </span><span class="s">&quot;string&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">r</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">Circle</span><span class="p">(</span><span class="n">drawing</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="p">(</span><span class="n">parameters</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span><span class="w">
+        </span><span class="n">elif</span><span class="w"> </span><span class="n">classname</span><span class="p">.</span><span class="n">lower</span><span class="p">()</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;rectangle&quot;</span><span class="o">:</span><span class="w">      </span><span class="err">#</span><span class="w"> </span><span class="s">&quot;string&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">w</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="n">Rectangle</span><span class="p">(</span><span class="n">drawing</span><span class="p">,</span><span class="w"> </span><span class="kt">float</span><span class="p">(</span><span class="n">parameters</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span><span class="w"> </span><span class="kt">float</span><span class="p">(</span><span class="n">parameters</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span><span class="w">
+        </span><span class="nl">else</span><span class="p">:</span><span class="w">
+            </span><span class="n">raise</span><span class="w"> </span><span class="n">ValueError</span><span class="p">(</span><span class="s">&quot;Unknown node class '%c'&quot;</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">classname</span><span class="p">)</span><span class="w">
+
+    </span><span class="n">newnode</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">create</span><span class="p">(</span><span class="n">node</span><span class="p">.</span><span class="n">classname</span><span class="p">,</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">parameters</span><span class="p">)</span><span class="w">
+    </span><span class="n">newnode</span><span class="p">.</span><span class="n">cy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">level</span><span class="o">*</span><span class="mi">40</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="n">child</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">node</span><span class="p">.</span><span class="n">childNodes</span><span class="o">:</span><span class="w">
+        </span><span class="n">newnode</span><span class="p">.</span><span class="n">appendChild</span><span class="p">(</span><span class="w"> </span><span class="n">convert</span><span class="p">(</span><span class="n">child</span><span class="p">,</span><span class="w"> </span><span class="n">drawing</span><span class="p">,</span><span class="w"> </span><span class="n">level</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">)</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">newnode</span>
+</pre>
+</div>
+<div class="section" id="do-pobrania">
+<h1>Do pobrania</h1>
+<div class="section" id="zrodla">
+<h2>Źrodła</h2>
+<ul class="simple">
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tree_layout/tree_layout.py">tree_layout.py</a> &mdash; implementacja powyższych metod</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tree_layout/parse_tree_def.py">parse_tree_def.py</a> &mdash; opisany wyżej parser
+definicji drzew</li>
+<li><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tree_layout/tree1.txt">tree1.txt</a> &mdash; definicja drzewa widocznego na tej
+stronie</li>
+</ul>
+</div>
+<div class="section" id="demo-tkinter">
+<h2>Demo (Tkinter)</h2>
+<p><a class="reference external" href="https://github.com/WojciechMula/graphics/blob/master/tree_layout/tree_layout-tkdemo.py">tree_layout-tkdemo.py</a> &mdash; program napisany w Tkinterze</p>
+<img alt="zrzut ekranu 1" src="tree_layout-tkdemo1.png" />
+<img alt="zrzut ekranu 1" src="tree_layout-tkdemo2.png" />
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/tree_layout/index.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:37 GMT -->
+</html>

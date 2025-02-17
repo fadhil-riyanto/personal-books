@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from xcellerator.github.io/page/2/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:22:50 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=utf-8" /><!-- /Added by HTTrack -->
+<head>
+	<meta name="generator" content="Hugo 0.118.2">
+  
+    <title>TheXcellerator</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="description" content="" />
+<meta name="keywords" content="" />
+<meta name="robots" content="noodp" />
+<link rel="canonical" href="../../index.html" />
+
+
+
+
+<link rel="stylesheet" href="../../assets/style.css">
+
+  <link rel="stylesheet" href="../../assets/blue.css">
+
+
+
+
+
+
+<link rel="apple-touch-icon-precomposed" sizes="144x144" href="../../img/apple-touch-icon-144-precomposed.html">
+
+  <link rel="shortcut icon" href="../../img/favicon/blue.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+<meta name="twitter:creator" content="TheXcellerator" />
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="TheXcellerator">
+<meta property="og:description" content="" />
+<meta property="og:url" content="/" />
+<meta property="og:site_name" content="TheXcellerator" />
+
+  
+    <meta property="og:image" content="../../img/favicon/blue.png">
+  
+
+<meta property="og:image:width" content="2048">
+<meta property="og:image:height" content="1024">
+
+
+
+
+
+  <link href="../../index.xml" rel="alternate" type="application/rss+xml" title="TheXcellerator" />
+
+
+
+
+
+
+
+
+
+</head>
+<body class="">
+
+
+<div class="container center headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="../../index.html">
+  <div class="logo">
+    TheXcellerator
+  </div>
+</a>
+
+    </div>
+    <div class="menu-trigger">menu</div>
+  </div>
+  
+    <nav class="menu">
+  <ul class="menu__inner menu__inner--desktop">
+    
+      
+        
+          <li><a href="../../categories/cryptography/index.html">Cryptography</a></li>
+        
+      
+        
+          <li><a href="../../categories/linux/index.html">Linux</a></li>
+        
+      
+        
+          <li><a href="../../categories/other/index.html">Other</a></li>
+        
+      
+        
+          <li><a href="../../categories/reverse_engineering/index.html">Reverse Engineering</a></li>
+        
+      
+      
+    
+
+    
+  </ul>
+
+  <ul class="menu__inner menu__inner--mobile">
+    
+      
+        <li><a href="../../categories/cryptography/index.html">Cryptography</a></li>
+      
+    
+      
+        <li><a href="../../categories/linux/index.html">Linux</a></li>
+      
+    
+      
+        <li><a href="../../categories/other/index.html">Other</a></li>
+      
+    
+      
+        <li><a href="../../categories/reverse_engineering/index.html">Reverse Engineering</a></li>
+      
+    
+    
+  </ul>
+</nav>
+
+  
+</header>
+
+
+  <div class="content">
+    
+<div class="posts">
+  
+  
+
+  
+  
+    
+  
+  
+
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/linux_rootkits_06/index.html">Linux Rootkits Part 6: Hiding Directories</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-09-19
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+    <span class="post-tags">
+      
+      #<a href="../../tags/linux/index.html">linux</a>&nbsp;
+      
+      #<a href="../../tags/rootkit/index.html">rootkit</a>&nbsp;
+      
+      #<a href="../../tags/stealth/index.html">stealth</a>&nbsp;
+      
+      #<a href="../../tags/directories/index.html">directories</a>&nbsp;
+      
+    </span>
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      At this point, we’ve used several different techniques to manipulate the kernel into doing interesting things. We’re going to combine a few of these techniques now in order to hide certain files and directories from userspace. This post is probably the most intricate yet due to the fact that we have to manipulate the structure returned by the kernel to userspace.
+Roughly speaking, directory listing is handled by the syscall sys_getdents64 and its 32-bit counterpart sys_getdents (we’ll want to hook both, but they are identical except for a small addition in the 32-bit version).
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/linux_rootkits_06/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/linux_rootkits_05/index.html">Linux Rootkits Part 5: Hiding Kernel Modules from Userspace</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-09-17
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+    <span class="post-tags">
+      
+      #<a href="../../tags/linux/index.html">linux</a>&nbsp;
+      
+      #<a href="../../tags/rootkit/index.html">rootkit</a>&nbsp;
+      
+      #<a href="../../tags/stealth/index.html">stealth</a>&nbsp;
+      
+      #<a href="../../tags/linked-lists/index.html">linked lists</a>&nbsp;
+      
+    </span>
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      So far, we’ve seen how hooking both syscalls and regular functions can be put to good use. But, seeing as how this is a series on rootkits, we should really be making some considerations on stealth. If you’ve been following along, then once you’d loaded any of the previous rootkits, it’s presence would have been revealed by simply examining the output of lsmod.
+$ lsmod | grep rootkit rootkit 16384 0 Pretty obvious, right?
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/linux_rootkits_05/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/linux_rootkits_04/index.html">Linux Rootkits Part 4: Backdooring PRNGs by Interfering with Char Devices</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-09-09
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+    <span class="post-tags">
+      
+      #<a href="../../tags/linux/index.html">linux</a>&nbsp;
+      
+      #<a href="../../tags/rootkit/index.html">rootkit</a>&nbsp;
+      
+      #<a href="../../tags/char/index.html">char</a>&nbsp;
+      
+      #<a href="../../tags/device/index.html">device</a>&nbsp;
+      
+      #<a href="../../tags/random/index.html">random</a>&nbsp;
+      
+      #<a href="../../tags/urandom/index.html">urandom</a>&nbsp;
+      
+    </span>
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      We saw in Part 3 how easy it is to add some extra functionality to a syscall. This time we’re going to target a pair of kernel functions that are not syscalls, and can’t be called directly. To understand what these are, it’s worth discussing char devices a little first.
+Char Devices in Linux Although you might not recognise the name, you’re probably already pretty familiar with a bunch of char (or chararacter) devices already.
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/linux_rootkits_04/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/linux_rootkits_03/index.html">Linux Rootkits Part 3: A Backdoor to Root</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-08-29
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+    <span class="post-tags">
+      
+      #<a href="../../tags/linux/index.html">linux</a>&nbsp;
+      
+      #<a href="../../tags/rootkit/index.html">rootkit</a>&nbsp;
+      
+      #<a href="../../tags/root/index.html">root</a>&nbsp;
+      
+      #<a href="../../tags/backdoor/index.html">backdoor</a>&nbsp;
+      
+    </span>
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      Now that you know how to make a Linux kernel module that can hook any exposed function in kernel memory (Part 1 and Part 2), let’s get down to writing a hook that does something interesting!
+In this first example, we’re going to make a rootkit that intercepts calls to sys_kill. 99% of the time, we only use sys_kill (the userspace tool we normally use is the familiar kill) to kill a process, i.
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/linux_rootkits_03/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/linux_rootkits_02/index.html">Linux Rootkits Part 2: Ftrace and Function Hooking</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-08-26
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+    <span class="post-tags">
+      
+      #<a href="../../tags/linux/index.html">linux</a>&nbsp;
+      
+      #<a href="../../tags/rootkit/index.html">rootkit</a>&nbsp;
+      
+      #<a href="../../tags/ftrace/index.html">ftrace</a>&nbsp;
+      
+    </span>
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      Okay, so you’ve built your first kernel module, but now you want to make it do something cool - something like altering the behaviour of the running kernel. The way we do this is by function hooking, but the question is - how do we know which functions to hook?
+Luckily for us, there is already a great list of potential targets: syscalls! Syscalls (or system calls) are kernel functions that can be called from userspace, and are required for almost anything remotely interesting.
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/linux_rootkits_02/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/check_back_soon/index.html">Coming soon!</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-08-25
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/check_back_soon/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/linux_rootkits_01/index.html">Linux Rootkits Part 1: Introduction and Workflow</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-08-25
+      </span>
+      <span class="post-author">::
+        TheXcellerator</span>
+    </div>
+
+    
+    <span class="post-tags">
+      
+      #<a href="../../tags/linux/index.html">linux</a>&nbsp;
+      
+      #<a href="../../tags/rootkit/index.html">rootkit</a>&nbsp;
+      
+    </span>
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      Learning about Linux rootkits is a great way to learn more about how the kernel works. What’s great about it is that, unless you really understand what the kernel is doing, your rootkit is unlikely to work, so it serves as a fantasic verifier.
+In the FreeBSD world, you can find Joseph Kong’s amazing book Designing BSD Rootkits. It was written in 2009, so is actually pretty outdated - which means that you have to do quite a bit of research to get the sample progras to work on modern FreeBSD.
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/linux_rootkits_01/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/bggp/index.html">BootNoodle: A Palindromic Bootloader for BGGP</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2020-06-23
+      </span>
+      
+    </div>
+
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      You can find the git repo with the finished submission here: BootNoodle
+A few days ago (as of writing), @netspooky announced the first (hopefully annual!) Binary Golf Grand Prix on Twitter. The objective was to create a binary of any sort that is the same forwards as it is byte-reversed, but with an emphasis on creating as small a binary as possible, hence golfing.
+This was one of those challenges where I thought that I had no chance of even creating a qualifying submission, so it’s better to just wait for the results and admire the work of everyone else.
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/bggp/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="post on-list">
+    <h1 class="post-title">
+      <a href="../../posts/yubikey/index.html">Reversing Yubikey&rsquo;s Static Password</a></h1>
+    <div class="post-meta">
+      <span class="post-date">
+        2019-06-11
+      </span>
+      
+    </div>
+
+    
+
+    
+
+    <div class="post-content">
+      
+      
+      One of the functions that that Yubikey can provide is the option to “store” a static password on the token which will be “typed” out on the host whenever you press the button. Having already done quite of a lot of work on the USB HID implementation, I was curious to know how Yubico had decided to emulate the keyboard functionality. Ultimately, I was hoping that I’d be able to set all kinds of different modifiers like Ctrl+Alt+Del and Super+R to have a little more fun with it (BadUSB/Rubber Ducky style).
+      
+      
+    </div>
+
+    
+    <div>
+      <a class="read-more button"
+        href="../../posts/yubikey/index.html">Read more →</a>
+    </div>
+    
+  </div>
+  
+  <div class="pagination">
+  <div class="pagination__buttons">
+    
+      <span class="button previous">
+        <a href="../../index.html">
+          <span class="button__icon">←</span>
+          <span class="button__text">Newer posts</span>
+        </a>
+      </span>
+    
+    
+  </div>
+</div>
+
+</div>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright copyright--user">
+        <span>Harvey Phillips 2020 - London, England</span>
+    
+        <span>:: Theme made by <a href="https://twitter.com/panr">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+<script src="../../assets/main.js"></script>
+<script src="../../assets/prism.js"></script>
+
+<div class="footer__webring">
+    <span>
+        <div>
+            this site is part of the <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi'>HauNTed wEbriNg</a>
+        </div>
+        <div>
+            <p>
+                <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi?before=https://xcellerator.github.io/'>&lt;&lt;&lt;</a>
+                <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi?random=https://xcellerator.github.io/'>RaNDom</a>
+                <a href='https://pixeldreams.tokyo/cgi-bin/webring.cgi?after=https://xcellerator.github.io/'>&gt;&gt;&gt;</a>
+            </p>
+        </div>
+    </span>
+</div>
+
+
+
+
+
+  
+</div>
+
+</body>
+
+<!-- Mirrored from xcellerator.github.io/page/2/ by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:22:50 GMT -->
+</html>

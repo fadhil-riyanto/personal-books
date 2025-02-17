@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-01-01-instruction-utilization.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>x86 - ISA where 80% of instructions are unimportant</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="x86-isa-where-80-of-instructions-are-unimportant">
+<h1 class="title">x86 - ISA where 80% of instructions are unimportant</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-01-01</td>
+</tr>
+</tbody>
+</table>
+<p>Few years ago I counted instructions from many Linux binaries &mdash; 2014
+is a good year to repeated this experiment and see that nothing has
+changed.</p>
+<p>I use 32-bit Debian, my installation has been updated few months ago.
+All files from <tt class="docutils literal">/usr/bin</tt> and all <tt class="docutils literal">*.so</tt> files from <tt class="docutils literal">/usr/lib</tt> was
+disassembled with <tt class="docutils literal">objdump</tt> (5050 files were processed). Instructions
+were grouped simply by mnemonic name. Taking into account all addressing
+and encoding modes would be overkill. I've <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/count_instructions">published script</a> that
+does the job.</p>
+<p>Short summary:</p>
+<ul class="simple">
+<li>The number of distinct decoded instructions is around 650. Since objdump
+use AT&amp;T syntax, same opcodes are seen under different mnemonics, for
+example <tt class="docutils literal">mov</tt> is saved as <tt class="docutils literal">movw</tt>, <tt class="docutils literal">movb</tt>, <tt class="docutils literal">movl</tt> depending on
+argument size.</li>
+<li>Total number of x86 instructions is around 750. Read: one hundred
+instructions never appeared in the binaries.</li>
+<li>There are 81 instructions used just once. For example quite useful
+<tt class="docutils literal">CMPPD</tt>.</li>
+<li>There are 22 instructions used twice. For example <tt class="docutils literal">MFENCE</tt> &mdash; no one
+aware of memory ordering?</li>
+<li>There are 15 instructions used three times. For example <tt class="docutils literal">BTC</tt>, but
+bit manipulating operations are useless.</li>
+<li>81 plus 22 plus 15 is 118. Another hundred of useless stuff.</li>
+</ul>
+<p>Lets look at top 15 rows from detailed results, i.e. instruction with
+frequency grater than 1%:</p>
+<ul class="simple">
+<li>The total count of these instructions is 87.84% of all instructions
+(almost all, isn't it?).</li>
+<li>The most frequently used instruction is data transfer (<tt class="docutils literal">mov</tt>/<tt class="docutils literal">movl</tt>) &mdash; 42%</li>
+<li>Control flow instructions (<tt class="docutils literal">call</tt>/<tt class="docutils literal">ret</tt>/<tt class="docutils literal">jmp</tt>) &mdash; 13%.</li>
+<li>Conditions (<tt class="docutils literal">cmp</tt>/<tt class="docutils literal">test</tt>/condition jumps: <tt class="docutils literal">je</tt>/<tt class="docutils literal">jne</tt>) &mdash; 10%.</li>
+<li>Basic arithmetic (<tt class="docutils literal">add</tt>/<tt class="docutils literal">sub</tt>/<tt class="docutils literal">lea</tt>) &mdash; 12%</li>
+<li>Simple stack operations (<tt class="docutils literal">push</tt>/<tt class="docutils literal">pop</tt>) &mdash; 6%</li>
+</ul>
+<p>Very interesting observation is that conditions are mostly based on
+<tt class="docutils literal">je</tt>/<tt class="docutils literal">jne</tt>, i.e. jump if zero/jump if not zero.</p>
+<p>The first FPU instruction appears at 28-th position. The first integer SSE
+appears at 167-th position. And the first SSE instruction operating on packed
+floats appear at 315-th position.</p>
+<div class="section" id="detailed-results">
+<h1>Detailed results</h1>
+<p>Whole table as <a class="reference external" href="https://github.com/WojciechMula/toys/blob/master/count_instructions/debian-386.txt">txt file</a>.</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="33%" />
+<col width="33%" />
+<col width="33%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">instruction</th>
+<th class="head">count</th>
+<th class="head">%</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>mov</td>
+<td>5934098</td>
+<td>37.63%</td>
+</tr>
+<tr><td>call</td>
+<td>1414355</td>
+<td>8.97%</td>
+</tr>
+<tr><td>lea</td>
+<td>1071501</td>
+<td>6.79%</td>
+</tr>
+<tr><td>movl</td>
+<td>760677</td>
+<td>4.82%</td>
+</tr>
+<tr><td>push</td>
+<td>655921</td>
+<td>4.16%</td>
+</tr>
+<tr><td>jmp</td>
+<td>611540</td>
+<td>3.88%</td>
+</tr>
+<tr><td>add</td>
+<td>560517</td>
+<td>3.55%</td>
+</tr>
+<tr><td>je</td>
+<td>490250</td>
+<td>3.11%</td>
+</tr>
+<tr><td>test</td>
+<td>475899</td>
+<td>3.02%</td>
+</tr>
+<tr><td>pop</td>
+<td>441608</td>
+<td>2.80%</td>
+</tr>
+<tr><td>sub</td>
+<td>366228</td>
+<td>2.32%</td>
+</tr>
+<tr><td>cmp</td>
+<td>326379</td>
+<td>2.07%</td>
+</tr>
+<tr><td>jne</td>
+<td>264110</td>
+<td>1.67%</td>
+</tr>
+<tr><td>nop</td>
+<td>242356</td>
+<td>1.54%</td>
+</tr>
+<tr><td>ret</td>
+<td>238569</td>
+<td>1.51%</td>
+</tr>
+<tr><td>xor</td>
+<td>148194</td>
+<td>0.94%</td>
+</tr>
+<tr><td>movzbl</td>
+<td>122730</td>
+<td>0.78%</td>
+</tr>
+<tr><td>and</td>
+<td>88863</td>
+<td>0.56%</td>
+</tr>
+<tr><td>xchg</td>
+<td>66885</td>
+<td>0.42%</td>
+</tr>
+<tr><td>cmpl</td>
+<td>64907</td>
+<td>0.41%</td>
+</tr>
+<tr><td>movzwl</td>
+<td>64589</td>
+<td>0.41%</td>
+</tr>
+<tr><td>movb</td>
+<td>57247</td>
+<td>0.36%</td>
+</tr>
+<tr><td>or</td>
+<td>52138</td>
+<td>0.33%</td>
+</tr>
+<tr><td>shl</td>
+<td>50908</td>
+<td>0.32%</td>
+</tr>
+<tr><td>cmpb</td>
+<td>50152</td>
+<td>0.32%</td>
+</tr>
+<tr><td>jle</td>
+<td>41083</td>
+<td>0.26%</td>
+</tr>
+<tr><td>leave</td>
+<td>39923</td>
+<td>0.25%</td>
+</tr>
+<tr><td>fldl</td>
+<td>37428</td>
+<td>0.24%</td>
+</tr>
+<tr><td>fstpl</td>
+<td>37368</td>
+<td>0.24%</td>
+</tr>
+<tr><td>shr</td>
+<td>36503</td>
+<td>0.23%</td>
+</tr>
+<tr><td>jbe</td>
+<td>32866</td>
+<td>0.21%</td>
+</tr>
+<tr><td>ja</td>
+<td>32333</td>
+<td>0.21%</td>
+</tr>
+<tr><td>sar</td>
+<td>30917</td>
+<td>0.20%</td>
+</tr>
+<tr><td>flds</td>
+<td>29672</td>
+<td>0.19%</td>
+</tr>
+<tr><td>subl</td>
+<td>27636</td>
+<td>0.18%</td>
+</tr>
+<tr><td>setne</td>
+<td>27626</td>
+<td>0.18%</td>
+</tr>
+<tr><td>testb</td>
+<td>27420</td>
+<td>0.17%</td>
+</tr>
+<tr><td>addl</td>
+<td>25906</td>
+<td>0.16%</td>
+</tr>
+<tr><td>imul</td>
+<td>25569</td>
+<td>0.16%</td>
+</tr>
+<tr><td>jg</td>
+<td>24796</td>
+<td>0.16%</td>
+</tr>
+<tr><td>fstp</td>
+<td>24349</td>
+<td>0.15%</td>
+</tr>
+<tr><td>fxch</td>
+<td>23464</td>
+<td>0.15%</td>
+</tr>
+<tr><td>js</td>
+<td>21550</td>
+<td>0.14%</td>
+</tr>
+<tr><td>fstps</td>
+<td>21248</td>
+<td>0.13%</td>
+</tr>
+<tr><td>sbb</td>
+<td>16607</td>
+<td>0.11%</td>
+</tr>
+<tr><td>inc</td>
+<td>16200</td>
+<td>0.10%</td>
+</tr>
+<tr><td>lock</td>
+<td>16049</td>
+<td>0.10%</td>
+</tr>
+<tr><td>jae</td>
+<td>14825</td>
+<td>0.09%</td>
+</tr>
+<tr><td>sahf</td>
+<td>14765</td>
+<td>0.09%</td>
+</tr>
+<tr><td>dec</td>
+<td>14276</td>
+<td>0.09%</td>
+</tr>
+<tr><td>fnstsw</td>
+<td>14026</td>
+<td>0.09%</td>
+</tr>
+<tr><td>sete</td>
+<td>13902</td>
+<td>0.09%</td>
+</tr>
+<tr><td>movw</td>
+<td>13895</td>
+<td>0.09%</td>
+</tr>
+<tr><td>adc</td>
+<td>13640</td>
+<td>0.09%</td>
+</tr>
+<tr><td>jb</td>
+<td>12467</td>
+<td>0.08%</td>
+</tr>
+<tr><td>jl</td>
+<td>11700</td>
+<td>0.07%</td>
+</tr>
+<tr><td>repz</td>
+<td>11178</td>
+<td>0.07%</td>
+</tr>
+<tr><td>fldcw</td>
+<td>11110</td>
+<td>0.07%</td>
+</tr>
+<tr><td>jge</td>
+<td>11019</td>
+<td>0.07%</td>
+</tr>
+<tr><td>movswl</td>
+<td>10816</td>
+<td>0.07%</td>
+</tr>
+<tr><td>fildl</td>
+<td>8852</td>
+<td>0.06%</td>
+</tr>
+<tr><td>cmpw</td>
+<td>7601</td>
+<td>0.05%</td>
+</tr>
+<tr><td>jns</td>
+<td>7490</td>
+<td>0.05%</td>
+</tr>
+<tr><td>fldz</td>
+<td>7331</td>
+<td>0.05%</td>
+</tr>
+<tr><td>fmul</td>
+<td>7229</td>
+<td>0.05%</td>
+</tr>
+<tr><td>out</td>
+<td>7203</td>
+<td>0.05%</td>
+</tr>
+<tr><td>not</td>
+<td>7028</td>
+<td>0.04%</td>
+</tr>
+<tr><td>movsbl</td>
+<td>6720</td>
+<td>0.04%</td>
+</tr>
+<tr><td>in</td>
+<td>6503</td>
+<td>0.04%</td>
+</tr>
+<tr><td>fld</td>
+<td>6309</td>
+<td>0.04%</td>
+</tr>
+<tr><td>faddp</td>
+<td>6254</td>
+<td>0.04%</td>
+</tr>
+<tr><td>fstl</td>
+<td>5760</td>
+<td>0.04%</td>
+</tr>
+<tr><td>fucom</td>
+<td>5753</td>
+<td>0.04%</td>
+</tr>
+<tr><td>neg</td>
+<td>5725</td>
+<td>0.04%</td>
+</tr>
+<tr><td>fucompp</td>
+<td>5354</td>
+<td>0.03%</td>
+</tr>
+<tr><td>rep</td>
+<td>5059</td>
+<td>0.03%</td>
+</tr>
+<tr><td>fmuls</td>
+<td>5039</td>
+<td>0.03%</td>
+</tr>
+<tr><td>pushl</td>
+<td>4430</td>
+<td>0.03%</td>
+</tr>
+<tr><td>jp</td>
+<td>4424</td>
+<td>0.03%</td>
+</tr>
+<tr><td>fnstcw</td>
+<td>4400</td>
+<td>0.03%</td>
+</tr>
+<tr><td>fld1</td>
+<td>4176</td>
+<td>0.03%</td>
+</tr>
+<tr><td>fmulp</td>
+<td>4133</td>
+<td>0.03%</td>
+</tr>
+<tr><td>orl</td>
+<td>3927</td>
+<td>0.02%</td>
+</tr>
+<tr><td>fadds</td>
+<td>3789</td>
+<td>0.02%</td>
+</tr>
+<tr><td>movq</td>
+<td>3779</td>
+<td>0.02%</td>
+</tr>
+<tr><td>fistpl</td>
+<td>3709</td>
+<td>0.02%</td>
+</tr>
+<tr><td>cltd</td>
+<td>3597</td>
+<td>0.02%</td>
+</tr>
+<tr><td>fmull</td>
+<td>3313</td>
+<td>0.02%</td>
+</tr>
+<tr><td>stos</td>
+<td>3298</td>
+<td>0.02%</td>
+</tr>
+<tr><td>lret</td>
+<td>3183</td>
+<td>0.02%</td>
+</tr>
+<tr><td>scas</td>
+<td>3103</td>
+<td>0.02%</td>
+</tr>
+<tr><td>lods</td>
+<td>3066</td>
+<td>0.02%</td>
+</tr>
+<tr><td>cwtl</td>
+<td>3064</td>
+<td>0.02%</td>
+</tr>
+<tr><td>fadd</td>
+<td>2852</td>
+<td>0.02%</td>
+</tr>
+<tr><td>fucomp</td>
+<td>2678</td>
+<td>0.02%</td>
+</tr>
+<tr><td>orb</td>
+<td>2481</td>
+<td>0.02%</td>
+</tr>
+<tr><td>fildll</td>
+<td>2418</td>
+<td>0.02%</td>
+</tr>
+<tr><td>andl</td>
+<td>2379</td>
+<td>0.02%</td>
+</tr>
+<tr><td>setb</td>
+<td>2337</td>
+<td>0.01%</td>
+</tr>
+<tr><td>andb</td>
+<td>2263</td>
+<td>0.01%</td>
+</tr>
+<tr><td>552 rows more...</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-01-01-instruction-utilization.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

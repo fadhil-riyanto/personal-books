@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2015-12-13-obsession.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Benefits from the obsession</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="benefits-from-the-obsession">
+<h1 class="title">Benefits from the obsession</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2015-12-13</td>
+</tr>
+</tbody>
+</table>
+<p>Everything has started few years ago when I found <a class="reference external" href="http://blog.regehr.org/">John Regher's blog</a>. If
+you don't know the blog I highly recommend it. Among other things (I like
+the photos!) the author studies bugs in compilers, undefined behaviours and
+similar things. The word &quot;overflow&quot; appears quite often in his posts due to
+the great number of errors related to improper use of the integer
+arithmetic. Well, I don't know when the obsession has exactly started, but
+recently I realized that I am alert of all integer operations in my
+programs. If a variable has type <tt class="docutils literal">int</tt> and later it is incremented then
+I'm pretty sure that the application will eventually blow up. When I can't
+prevent it, I left comments like: &quot;XXX: possible overflow&quot;. This post shows
+three cases when I haven't left a comment, but fixed the issue.</p>
+<div class="section" id="case-1">
+<h1>Case 1</h1>
+<p>On the other day I saw such innocent code:</p>
+<pre class="code cpp literal-block">
+<span class="n">string</span><span class="w"> </span><span class="nf">decode_base64</span><span class="p">(</span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">base64</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="c1">// some validation
+</span><span class="w">
+    </span><span class="n">string</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3</span><span class="o">*</span><span class="n">base64</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+    </span><span class="n">result</span><span class="p">.</span><span class="n">resize</span><span class="p">(</span><span class="n">n</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// decoding stuff
+</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The size of <tt class="docutils literal">result</tt> is three fouth of the <tt class="docutils literal">base64</tt>'s size, so it is
+obviously smaller than the maximum value of <tt class="docutils literal">size_t</tt> which is used to
+store the string size. However, the overflow can occur during multiplying by
+3. On 64-bit machines the size of base64 have to be really huge to trigger
+the error &mdash; it is 1.23e+19. But on 32-bit machines it's &quot;merely&quot; 28 GB
+(try to imagine base64-encoded movie sent via e-mail...) Despite the CPU
+architecture, the problem still exists. And the solution is not very
+complicated.</p>
+<p>Expression <tt class="docutils literal">3/4 * x</tt> is equivalent to <tt class="docutils literal">x - 1/4 * x</tt>. Dividing <tt class="docutils literal">x</tt> by 4
+never cause an overflow, but since we operate on integers these two
+expressions are not equal. The latter expression have to be corrected
+(rounded up) with following conditional expression <tt class="docutils literal">(x % 4 != 0) ? 1 : 0</tt>.
+Thus the final expression is:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">base64</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">x</span><span class="o">/</span><span class="mi">4</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">((</span><span class="n">x</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">4</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span>
+</pre>
+<p>The expression requires: 2 additions, 1 right shift, 1 comparison and 1
+condition expression. And it's perfectly safe.</p>
+</div>
+<div class="section" id="case-2">
+<h1>Case 2</h1>
+<p>Later I spotted a similar mistake in a procedure which encodes data to
+base64. The expression calculating the size of an output buffer:</p>
+<pre class="code cpp literal-block">
+<span class="n">string</span><span class="w"> </span><span class="nf">base64_encode</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">4</span><span class="o">*</span><span class="n">x</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">string</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+    </span><span class="n">result</span><span class="p">.</span><span class="n">resize</span><span class="p">(</span><span class="n">n</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// ...
+</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Here the overflow is clearly visible, because value <tt class="docutils literal">4/3 * x</tt> could be
+greater than the maximum value of an integer. Again, to trigger the error on
+64-bit CPUs the input size have to be greater than 4.61e+18. But on 32-bit
+CPUs the overflow will occur for 1GB inputs. OK, so how to detect the
+overflow in this case? After rewriting expression to <tt class="docutils literal">x + x/3</tt> we can
+easily detect overflow during addition:</p>
+<pre class="code cpp literal-block">
+<span class="kt">size_t</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">std</span><span class="o">::</span><span class="n">limits</span><span class="o">&lt;</span><span class="kt">size_t</span><span class="o">&gt;::</span><span class="n">max</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">y</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">throw</span><span class="w"> </span><span class="s">&quot;overflow&quot;</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">y</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="n">string</span><span class="w"> </span><span class="nf">base64_encode</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">input</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">n</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="o">/</span><span class="mi">3</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// ...
+</span><span class="p">}</span>
+</pre>
+<p>In this case the only additional cost is a <strong>single comparison</strong> before the
+addition. And, what is more important, the procedure detects the overflows,
+while the original version <strong>silently ignored</strong> them.</p>
+</div>
+<div class="section" id="case-3">
+<h1>Case 3</h1>
+<p>The last example: joining a list of strings. The naive implementation looks
+like this:</p>
+<pre class="code cpp literal-block">
+<span class="n">string</span><span class="w"> </span><span class="nf">join</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">sep</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">vector</span><span class="o">&lt;</span><span class="n">string</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">items</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">items</span><span class="p">.</span><span class="n">empty</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">string</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">items</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">items</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">sep</span><span class="p">)</span><span class="w">
+        </span><span class="n">result</span><span class="p">.</span><span class="n">append</span><span class="p">(</span><span class="n">items</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>In my version, before actual appending the items to the results, there is an
+extra loop which calculates the size of the result string, like this:</p>
+<pre class="code cpp literal-block">
+<span class="n">string</span><span class="w"> </span><span class="nf">join</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">string</span><span class="o">&amp;</span><span class="w"> </span><span class="n">sep</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">vector</span><span class="o">&lt;</span><span class="n">string</span><span class="o">&gt;&amp;</span><span class="w"> </span><span class="n">items</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="c1">// ...
+</span><span class="w">
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">items</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">size</span><span class="p">();</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">items</span><span class="p">.</span><span class="n">size</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">add</span><span class="p">(</span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="n">sep</span><span class="p">.</span><span class="n">size</span><span class="p">());</span><span class="w">
+        </span><span class="n">size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">add</span><span class="p">(</span><span class="n">size</span><span class="p">,</span><span class="w"> </span><span class="n">items</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">size</span><span class="p">());</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">string</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+    </span><span class="n">result</span><span class="p">.</span><span class="n">reserve</span><span class="p">(</span><span class="n">size</span><span class="p">);</span><span class="w">
+
+    </span><span class="c1">// building the result
+</span><span class="p">}</span>
+</pre>
+<p>This case is maybe not the most interesting (this is why is the last one).
+When joining a really huge number of items we will probably run out of
+memory before any overflow might occur. However, there are some arguments in
+favor of the solution. The first positive thing is that we detect the
+overflow at the early stage, <strong>before</strong> allocating any memory. The other
+good point is that there is single call to the <tt class="docutils literal">reserve</tt> method, i.e. one
+allocation. Thanks to that later appending strings to the result only copies
+a data. Please remember that most of string implementations grow the memory
+by factor from 1.5 to 2.0, in result you can run out of memory even without
+arithmetic overflow.</p>
+</div>
+<div class="section" id="summary">
+<h1>Summary</h1>
+<p>To conclude the text: I showed how paying attention on minor details,
+considering possible but unlikely conditions led to eliminate some problems
+in the real code. I'm pessimist and I do believe that ignored problems will
+eventually came out. Remember the famous bug in the binary search
+implementation &mdash; everything was OK for many years, up to the day when
+somebody was butted.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2015-12-13-obsession.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:46 GMT -->
+</html>

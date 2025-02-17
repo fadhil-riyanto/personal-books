@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unop.php?f=rcpps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:25 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unop.php?f=rcpps" />
+<link rel="alternate" hreflang="en" href="unop56dd.html?f=rcpps" />
+<title>rcpps</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+</style>
+</head>
+
+<body>
+<h2>RCPPS - ReCiProcal Packed Single<br /></h2>
+RCPPS<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(S1<br />
+<span class="intr">__m128 _mm_rcp_ps(__m128 a)</span><br />
+VRCPPS<span class="operand"> xmm1, xmm2/m128</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m128 _mm_rcp_ps(__m128 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_1.png" /><br />
+<span style="padding-left: 110px">For each float, calculate approximate reciprocal of (1) and set the result to (2).  (relative error &lt;= 1.5*2<sup>-12</sup>)</span><br />
+<div style="height: 30px"></div>
+VRCPPS<span class="operand"> ymm1, ymm2/m256</span>&nbsp;&nbsp;&nbsp;&nbsp;(V1<br />
+<span class="intr">__m256 _mm256_rcp_ps(__m256 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_2.png" /><br />
+<span style="padding-left: 110px">For each float, calculate approximate reciprocal of (1) and set the result to (2).  (relative error &lt;= 1.5*2<sup>-12</sup>)</span><br />
+<div style="height: 30px"></div>
+512-bit → VRCP14PS / VRCP28PS<br>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=rcpps" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unop.php?f=rcpps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:45:27 GMT -->
+</html>

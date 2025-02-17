@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?f=vgetexpps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta content="text/html; charset=utf-8" http-equiv="Content-Type" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/unopv5.php?f=vgetexpps" />
+<link rel="alternate" hreflang="en" href="unopv5ca00.html?f=vgetexpps" />
+<title>vgetexpps</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+
+<body>
+<h2>VGETEXPPS - GET EXPonent Packed Single<br /></h2>
+VGETEXPPS<span class="operand"> xmm1{k1}{z}, xmm2/m128/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m128 _mm_getexp_ps(__m128 a)</span><br />
+<span class="intr">__m128 _mm_mask_getexp_ps(__m128 s, __mmask8 k, __m128 a)</span><br />
+<span class="intr">__m128 _mm_maskz_getexp_ps(__mmask8 k, __m128 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_1.png" /><br />
+<div style="padding-left: 110px">For each float, get the exponent from (1) (calculate floor(log2(abs((1))))) and store the result in (2).</div>
+<div style="height: 30px"></div>
+VGETEXPPS<span class="operand"> ymm1{k1}{z}, ymm2/m256/m32bcst</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+VL<br />
+<span class="intr">__m256 _mm256_getexp_ps(__m256 a)</span><br />
+<span class="intr">__m256 _mm256_mask_getexp_ps(__m256 s, __mmask8 k, __m256 a)</span><br />
+<span class="intr">__m256 _mm256_maskz_getexp_ps(__mmask8 k, __m256 a)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_2.png" /><br />
+<div style="padding-left: 110px">For each float, get the exponent from (1) (calculate floor(log2(abs((1))))) and store the result in (2).</div>
+<div style="height: 30px"></div>
+VGETEXPPS<span class="operand"> zmm1{k1}{z}, zmm2/m512/m32bcst{sae}</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5<br />
+<span class="intr">__m512 _mm512_getexp_ps(__m512 a)</span><br />
+<span class="intr">__m512 _mm512_mask_getexp_ps(__m512 s, __mmask16 k, __m512 a)</span><br />
+<span class="intr">__m512 _mm512_maskz_getexp_ps(__mmask16 k, __m512 a)</span><br />
+<span class="intr">__m512 _mm512_getexp_round_ps(__m512 a, int sae)</span><br />
+<span class="intr">__m512 _mm512_mask_getexp_round_ps(__m512 s, __mmask16 k, __m512 a, int sae)</span><br />
+<span class="intr">__m512 _mm512_maskz_getexp_round_ps(__mmask16 k, __m512 a, int sae)</span><br />
+<div style="height: 2px;"></div><img src="unop_dword_3.png" /><br />
+<div style="padding-left: 110px">For each float, get the exponent from (1) (calculate floor(log2(abs((1))))) and store the result in (2).</div>
+<div style="height: 30px"></div>
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vgetexpps" target="_blank">Feedback</a>
+</body>
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/unopv5.php?f=vgetexpps by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+</html>

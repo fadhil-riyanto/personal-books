@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/mmx_snippets.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>MMX&amp;SSE snippets</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="mmx-sse-snippets">
+<h1 class="title">MMX&amp;SSE snippets</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">9.02.2002</td>
+</tr>
+<tr class="aktualizacja field"><th class="docinfo-name">Aktualizacja:</th><td class="field-body">28.10.2002</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#packluww-pack-low-unsigned-word-to-words" id="toc-entry-1">packluww &mdash; Pack Low Unsigned Word to Words</a></li>
+<li><a class="reference internal" href="#packlww-pack-low-signed-word-to-words" id="toc-entry-2">packlww &mdash; Pack Low Signed Word to Words</a></li>
+<li><a class="reference internal" href="#psumwd-suma-slow-bez-znaku" id="toc-entry-3">psumwd &mdash; suma słów bez znaku</a></li>
+<li><a class="reference internal" href="#dot-product-iloczyn-skalarny-3dnow" id="toc-entry-4">dot_product (iloczyn skalarny) 3DNow!</a></li>
+<li><a class="reference internal" href="#pcmpgtu" id="toc-entry-5">pcmpgtu</a></li>
+<li><a class="reference internal" href="#generacja-maski" id="toc-entry-6">Generacja maski</a></li>
+<li><a class="reference internal" href="#bcount-zliczanie-bajtow" id="toc-entry-7">bcount &mdash; zliczanie bajtów</a></li>
+<li><a class="reference internal" href="#wymiana-zawartosci-rejestrow-mmx" id="toc-entry-8">Wymiana zawartości rejestrów MMX</a></li>
+<li><a class="reference internal" href="#generowanie-stalych-w-rejestrach-mmx" id="toc-entry-9">Generowanie stałych w rejestrach MMX</a><ul>
+<li><a class="reference internal" href="#zerowanie" id="toc-entry-10">Zerowanie</a></li>
+<li><a class="reference internal" href="#xff" id="toc-entry-11">-1 (0xff)</a></li>
+<li><a class="reference internal" href="#x01" id="toc-entry-12">1 (0x01)</a></li>
+<li><a class="reference internal" href="#x80" id="toc-entry-13">-128 (0x80)</a></li>
+<li><a class="reference internal" href="#n-najmlodszych-bitow-ustawionych" id="toc-entry-14">n najmłodszych bitów ustawionych</a></li>
+<li><a class="reference internal" href="#n-najstarszych-bitow-ustawionych" id="toc-entry-15">n najstarszych bitów ustawionych</a></li>
+<li><a class="reference internal" href="#x0807060504030201" id="toc-entry-16">0x0807060504030201</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#modul-liczby" id="toc-entry-17">Moduł liczby</a><ul>
+<li><a class="reference internal" href="#pabssw-pabssd" id="toc-entry-18">pabssw/pabssd</a></li>
+<li><a class="reference internal" href="#pabssb" id="toc-entry-19">pabssb</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="section" id="packluww-pack-low-unsigned-word-to-words">
+<h1>packluww &mdash; Pack Low Unsigned Word to Words</h1>
+<p>Słowa wejściowe są dodatnie (w zakresie <tt class="docutils literal"><span class="pre">0x0000...0x7fff</span></tt>).</p>
+<pre class="literal-block">
+; 9-02-2002
+; wejście: mm1 = |0000|dddd|0000|cccc|
+;          mm0 = |0000|bbbb|0000|aaaa|
+
+; wyjście: mm0 = |dddd|cccc|bbbb|aaaa|
+
+packssdw  mm0, mm0 ; mm0 = |bbbb|aaaa|bbbb|aaaa|
+packssdw  mm1, mm1 ; mm1 = |dddd|cccc|dddd|cccc|
+
+punpckldq mm0, mm1 ;= |dddd|cccc|bbbb|aaaa|
+</pre>
+</div>
+<div class="section" id="packlww-pack-low-signed-word-to-words">
+<h1>packlww &mdash; Pack Low Signed Word to Words</h1>
+<p>Słowa wejściowe są liczbami ze znakiem.</p>
+<pre class="literal-block">
+; 9-02-2002
+; wejście: mm1 = |0000|dddd|0000|cccc|
+;          mm0 = |0000|bbbb|0000|aaaa|
+
+; wyjście: mm0 = |dddd|cccc|bbbb|aaaa|
+
+movq  mm2, mm0     ; mm2 = |0000|bbbb|0000|aaaa|
+psrlq mm2, 32      ; mm2 = |0000|0000|0000|bbbb|
+punpcklwd mm0, mm2 ; mm0 = |0000|0000|bbbb|aaaa|
+
+movq  mm2, mm1     ; mm1 = |0000|dddd|0000|cccc|
+psllq mm2, 32      ; mm2 = |0000|cccc|0000|0000|
+punpckhwd mm2, mm1 ; mm2 = |0000|0000|dddd|cccc|
+
+punpckldq mm0, mm2 ; mm0 = |dddd|cccc|bbbb|aaaa|
+</pre>
+</div>
+<div class="section" id="psumwd-suma-slow-bez-znaku">
+<h1>psumwd &mdash; suma słów bez znaku</h1>
+<p>Rozkaz <tt class="docutils literal">psadbw</tt> umożliwia operacje na bajtach, przy
+jego użyciu bardzo łatwo policzyć sumę bajtów. Ale można użyć go do
+policzenia sumy słów, albo nawet podwójnych słów (to już raczej w SSE2,
+ze względu na efektywność). Sumę dwóch słów, można zapisać jako:</p>
+<pre class="literal-block">
+a + b = lo_byte(a) + lo_byte(b) + 256*(hi_byte(a) + hi_byte(b))
+</pre>
+<p>i przy użyciu w/w rozkazu oddzielnie policzyć sumę młodszych oraz starszych
+bajtów, by dopiero na końcu uwzględnić ich wagi.</p>
+<pre class="literal-block">
+segment .text
+; wejście: mm0 = | w3 | w2 | w1 | w0 |
+; wyjście: mm0 = | ?? | ?? | ?? |w3+w2+w1+w0|
+
+pxor   mm2, mm2       ; mm2 = packed_byte(0x00)
+movq   mm1, mm0
+pand   mm0, [lo_byte] ; mm0 - młodsze bajty
+pand   mm1, [hi_byte] ; mm1 - starsze bajty
+
+psadbw mm0, mm2       ; suma młodszych bajtów (sl)
+psadbw mm1, mm2       ; suma starszych bajtów (sh)
+
+psrlq  mm1, 8         ; sh*256
+paddd  mm0, mm1       ; sl + sh*256
+
+segment .data
+
+lo_byte dw 0x00ff, 0x00ff, 0x00ff, 0x00ff
+hi_byte dw 0xff00, 0xff00, 0xff00, 0xff00
+</pre>
+</div>
+<div class="section" id="dot-product-iloczyn-skalarny-3dnow">
+<h1>dot_product (iloczyn skalarny) 3DNow!</h1>
+<p>Rozszerzenie <a class="reference external" href="http://www.amd.com/">AMD</a> 3DNow! służy obliczeniom równoległym na dwu liczbach
+floating-point (przechowywanych w standardowych rejestrach MMX). Jeden z
+rozkazów jest moim zdaniem szczególnie użyteczny <tt class="docutils literal">pfacc</tt> którego
+działanie jest następujące:</p>
+<blockquote>
+pfadd mmxreg1, mmxreg2/mem64
+mmxreg1[ 0..31] = mmxreg1[0..31] + mmxreg1[32..63]
+mmxreg1[32..63] = mmxreg2[0..31] + mmxreg2[32..63]</blockquote>
+<p>Jak się można łatwo domyśleć, Intel nie wprowadził analogicznego rozkazu
+ani w SSE ani w SSE2.</p>
+<p>Iloczyn skalarny wektora czterowymiarowego:</p>
+<pre class="literal-block">
+; esi -&gt; v0 (x0, y0, z0, w0)
+; edi -&gt; v1 (x1, y1, z1, w1)
+
+movq  mm0, [esi]        ; mm0 = |  y0   |  x0   |
+movq  mm1, [esi+8]      ; mm1 = |  w0   |  z0   |
+
+pfmul mm0, [edi]        ; mm0 = | y0*y1 | x0*x1 |
+pfmul mm1, [edi]        ; mm1 = | w0*w1 | z0*z1 |
+
+pfacc mm0, mm1          ; mm0 = | z0*z1 + w0*w1 | x0*x1 + y0*y1 |
+pfacc mm0, mm0          ; mm0 = |     v1*v2     |     v1*v2     |
+</pre>
+<p>Iloczyn skalarny wektora trójwymiarowego:</p>
+<pre class="literal-block">
+; esi -&gt; v0 (x0, y0, z0)
+; edi -&gt; v1 (x1, y1, z1)
+
+movq  mm0, [esi]        ; mm0 = |  y0   |  x0   |
+movq  mm1, [edi]        ; mm1 = |  y1   |  x1   |
+
+; przypominam:
+; float(+0.0) = 0 00000000 00000000000000000000000b
+
+movd  mm2, [esi+8]      ; mm1 = |   0   |  z0   |
+movd  mm3, [edi+8]      ; mm2 = |   0   |  z1   |
+
+pfmul mm0, mm1          ; mm0 = | y0*y1 | x0*x1 |
+pfmul mm2, mm3          ; mm2 = |   0   | z0*z1 |
+
+pfadd mm0, mm2          ; mm0 = |     y0*y1     | x0*x1 + z0*z1 |
+pfacc mm0, mm0          ; mm0 = |     v1*v2     |     v1*v2     |
+</pre>
+</div>
+<div class="section" id="pcmpgtu">
+<h1>pcmpgtu</h1>
+<p>Rozkaz <tt class="docutils literal">pcmpgt</tt> porównuje wyłącznie liczby ze znakiem,
+porównanie liczb bez znaku wymaga nieco zachodu.</p>
+<pre class="literal-block">
+; wejście:
+;       mm0, mm1 - porównywane wektory
+; wyjście:
+;       mm1
+; niszczy:
+;       mm2, mm3
+
+pcmpgtub:
+        pxor    mm2, mm2        ; mm2 = pb(0x00)
+        pcmpeqb mm3, mm3        ; mm3 = pb(0xff)
+
+        psubusb mm0, mm1        ; wszystkie elementy mm0 mniejsze
+                                ; lub równe mm1 są teraz równe zero
+        pcmpeqb mm0, mm2        ; mm0 = (mm0 &lt;= mm1) ? 0xff : 0x00
+        pxor    mm0, mm3        ; mm0 = ~mm0 -- odwrócenie wyniku
+        ret
+</pre>
+<p>Można również skorzystać z rozkazu <tt class="docutils literal">pcmpgt</tt>, ale wymaga to
+przekształceń danych wejściowych, przez co kod jest koszmarnie wolny.
+Proszę z resztą spróbować zaimplementować poniższą tożsamość:</p>
+<pre class="literal-block">
+A = (A_hi &lt;&lt; 4) | A_lo
+B = (B_hi &lt;&lt; 4) | B_lo
+
+A &gt; B &lt;=&gt; ((A_hi &gt; B_hi) &amp;&amp; (A_hi != B_hi)) || ((A_lo &gt; B_lo) &amp;&amp; (A_hi == B_hi))
+</pre>
+</div>
+<div class="section" id="generacja-maski">
+<h1>Generacja maski</h1>
+<pre class="literal-block">
+; mask[9] = { 0x0000000000000000,
+;             0x00000000000000ff,
+;             0x000000000000ffff,
+;             0x0000000000ffffff,
+;             0x00000000ffffffff,
+;             0x000000ffffffffff,
+;             0x0000ffffffffffff,
+;             0x00ffffffffffffff,
+;             0xffffffffffffffff}
+;
+; wejście:
+;       cl - indeks
+; wyjście:
+;       mm0 = mask[cl]
+; niszczy:
+;       ecx, mm1
+
+mask:
+        movzx   ecx, cl
+        neg     ecx
+        lea     ecx, [ecx*8 + 64]  ; ecx = 64-8*zero_extend(cl)
+
+        movd    mm1, ecx
+        pcmpeqb mm0, mm0       ; mm0 = pb(0xff)
+        psrlq   mm0, mm1
+ret
+</pre>
+</div>
+<div class="section" id="bcount-zliczanie-bajtow">
+<h1>bcount &mdash; zliczanie bajtów</h1>
+<pre class="literal-block">
+; wejście:
+;       esi - adres
+;       ecx - ilość bajtów
+;        al - zliczany bajt
+; wyjście:
+;       eax - ilość bajtów
+; niszczy:
+;       mm0, mm1, mm2, mm3, mm4
+
+bcount:
+        pxor mm1, mm1         ; licznik
+        pxor mm0, mm0         ; mm1 := pb(0)
+
+        mov        ah, al     ;
+        movd      mm2, eax    ;
+        punpcklwd mm2, mm2    ;
+        punpckldq mm2, mm2    ; mm2 := pb(al)
+
+        push ecx
+        shr  ecx, 3           ; liczba 8-bajtowych bloków
+        jz   .skip1
+
+  .count:
+                              ; np. mm2 = |aa|aa|aa|aa|aa|aa|aa|aa|
+        movq    mm3, [esi]    ;     mm3 = |bb|aa|aa|cc|dd|aa|ee|aa|
+        pcmpeqb mm3, mm2      ;     mm3 = |00|ff|ff|00|00|ff|00|ff|
+        psadbw  mm3, mm0      ;     mm3 =   0 +1 +1 +0 +0 +1 +0 +1 = 4
+
+        paddd   mm1, mm3      ; mm1 += mm3
+
+        add     esi, byte 8
+        loop    .count
+
+  .skip1:
+        pop  ecx
+        and  ecx, 0x7         ; liczba bajtów niemieszczących się w bloku
+        jz   .skip2
+
+        neg ecx               ;
+        lea ecx, [ecx*8 + 64] ;
+        movd    mm3, ecx      ;
+        pcmpeq  mm4, mm4      ;
+        psrlq   mm4, mm3      ; maska
+
+                              ; np. mm4 = |00|00|00|ff|ff|ff|ff|ff|
+        movq    mm3, [esi]    ;     mm3 = |aa|cc|aa|aa|aa|bb|aa|dd|
+        pcmpeqb mm3, mm2      ;     mm3 = |ff|00|ff|ff|ff|00|ff|00|
+        pand    mm3, mm4      ;     mm3 = |00|00|00|ff|ff|00|ff|00|
+        psadbw  mm3, mm0      ;     mm3 = 3
+        paddd   mm1, mm3
+  .skip2:
+
+        movd    eax, mm1
+        ret
+</pre>
+</div>
+<div class="section" id="wymiana-zawartosci-rejestrow-mmx">
+<h1>Wymiana zawartości rejestrów MMX</h1>
+<p>Oczywiście pomijam tutaj standardową metodę ze zmienną pomocniczą &mdash; załóżmy
+że nie ma żadnego wolnego rejestru. Najprościej jest użyć poniższego
+sposobu:</p>
+<pre class="literal-block">
+pxor mm0, mm1 ; a = a xor b
+pxor mm1, mm0 ; b = b xor a
+pxor mm0, mm1 ; a = a xor b
+</pre>
+<p>Można także wykorzystać fakt, że rejestry MMX są mapowane na rejestry FPU i
+użyć rozkazu <tt class="docutils literal">fxch</tt>. Ponieważ ten rozkaz zamienia <tt class="docutils literal">st0</tt> (czyli
+<tt class="docutils literal">mm0</tt>) z dowolnym innym rejestrem tak więc tylko w takim przypadku jego
+użycie będzie efektywne, np.:</p>
+<pre class="literal-block">
+fxch st5  ; wymiana zawartości mm0 i mm5
+</pre>
+<p>Podobnie rozkazy <tt class="docutils literal">finstp</tt> oraz <tt class="docutils literal">fdecstp</tt> nie wpływają na zawartość
+rejestrów. Można je użyć do szybkiego przesunięcia zawartości rejestrów.
+Np. <tt class="docutils literal">fincstp</tt> jest równoważne:</p>
+<pre class="literal-block">
+movq [temp], mm0
+movq mm0, mm1
+movq mm1, mm2
+...
+movq mm6, mm7
+movq mm7, [temp]
+</pre>
+</div>
+<div class="section" id="generowanie-stalych-w-rejestrach-mmx">
+<h1>Generowanie stałych w rejestrach MMX</h1>
+<p>Poniżej zestawienie kilku metod generacji stałych w rejestrach MMX.
+Oczywiście niekiedy potrzebny jest wybór rozmiaru spakowanych elementów.</p>
+<div class="section" id="zerowanie">
+<h2>Zerowanie</h2>
+<pre class="literal-block">
+pxor    mmxreg, mmxreg
+psubb   mmxreg, mmxreg
+pcmpgtb mmxreg, mmxreg
+</pre>
+</div>
+<div class="section" id="xff">
+<h2>-1 (0xff)</h2>
+<pre class="literal-block">
+pcmpeqb  mmxreg, mmxreg
+</pre>
+</div>
+<div class="section" id="x01">
+<h2>1 (0x01)</h2>
+<pre class="literal-block">
+pxor    mm0, mm0 ; mm0 = packed_byte( 0)
+pcmpeqb mm1, mm1 ; mm1 = packed_byte(-1)
+psubb   mm0, mm1 ; mm0 = packed_byte(+1)
+</pre>
+<p>Następnie, używając przesunięć bitowych, można ustawić dowolny bit.</p>
+</div>
+<div class="section" id="x80">
+<h2>-128 (0x80)</h2>
+<pre class="literal-block">
+pcmpeqw  mm0, mm0 ; mm0 = packed_word(0xffff) -- -1
+psllw    mm0, 8   ; mm0 = packed_word(0xff00) -- -256
+packsswb mm0, mm0 ; mm0 = packed_byte(0x80)   -- saturate_sw2sb(-256) = -128
+</pre>
+</div>
+<div class="section" id="n-najmlodszych-bitow-ustawionych">
+<h2>n najmłodszych bitów ustawionych</h2>
+<pre class="literal-block">
+; packed_byte -- n w zakresie 0..7
+
+                   ; np. n=6
+pcmpeqw  mm0, mm0  ; mm0 = packed_word(0b1111111111111111)
+psrlw    mm0, 16-n ; mm0 = packed_word(0b0000000000111111)
+packsswb mm0, mm0  ; mm0 = packed_byte(0b00111111)
+
+; packed_word -- n w zakresie 0..15
+
+                   ; np. n=11
+pcmpeqw  mm0, mm0  ; mm0 = packed_word(0b1111111111111111)
+psrlw    mm0, 16-n ; mm0 = packed_word(0b0000011111111111)
+
+; packed_word -- n w zakresie 0..31
+
+pcmpeqw  mm0, mm0
+psrlw    mm0, 32-n
+</pre>
+</div>
+<div class="section" id="n-najstarszych-bitow-ustawionych">
+<h2>n najstarszych bitów ustawionych</h2>
+<pre class="literal-block">
+; packed_byte - n w zakresie 1..7
+
+                    ; np. n==3
+pcmpeqw  mm0, mm0   ; mm0 = packed_word(0b1111111111111111)
+psllw    mm0, 8-n   ; mm0 = packed_word(0b1111111111111000)
+
+                    ; mm0 = |0xfff8|0xfff8|0xfff8|0xfff8|
+punpckbw mm0, mm0   ; mm0 = |0xffff|0xf8f8|0xffff|0xf8f8|
+punpckbw mm0, mm0   ; mm0 = |0xf8f8|0xf8f8|0xf8f8|0xf8f8|
+
+; packed_word - n w zakresie 0..16
+pcmpeqw  mm0, mm0
+psllw    mm0, 16-n
+
+; packed_dword - n w zakresie 0..32
+pcmpeqd  mm0, mm0
+pslld    mm0, 32-n
+</pre>
+</div>
+<div class="section" id="x0807060504030201">
+<h2>0x0807060504030201</h2>
+<pre class="literal-block">
+pcmpeqb mm1, mm1 ; mm1 = 0000000000000000 = packed_byte(0)
+pxor    mm0, mm0 ; mm0 = ffffffffffffffff = packed_byte(-1)
+psubb   mm0, mm1 ; mm0 = 0101010101010101 = packed_byte(1)
+
+movq    mm1, mm0 ;
+psrlq   mm1, 8   ; mm1 = |1|1|1|1|1|1|1|0|
+paddb   mm0, mm1 ; mm0 = |2|2|2|2|2|2|2|1|
+
+movq    mm1, mm0
+psrlq   mm1, 16  ; mm0 = |2|2|2|2|2|1|0|0|
+paddb   mm0, mm1 ; mm0 = |4|4|4|4|4|3|2|1|
+
+movq    mm1, mm0
+psrlq   mm1, 32  ; mm0 = |4|3|2|1|0|0|0|0|
+paddb   mm0, mm1 ; mm0 = |8|7|6|5|4|3|2|1|
+</pre>
+</div>
+</div>
+<div class="section" id="modul-liczby">
+<h1>Moduł liczby</h1>
+<p>W <strong>APJ#5</strong> Chris Dragan pokazał szybki sposób (przede wszystkim bez
+rozgałęzień) na moduł liczby U2:</p>
+<pre class="literal-block">
+; eax - liczba ze znakiem
+
+mov edx, eax    ;
+sar edx, 31     ; edx = (eax &lt; 0) ? 0xffffffff : 0x00000000
+
+xor eax, edx    ; eax  = not eax
+sub eax, edx    ; eax += 1
+</pre>
+<p>Zamiast sekwencji <tt class="docutils literal">mov edx, eax</tt>/<tt class="docutils literal">sar edx, 31</tt> lepiej użyć
+rozkazu <tt class="docutils literal">cdq</tt>.</p>
+<div class="section" id="pabssw-pabssd">
+<h2>pabssw/pabssd</h2>
+<p>Używając tej metody można bardzo szybko liczyć moduły liczb 16 i 32
+bitowych w rejestrach MMX/SSE, np.:</p>
+<pre class="literal-block">
+; mm0 - wektor słów
+pabssw:
+        movq  mm1, mm0
+        psraw mm1, 15
+        pxor  mm0, mm1
+        psubw mm0, mm1
+        ret
+</pre>
+<pre class="literal-block">
+; mm0 - wektor podwójnych słów
+pabssd:
+        movq  mm1, mm0
+        psrad mm1, 15
+        pxor  mm0, mm1
+        psubd mm0, mm1
+        ret
+</pre>
+<p>Poniżej szybszy sposób na obliczenie modułu słów (wykorzystuje rozkaz SSE).</p>
+<pre class="literal-block">
+; mm0 - wektor słów
+pabssw:
+        pxor   mm1, mm1   ; mm1 = packed_word(0x0000)
+        psubw  mm1, mm0   ; mm1 = -mm0
+
+        pmaxsw mm0, mm1   ; mm0[i] = (mm1[i] &gt; mm0[i]) ? mm1[i] : mm0[i] ; i - numer słowa (0..3)
+        ret
+</pre>
+</div>
+<div class="section" id="pabssb">
+<h2>pabssb</h2>
+<p>Moduły liczb 8-bitowych są trudniejsze do obliczenia przy użyciu
+pierwszego sposobu, z tego względu, że nie ma odpowiednika rozkazów
+<tt class="docutils literal">psraw</tt>.</p>
+<pre class="literal-block">
+segment .data
+
+msb db 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
+
+segment .text
+
+; mm0 - wektor bajtów ze znakiem
+pabssb1:
+        movq    mm1, mm0   ;
+        pand    mm1, [msb] ;
+        pcmpeqb mm1, [msb] ; mm1[i] = (mm0[i] &lt; 0) ? 0xff : 0x00 ; i - numer bajtu (0..7)
+
+        pxor    mm0, mm1
+        psubb   mm0, mm1
+        ret
+
+pabssb2:
+        pxor    mm1, mm1   ; mm1    = packed_byte(0)
+        pcmpgtb mm1, mm0   ; mm1[i] = (0 &gt; mm0[i]) ? 0xff : 0x00
+
+        pxor    mm0, mm1
+        psubb   mm0, mm1
+        ret
+</pre>
+<p>Ale gdy jest możliwość użycia rozkazu SSE <tt class="docutils literal">pminub</tt> &mdash; minimum,
+bowiem wartość liczona w NKB dla liczby ujemnej (U2) jest większa od
+liczby dodatniej (U2).</p>
+<pre class="literal-block">
+pabssb3:
+        pxor    mm1, mm1 ; mm1 = packed_byte(0x00)
+        psub    mm1, mm0 ; mm1[i] -= mm0[i] ; i=0..7
+        pminub  mm0, mm1
+        ret
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/mmx_snippets.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

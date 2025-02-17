@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/scale2x.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:29 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>Skalowanie obrazu 2x</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="skalowanie-obrazu-2x">
+<h1 class="title">Skalowanie obrazu 2x</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">18-21.07.2001</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#skalowanie-2x" id="toc-entry-1">Skalowanie 2x</a><ul>
+<li><a class="reference internal" href="#kod-x86-dla-obrazow-grayscale" id="toc-entry-2">kod x86 &mdash; dla obrazów grayscale</a></li>
+<li><a class="reference internal" href="#kod-x86-dla-obrazow-15bpp-i-16bpp" id="toc-entry-3">kod x86 &mdash; dla obrazów 15bpp i 16bpp</a></li>
+<li><a class="reference internal" href="#kod-mmx-dla-obrazow-grayscale" id="toc-entry-4">kod MMX &mdash; dla obrazów grayscale</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#skalowanie-2x-z-filtrowaniem" id="toc-entry-5">Skalowanie 2x z filtrowaniem</a><ul>
+<li><a class="reference internal" href="#kod-x86" id="toc-entry-6">Kod x86</a></li>
+<li><a class="reference internal" href="#kod-mmx" id="toc-entry-7">Kod MMX</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<p>Założenia:</p>
+<pre class="literal-block">
+; edi - wskaźnik na obraz wejściowy
+; esi - wskaźnik na obraz wyjściowy
+
+img_width equ 320 ; szerokość ekranu w pixelach
+</pre>
+<div class="section" id="skalowanie-2x">
+<h1>Skalowanie 2x</h1>
+<p>Najprostszy sposób to powielenie pixeli, tak jak na rysunku.</p>
+<img alt="skalowanie 2x" class="align-center" src="img/scale2x.gif" />
+<div class="section" id="kod-x86-dla-obrazow-grayscale">
+<h2>kod x86 &mdash; dla obrazów grayscale</h2>
+<pre class="literal-block">
+mov eax, [edi]   ; eax = |aa|bb|cc|dd|
+
+; skalowanie
+shrd ebx, eax, 8 ; ebx = |dd|xx|xx|xx|
+shrd ebx, eax, 8 ; ebx = |dd|dd|xx|xx|
+
+shr  eax, 8      ; eax = |00|aa|bb|cc|
+
+shrd ebx, eax, 8 ; ebx = |cc|dd|dd|xx|
+shrd ebx, eax, 8 ; ebx = |cc|cc|dd|dd|
+
+shr  eax, 8      ; eax = |00|00|aa|bb|
+
+shrd ecx, eax, 8 ; ecx = |bb|xx|xx|xx|
+shrd ecx, eax, 8 ; ecx = |bb|dd|xx|xx|
+
+shr  eax, 8      ; eax = |00|00|00|aa|
+
+shrd ecx, eax, 8 ; ecx = |aa|bb|bb|xx|
+shrd ecx, eax, 8 ; ecx = |aa|aa|bb|bb|
+
+; zapis
+mov  [edi  ], ebx           ; zapis w linii y
+mov  [edi+4], ecx           ;
+mov  [edi+img_width  ], ebx ; i y+1
+mov  [edi+img_width+4], ecx ;
+</pre>
+</div>
+<div class="section" id="kod-x86-dla-obrazow-15bpp-i-16bpp">
+<h2>kod x86 &mdash; dla obrazów 15bpp i 16bpp</h2>
+<pre class="literal-block">
+mov eax, [edi] : eax = |pixel1|pixel0|
+mov ebx, eax
+
+shr ebx, 16
+
+mov [esi  ], ax ; linia y
+mov [esi+2], ax ;
+mov [esi+4], bx ;
+mov [esi+4], bx ;
+
+mov [esi+img_width  ], ax ; linia y+1
+mov [esi+img_width+2], ax ;
+mov [esi+img_width+4], bx ;
+mov [esi+img_width+4], bx ;
+</pre>
+</div>
+<div class="section" id="kod-mmx-dla-obrazow-grayscale">
+<h2>kod MMX &mdash; dla obrazów grayscale</h2>
+<pre class="literal-block">
+movd mm0, [edi]    ; mm0 = |aa|bb|cc|dd|ee|ff|gg|hh|
+
+movq mm1, mm1      ; kopiuj mm0
+
+punpcklbw mm0, mm0 ; mm0 = |ee|ee|ff|ff|gg|gg|hh|hh|
+punpckhbw mm1, mm1 ; mm1 = |aa|aa|bb|bb|cc|cc|dd|dd|
+
+movq [esi  ], mm0  ; linia y
+movq [esi+8], mm1  ;
+
+movq [esi+img_width  ], mm0  ; linia y+1
+movq [esi+img_width+8], mm1  ;
+</pre>
+<p>Kod MMX dla obrazów 15bpp/16bpp i 32bpp jest w zasadzie taki sam
+--- wystarczy użyć, zamiast rozkazu <tt class="docutils literal"><span class="pre">punpck?BW</span></tt>, rozkaz <tt class="docutils literal"><span class="pre">punpck?WD</span></tt>
+lub <tt class="docutils literal"><span class="pre">punpck?DQ</span></tt>.</p>
+</div>
+</div>
+<div class="section" id="skalowanie-2x-z-filtrowaniem">
+<h1>Skalowanie 2x z filtrowaniem</h1>
+<img alt="|a|b|c|... =&gt; |   a   |(a+b)/2|   b   |(b+c)/2|..." class="align-center" src="img/sc2filt.gif" />
+<p>Poniższe przykłady dotyczą skalowanie obrazów grayscale.</p>
+<div class="section" id="kod-x86">
+<h2>Kod x86</h2>
+<pre class="literal-block">
+        mov ecx, img_width
+
+_scale:
+        mov eax, [edi] ; eax = |   d   |   c   |   b   |   a   |
+
+        add  ah, al
+        rol  ah, 1     ; eax = |   d   |   c   |(a+b)/2|   a   |
+
+        rol eax, 16    ; eax = |(a+b)/2|   a   |   d   |   c   |
+
+        add  ah, al
+        rcl  ah, 1     ; eax = |(a+b)/2|   a   |(c+d)/2|   c   |
+
+        rol eax, 16    ; eax = |(c+d)/2|   c   |(a+b)/2|   a   |
+
+        mov [esi], eax
+        add esi, 4
+        add edi, 4
+
+        dec ecx
+        jnz _scale
+</pre>
+</div>
+<div class="section" id="kod-mmx">
+<h2>Kod MMX</h2>
+<pre class="literal-block">
+segment .data
+
+mmx_7lowest dd 0x7f7f7f7f, 0x7f7f7f7f
+
+segment .text
+        mov ecx, img_width
+
+
+                          ; [edi] = ...|ii|hh|gg|ff|ee|dd|cc|bb|aa|
+_scale
+        movq mm0, [edi]   ; mm0   = | h| g| f| e| d| c| b| a|
+        movq mm1, [edi+1] ; mm1   = | i| h| g| f| e| d| c| b|
+
+        ; do obliczenia średniej zostanie użyta uproszczona
+        ; formuła: av = (a &gt;&gt; 1) + (b &gt;&gt; 1)
+
+        movq  mm2, mm0           ;
+        psrlq mm1, 1             ; a/2
+        psrlq mm2, 2             ; b/2
+
+        pand  mm1, [mmx_7lowest] ; wyzeruj najstarsze bity
+        pand  mm2, [mmx_7lowest] ; to wysunięte bity starszych bajtów
+
+                                 ; zapis 'ab' oznacza (a+b)/2
+        padd  mm1, mm2           ; mm1 = |hi|gh|fg|ef|de|cd|bc|ab|
+
+        ; teraz wystarczy połączyć wyniki
+
+        movq mm2, mm0
+        movq mm3, mm1
+
+        punpcklbw mm0, mm1       ; mm0 = |de| d|cd| c|bc| b|ab| a|
+        punpcklbw mm2, mm3       ; mm2 = |hi| h|gh| g|fg| f|ef| e|
+
+        movq [esi  ], mm0
+        movq [esi+8], mm1
+
+        dec ecx
+        jnz _scale
+</pre>
+<p>Powyższe procedury skalują pojedyncze linie, oto algorytm na skalowanie
+całego obrazu:</p>
+<pre class="literal-block">
+temp1      = skaluj_linie(y)   ; w temp1 przeskalowana linia y
+temp2      = skaluj_linie(y+1) ; w temp2 przeskalowana linia y+1
+
+; zapisz do obrazu wynikowego
+linia[y]   = temp1;
+linia[y+1] = średnia(temp1, temp2);
+linia[y+2] = temp2;
+</pre>
+</div>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/scale2x.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

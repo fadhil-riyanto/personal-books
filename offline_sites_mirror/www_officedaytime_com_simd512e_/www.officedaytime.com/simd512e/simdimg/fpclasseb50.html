@@ -1,0 +1,110 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+
+
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/fpclass.php?f=vfpclassph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+    <meta charset="utf-8" />
+<link rel="alternate" hreflang="ja" href="https://www.officedaytime.com/simd512/simdimg/fpclass.php?f=vfpclassph" />
+<link rel="alternate" hreflang="en" href="fpclasseb50.html?f=vfpclassph" />
+    <title>vfpclassph</title>
+<style type="text/css">
+body {
+	font-size: 10pt;
+	font-family: sans-serif;
+	font-size: 10pt;
+}
+.intr {
+	color:#6778ED;
+	
+}
+.operand {
+	font-style:italic;
+}
+h2 {
+	font-weight: bold;
+	padding: 2pt 2pt 0pt 0pt;
+	font-size: 10pt;
+	border-bottom-style: solid;
+	border-bottom-width: 2px;
+	border-bottom-color: #0000FF;
+}
+td {
+	background-color: #FFFFFF;
+}
+table {
+	background-color: #C0C0C0;
+}
+th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+<body>
+<h2>VFPCLASSPH - Floating-Point CLASS Packed Half</h2>
+VFPCLASSPH <span class="operand"> k1{k2}, xmm2/m128, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__mmask8  _mm_fpclass_ph_mask(__m128h  a, int imm8);</span><br />
+<span class="intr">__mmask8  _mm_mask_fpclass_ph_mask(__mmask8  k2, __m128h  a, int imm8);</span><br />
+<div style="height: 2px;"></div><img src="unoptomask_word_1285e1f.png?v=2" /><br />
+<div style="padding-left: 110px">For each FP16, if (1) belongs to one of the classes specified in imm8, set 1, else set 0, to the corresponding bit of (2).<br />
+If k2 bit is 0, the corresponding bit of (2) is cleared. Upper bits of (2) are zeroed.</div><div style="height: 30px"></div>
+VFPCLASSPH <span class="operand"> k1{k2}, ymm2/m256, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16+VL<br />
+<span class="intr">__mmask16  _mm256_fpclass_ph_mask(__m256h  a, int imm8);</span><br />
+<span class="intr">__mmask16  _mm256_mask_fpclass_ph_mask(__mmask16  k2, __m256h  a, int imm8);</span><br />
+<div style="height: 2px;"></div><img src="unoptomask_word_2565e1f.png?v=2" /><br />
+<div style="padding-left: 110px">For each FP16, if (1) belongs to one of the classes specified in imm8, set 1, else set 0, to the corresponding bit of (2).<br />
+If k2 bit is 0, the corresponding bit of (2) is cleared. Upper bits of (2) are zeroed.</div><div style="height: 30px"></div>
+VFPCLASSPH <span class="operand"> k1{k2}, zmm2/m512, imm8</span>&nbsp;&nbsp;&nbsp;&nbsp;(V5+FP16<br />
+<span class="intr">__mmask32  _mm512_fpclass_ph_mask(__m512h  a, int imm8);</span><br />
+<span class="intr">__mmask32  _mm512_mask_fpclass_ph_mask(__mmask32  k2, __m512h  a, int imm8);</span><br />
+<div style="height: 2px;"></div><img src="unoptomask_word_5125e1f.png?v=2" /><br />
+<div style="padding-left: 110px">For each FP16, if (1) belongs to one of the classes specified in imm8, set 1, else set 0, to the corresponding bit of (2).<br />
+If k2 bit is 0, the corresponding bit of (2) is cleared. Upper bits of (2) are zeroed.</div><div style="height: 30px"></div>
+<p>imm8</p>
+<table>
+    <tr>
+        <th>bit 7</th>
+        <td>SNaN</td>
+    </tr>
+    <tr>
+        <th>bit 6</th>
+        <td>negative finite</td>
+    </tr>
+    <tr>
+        <th>bit 5</th>
+        <td>denormal</td>
+    </tr>
+    <tr>
+        <th>bit 4</th>
+        <td>negative infinity</td>
+    </tr>
+    <tr>
+        <th>bit 3</th>
+        <td>positive infinity</td>
+    </tr>
+    <tr>
+        <th>bit 2</th>
+        <td>negative zero</td>
+    </tr>
+    <tr>
+        <th>bit 1</th>
+        <td>positive zero</td>
+    </tr>
+    <tr>
+        <th>bit 0</th>
+        <td>QNaN</td>
+    </tr>
+</table>
+
+<hr />
+<a href="../index.html">x86/x64 SIMD Instruction List</a>&nbsp; 
+<a href="https://www.officedaytime.com/tips/simdfeedback/feedbackforme.php?src=vfpclassph" target="_blank">Feedback</a>
+
+
+</body>
+
+<!-- Mirrored from www.officedaytime.com/simd512e/simdimg/fpclass.php?f=vfpclassph by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:34 GMT -->
+</html>

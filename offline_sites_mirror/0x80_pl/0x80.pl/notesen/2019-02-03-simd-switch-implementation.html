@@ -1,0 +1,553 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2019-02-03-simd-switch-implementation.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>SIMDization of switch statements</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="simdization-of-switch-statements">
+<h1 class="title">SIMDization of switch statements</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2019-02-03</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a><ul>
+<li><a class="reference internal" href="#example-of-binary-search-code" id="toc-entry-2">Example of binary search code</a></li>
+<li><a class="reference internal" href="#example-of-jump-lookup" id="toc-entry-3">Example of jump lookup</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#simd-approaches" id="toc-entry-4">SIMD approaches</a><ul>
+<li><a class="reference internal" href="#simdization-of-plain-function" id="toc-entry-5">SIMDization of plain function</a><ul>
+<li><a class="reference internal" href="#implementation" id="toc-entry-6">Implementation</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#simd-ization-of-code-dispatching" id="toc-entry-7">SIMD-ization of code dispatching</a><ul>
+<li><a class="reference internal" href="#implementation-1" id="toc-entry-8">Implementation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><a class="reference internal" href="#performance" id="toc-entry-9">Performance</a></li>
+<li><a class="reference internal" href="#practical-example" id="toc-entry-10">Practical example</a></li>
+<li><a class="reference internal" href="#source-code" id="toc-entry-11">Source code</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>There are two main purposes of a <tt class="docutils literal">switch</tt> statement:</p>
+<ol class="arabic simple">
+<li>Express simple function that translate from one set of values into another,
+like getting a string representation of enum values.</li>
+<li>Dispatch different code sequences based on switch argument, as an alternative
+to &quot;if-ladder&quot;.</li>
+</ol>
+<p>Compilers usually transform <tt class="docutils literal">switch</tt> statements using following approaches:</p>
+<ol class="arabic simple">
+<li>Binary search on constant keys: a compiler emits series of comparisons
+and jumps interleaved with <tt class="docutils literal">case</tt> code.</li>
+<li>When the key values span a small range (even non-continuous one), the values
+are used to index a lookup table of jump targets.</li>
+</ol>
+<p>Of course, a compiler might optimize some specific cases, for some neat
+examples look at <a class="reference external" href="https://github.com/gcc-mirror/gcc/blob/master/gcc/tree-switch-conversion.cc">tree-switch-conversion.cc</a> from GCC.</p>
+<p>However, switch statements can be expressed also with SIMD instructions. Vector
+instructions are used used to translate from the argument value into case
+ordinal number. Then, the index is used either to 1) fetch a value from a
+precalculated table, or 2) get a jump target (the address) which is used to
+dispatch code fragments.</p>
+<div class="section" id="example-of-binary-search-code">
+<span id="binary-search"></span><h2>Example of binary search code</h2>
+<p>Following C++ code is compiled by GCC 7.3.0 into a binary search procedure.</p>
+<table width="100%">
+<tr><td width="50%" valign="top"><pre class="code cpp literal-block">
+<span class="k">enum</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Colour</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">RED</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00ff0000</span><span class="p">,</span><span class="w">
+    </span><span class="n">GREEN</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x0000ff00</span><span class="p">,</span><span class="w">
+    </span><span class="n">BLUE</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mh">0x000000ff</span><span class="p">,</span><span class="w">
+    </span><span class="n">WHITE</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00ffffff</span><span class="p">,</span><span class="w">
+    </span><span class="n">GRAY0</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00333333</span><span class="p">,</span><span class="w">
+    </span><span class="n">GRAY1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00aaaaaa</span><span class="p">,</span><span class="w">
+    </span><span class="n">GRAY2</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00dddddd</span><span class="p">,</span><span class="w">
+    </span><span class="n">BLACK</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00000000</span><span class="w">
+</span><span class="p">}</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="n">palette</span><span class="p">(</span><span class="n">Colour</span><span class="w"> </span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">RED</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GREEN</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">BLUE</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">WHITE</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GRAY0</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GRAY1</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GRAY2</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">BLACK</span><span class="p">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">7</span><span class="p">;</span><span class="w">
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</td><td width="50%" valign="top"><pre class="code nasm literal-block">
+<span class="nl">_Z7palette6Colour:</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">3355443</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">je</span><span class="w">      </span><span class="nv">.L3</span><span class="w">
+    </span><span class="nf">jbe</span><span class="w">     </span><span class="nv">.L24</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">6</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">14540253</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">je</span><span class="w">      </span><span class="nv">.L21</span><span class="w">
+    </span><span class="nf">jbe</span><span class="w">     </span><span class="nv">.L25</span><span class="w">
+    </span><span class="nf">xorl</span><span class="w">    </span><span class="o">%</span><span class="nb">eax</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">16711680</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">je</span><span class="w">      </span><span class="nv">.L21</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">16777215</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">jne</span><span class="w">     </span><span class="nv">.L2</span><span class="w">
+</span><span class="nl">.L21:</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L24:</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">255</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">je</span><span class="w">      </span><span class="nv">.L21</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">65280</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">je</span><span class="w">      </span><span class="nv">.L21</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">testl</span><span class="w">   </span><span class="o">%</span><span class="nb">edi</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">je</span><span class="w">      </span><span class="nv">.L26</span><span class="w">
+</span><span class="nl">.L2:</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L25:</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">11184810</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">jne</span><span class="w">     </span><span class="nv">.L2</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L3:</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L26:</span><span class="w">
+    </span><span class="nf">ret</span>
+</pre>
+</td></tr></table></div>
+<div class="section" id="example-of-jump-lookup">
+<span id="target-lookup"></span><h2>Example of jump lookup</h2>
+<table width="100%">
+<tr><td width="50%" valign="top"><pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;cstdio&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">code_block</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">int</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">0</span><span class="p">:</span><span class="w">
+            </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;zero&quot;</span><span class="p">);</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">3</span><span class="p">:</span><span class="w">
+            </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;one&quot;</span><span class="p">);</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">4</span><span class="p">:</span><span class="w">
+            </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;two&quot;</span><span class="p">);</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">7</span><span class="p">:</span><span class="w">
+            </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;three&quot;</span><span class="p">);</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1024</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">8</span><span class="p">:</span><span class="w">
+            </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;four&quot;</span><span class="p">);</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+
+        </span><span class="k">case</span><span class="w"> </span><span class="mi">11</span><span class="p">:</span><span class="w">
+            </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;five&quot;</span><span class="p">);</span><span class="w">
+            </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1024</span><span class="p">;</span><span class="w">
+            </span><span class="k">break</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</td><td width="50%" valign="top"><pre class="code nasm literal-block">
+<span class="nl">.LC0:</span><span class="w">
+    </span><span class="nf">.string</span><span class="w"> </span><span class="s">&quot;zero&quot;</span><span class="w">
+</span><span class="nl">.LC1:</span><span class="w">
+    </span><span class="nf">.string</span><span class="w"> </span><span class="s">&quot;one&quot;</span><span class="w">
+</span><span class="nl">.LC2:</span><span class="w">
+    </span><span class="nf">.string</span><span class="w"> </span><span class="s">&quot;two&quot;</span><span class="w">
+</span><span class="nl">.LC3:</span><span class="w">
+    </span><span class="nf">.string</span><span class="w"> </span><span class="s">&quot;three&quot;</span><span class="w">
+</span><span class="nl">.LC4:</span><span class="w">
+    </span><span class="nf">.string</span><span class="w"> </span><span class="s">&quot;four&quot;</span><span class="w">
+</span><span class="nl">.LC5:</span><span class="w">
+    </span><span class="nf">.string</span><span class="w"> </span><span class="s">&quot;five&quot;</span><span class="w">
+    </span><span class="nf">.text</span><span class="w">
+</span><span class="nl">_Z10code_blocki:</span><span class="w">
+    </span><span class="nf">cmpl</span><span class="w">    </span><span class="kc">$</span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">ja</span><span class="w">      </span><span class="nv">.L13</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.L4</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdx</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="o">%</span><span class="nb">edi</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+    </span><span class="nf">subq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">movslq</span><span class="w">  </span><span class="p">(</span><span class="o">%</span><span class="nb">rdx</span><span class="p">,</span><span class="o">%</span><span class="nb">rdi</span><span class="p">,</span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="o">%</span><span class="nb">rdx</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">jmp</span><span class="w">     </span><span class="o">*%</span><span class="nb">rax</span><span class="w">
+    </span><span class="nf">.section</span><span class="w">        </span><span class="nv">.rodata</span><span class="w">
+</span><span class="nl">.L4:</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L3</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L10</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L10</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L5</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L6</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L10</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L10</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L7</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L8</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L10</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L10</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.long</span><span class="w">   </span><span class="nv">.L9</span><span class="o">-</span><span class="nv">.L4</span><span class="w">
+    </span><span class="nf">.text</span><span class="w">
+</span><span class="nl">.L9:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.LC5</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdi</span><span class="w">
+    </span><span class="nf">call</span><span class="w">    </span><span class="nv">puts&#64;PLT</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">1024</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+</span><span class="nl">.L11:</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L3:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.LC0</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdi</span><span class="w">
+    </span><span class="nf">call</span><span class="w">    </span><span class="nv">puts&#64;PLT</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L5:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.LC1</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdi</span><span class="w">
+    </span><span class="nf">call</span><span class="w">    </span><span class="nv">puts&#64;PLT</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">42</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L6:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.LC2</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdi</span><span class="w">
+    </span><span class="nf">call</span><span class="w">    </span><span class="nv">puts&#64;PLT</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">42</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L7:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.LC3</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdi</span><span class="w">
+    </span><span class="nf">call</span><span class="w">    </span><span class="nv">puts&#64;PLT</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">1024</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L8:</span><span class="w">
+    </span><span class="nf">leaq</span><span class="w">    </span><span class="nv">.LC4</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdi</span><span class="w">
+    </span><span class="nf">call</span><span class="w">    </span><span class="nv">puts&#64;PLT</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="mi">42</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">addq</span><span class="w">    </span><span class="kc">$</span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">rsp</span><span class="w">
+    </span><span class="nf">ret</span><span class="w">
+</span><span class="nl">.L10:</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">jmp</span><span class="w">     </span><span class="nv">.L11</span><span class="w">
+</span><span class="nl">.L13:</span><span class="w">
+    </span><span class="nf">movl</span><span class="w">    </span><span class="kc">$</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">eax</span><span class="w">
+    </span><span class="nf">ret</span>
+</pre>
+</td></tr></table></div>
+</div>
+<div class="section" id="simd-approaches">
+<h1>SIMD approaches</h1>
+<div class="section" id="simdization-of-plain-function">
+<h2>SIMDization of plain function</h2>
+<p>Let's see how <a class="reference internal" href="#binary-search">palette</a> function might be vectorized:</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">palette</span><span class="p">(</span><span class="n">Colour</span><span class="w"> </span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">RED</span><span class="p">:</span><span class="w">   </span><span class="k">return</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GREEN</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">BLUE</span><span class="p">:</span><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">WHITE</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">3</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GRAY0</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GRAY1</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GRAY2</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">6</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">BLACK</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">7</span><span class="p">;</span><span class="w">
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<ol class="arabic">
+<li><p class="first">Load the key values into a SIMD register. In this case we have exactly eight 32-bit
+numbers; when compiled to an AVX2 target, all values fit in single AVX register.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="w">
+    </span><span class="mh">0x00ff0000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x0000ff00</span><span class="p">,</span><span class="w"> </span><span class="mh">0x000000ff</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00ffffff</span><span class="p">,</span><span class="w">
+    </span><span class="mh">0x00333333</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00aaaaaa</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00dddddd</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="w">
+</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Broadcast the switch argument in a SIMD register:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">vec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">((</span><span class="kt">uint32_t</span><span class="p">)</span><span class="n">arg</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Compare the argument with all keys.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi32</span><span class="p">(</span><span class="n">vec</span><span class="p">,</span><span class="w"> </span><span class="n">lookup</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Obtain a bitmask from the 32-bit mask.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_movemask_ps</span><span class="p">((</span><span class="n">__m256</span><span class="p">)</span><span class="n">mask</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">If the <tt class="docutils literal">bitmask</tt> is non-zero it means argument is equal to one
+of keys. The key index is determined by position of first (and only)
+bit set in <tt class="docutils literal">bitmask</tt>. If <tt class="docutils literal">bitmask</tt> is zero, we have to return
+the default value.</p>
+<pre class="code cpp literal-block">
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bitmask</span><span class="p">)</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">bitmask</span><span class="p">);</span><span class="w">
+</span><span class="k">else</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+</pre>
+</li>
+</ol>
+<p>In this example the function value is equal to index of key,
+but for more complex mappings we need an extra lookup table.</p>
+<pre class="code cpp literal-block">
+<span class="kt">int</span><span class="w"> </span><span class="nf">palette_ANSI</span><span class="p">(</span><span class="n">Colour</span><span class="w"> </span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// man console_codes
+</span><span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">RED</span><span class="p">:</span><span class="w">   </span><span class="k">return</span><span class="w"> </span><span class="mi">31</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">GREEN</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">32</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">BLUE</span><span class="p">:</span><span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="mi">34</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">WHITE</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">37</span><span class="p">;</span><span class="w">
+        </span><span class="k">case</span><span class="w"> </span><span class="no">Colour</span><span class="o">::</span><span class="no">BLACK</span><span class="p">:</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="mi">30</span><span class="p">;</span><span class="w">
+        </span><span class="k">default</span><span class="o">:</span><span class="w">
+            </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>The 5th point of the above algorithm would be like this:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// we dispatch five values, set 6th bit &mdash; bitmask will never be zero
+</span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="mh">0x20</span><span class="p">;</span><span class="w">
+
+</span><span class="c1">// the result lookup includes also default value
+</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">result</span><span class="p">[</span><span class="mi">6</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="mi">31</span><span class="p">,</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w"> </span><span class="mi">34</span><span class="p">,</span><span class="w"> </span><span class="mi">37</span><span class="p">,</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">};</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">bitmask</span><span class="p">);</span><span class="w">
+
+</span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">[</span><span class="n">index</span><span class="p">];</span>
+</pre>
+<p>Please note one trick we used. If SIMD vector is not fully filled, and switch
+has got a <tt class="docutils literal">default</tt> label, we might use one bit of the bitmask to include the
+<tt class="docutils literal">default</tt> value in the result. Thanks to that an extra <tt class="docutils literal">if</tt> is ridden off.</p>
+<div class="section" id="implementation">
+<h3>Implementation</h3>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;immintrin.h&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;cstdint&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="k">enum</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Colour</span><span class="o">:</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="n">RED</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00ff0000</span><span class="p">,</span><span class="w">
+    </span><span class="n">GREEN</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x0000ff00</span><span class="p">,</span><span class="w">
+    </span><span class="n">BLUE</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="mh">0x000000ff</span><span class="p">,</span><span class="w">
+    </span><span class="n">WHITE</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00ffffff</span><span class="p">,</span><span class="w">
+    </span><span class="n">GRAY0</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00333333</span><span class="p">,</span><span class="w">
+    </span><span class="n">GRAY1</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00aaaaaa</span><span class="p">,</span><span class="w">
+    </span><span class="n">GRAY2</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00dddddd</span><span class="p">,</span><span class="w">
+    </span><span class="n">BLACK</span><span class="w">   </span><span class="o">=</span><span class="w"> </span><span class="mh">0x00000000</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">palette_avx2</span><span class="p">(</span><span class="n">Colour</span><span class="w"> </span><span class="n">col</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">vec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">((</span><span class="kt">uint32_t</span><span class="p">)</span><span class="n">col</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="w">
+        </span><span class="mh">0x00ff0000</span><span class="p">,</span><span class="w"> </span><span class="mh">0x0000ff00</span><span class="p">,</span><span class="w"> </span><span class="mh">0x000000ff</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00ffffff</span><span class="p">,</span><span class="w">
+        </span><span class="mh">0x00333333</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00aaaaaa</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00dddddd</span><span class="p">,</span><span class="w"> </span><span class="mh">0x00000000</span><span class="w">
+    </span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi32</span><span class="p">(</span><span class="n">vec</span><span class="p">,</span><span class="w"> </span><span class="n">lookup</span><span class="p">);</span><span class="w">
+
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_movemask_ps</span><span class="p">((</span><span class="n">__m256</span><span class="p">)</span><span class="n">mask</span><span class="p">);</span><span class="w">
+    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bitmask</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">return</span><span class="w"> </span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">bitmask</span><span class="p">);</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="c1">// default value
+</span><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+<div class="section" id="simd-ization-of-code-dispatching">
+<h2>SIMD-ization of code dispatching</h2>
+<p>In procedure <a class="reference internal" href="#target-lookup">code_block</a> the keys {0, 3, 4, 7, 8, 11} are
+mapped into addresses of code sequences or <em>basic blocks</em> in the compiler
+construction vocabulary.</p>
+<p>Assembly code generated by GCC which does the mapping:</p>
+<pre class="code nasm literal-block">
+<span class="nf">cmpl</span><span class="w">        </span><span class="kc">$</span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="nb">edi</span><span class="w">
+</span><span class="nf">ja</span><span class="w">  </span><span class="nv">.L13</span><span class="w">
+</span><span class="nf">leaq</span><span class="w">        </span><span class="nv">.L4</span><span class="p">(</span><span class="o">%</span><span class="nv">rip</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rdx</span><span class="w">
+</span><span class="nf">movslq</span><span class="w">      </span><span class="p">(</span><span class="o">%</span><span class="nb">rdx</span><span class="p">,</span><span class="o">%</span><span class="nb">rdi</span><span class="p">,</span><span class="mi">4</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="nb">rax</span><span class="w">
+</span><span class="nf">jmp</span><span class="w"> </span><span class="o">*%</span><span class="nb">rax</span>
+</pre>
+<p>Firstly, it determines whether the input is in range 0 .. 11.
+When it is, then fetch the address of case code and jump there.</p>
+<p>Below is an AVX2 algorithm that does exactly the same.</p>
+<ol class="arabic">
+<li><p class="first">Load into SIMD register key values. This time we match six keys,
+so two 32-bit words in an AVX2 register are not used (filled with -1).</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Broadcast switch argument in AVX2 register.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">vec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">(</span><span class="n">x</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Compare the argument with all keys.</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi32</span><span class="p">(</span><span class="n">vec</span><span class="p">,</span><span class="w"> </span><span class="n">lookup</span><span class="p">);</span>
+</pre>
+</li>
+<li><p class="first">Obtain a bitmask from the 32-bit mask. Here we also set the
+7th bit of bitmask.</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint32_t</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_movemask_ps</span><span class="p">((</span><span class="n">__m256</span><span class="p">)</span><span class="n">mask</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="mh">0x40</span><span class="p">;</span>
+</pre>
+</li>
+<li><p class="first">Get index of set bit and jump to appropriate label. Please note that
+the 7th label (<tt class="docutils literal">end</tt>) points to basic block which is equivalent
+to a no-match condition in the switch statement (there's no <tt class="docutils literal">default</tt>
+label in code).</p>
+<p>Here the C++ code uses a GCC <a class="reference external" href="https://gcc.gnu.org/onlinedocs/gcc/Labels-as-Values.html#Labels-as-Values">extension</a> which allows to store label
+addresses and jump to runtime-selected address. On the assembly code
+level this maps into indirect jump instruction.</p>
+<pre class="code cpp literal-block">
+<span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">labels</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="o">&amp;&amp;</span><span class="n">case_0</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_3</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_4</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_7</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_8</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_11</span><span class="p">,</span><span class="w">
+    </span><span class="o">&amp;&amp;</span><span class="n">end</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">end</span><span class="w">
+</span><span class="p">};</span><span class="w">
+
+</span><span class="k">goto</span><span class="w"> </span><span class="o">*</span><span class="n">labels</span><span class="p">[</span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">bitmask</span><span class="p">)];</span>
+</pre>
+</li>
+</ol>
+<div class="section" id="implementation-1">
+<h3>Implementation</h3>
+<pre class="code cpp literal-block">
+<span class="cp">#include</span><span class="w"> </span><span class="cpf">&lt;cstdio&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;cstdint&gt;</span><span class="cp">
+#include</span><span class="w"> </span><span class="cpf">&lt;immintrin.h&gt;</span><span class="cp">
+</span><span class="w">
+</span><span class="kt">int</span><span class="w"> </span><span class="nf">code_block</span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">x</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">int</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">static</span><span class="w"> </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">labels</span><span class="p">[</span><span class="mi">8</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="o">&amp;&amp;</span><span class="n">case_0</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_3</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_4</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_7</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_8</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_11</span><span class="p">,</span><span class="w">
+        </span><span class="o">&amp;&amp;</span><span class="n">case_default</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="n">case_default</span><span class="w">
+    </span><span class="p">};</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">vec</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_set1_epi32</span><span class="p">(</span><span class="n">x</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">lookup</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_setr_epi32</span><span class="p">(</span><span class="w">
+        </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="mi">7</span><span class="p">,</span><span class="w"> </span><span class="mi">8</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="p">,</span><span class="w">
+        </span><span class="mi">-1</span><span class="p">,</span><span class="w"> </span><span class="mi">-1</span><span class="w"> </span><span class="c1">// these two don't matter
+</span><span class="w">    </span><span class="p">);</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="n">__m256i</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_cmpeq_epi32</span><span class="p">(</span><span class="n">vec</span><span class="p">,</span><span class="w"> </span><span class="n">lookup</span><span class="p">);</span><span class="w">
+
+    </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">bitmask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm256_movemask_ps</span><span class="p">((</span><span class="n">__m256</span><span class="p">)</span><span class="n">mask</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="mh">0xc0</span><span class="p">;</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="o">*</span><span class="n">labels</span><span class="p">[</span><span class="n">__builtin_ctz</span><span class="p">(</span><span class="n">bitmask</span><span class="p">)];</span><span class="w">
+
+</span><span class="nl">case_0</span><span class="p">:</span><span class="w">
+    </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;zero&quot;</span><span class="p">);</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">case_3</span><span class="p">:</span><span class="w">
+    </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;one&quot;</span><span class="p">);</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">case_4</span><span class="p">:</span><span class="w">
+    </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;two&quot;</span><span class="p">);</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">case_7</span><span class="p">:</span><span class="w">
+    </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;three&quot;</span><span class="p">);</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1024</span><span class="p">;</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">case_8</span><span class="p">:</span><span class="w">
+    </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;four&quot;</span><span class="p">);</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">case_11</span><span class="p">:</span><span class="w">
+    </span><span class="n">puts</span><span class="p">(</span><span class="s">&quot;five&quot;</span><span class="p">);</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1024</span><span class="p">;</span><span class="w">
+    </span><span class="k">goto</span><span class="w"> </span><span class="n">end</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">case_default</span><span class="p">:</span><span class="w">
+    </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span><span class="w">
+
+</span><span class="nl">end</span><span class="p">:</span><span class="w">
+    </span><span class="k">return</span><span class="w"> </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+</div>
+</div>
+<div class="section" id="performance">
+<h1>Performance</h1>
+<p>In case of code involving jumps, it's hard to say anything. Performance of
+dispatching depends mostly on a branch predictor, as mispredicted branches
+can cost several cycles.</p>
+<p>It's likely that in typical scenarios, where just one or two cases are really
+executed, SIMD code will not be faster.</p>
+<p>However, for simple lookup functions, SIMD code is likely to be faster for
+switches with large number of cases.  First of all, such a function is almost
+branch free, as the <tt class="docutils literal">default</tt> case can be resolved also by the vector code.
+SIMD code depends only on the number of cases not their values.</p>
+</div>
+<div class="section" id="practical-example">
+<h1>Practical example</h1>
+<p>Use of SIMDized case in <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/parse_rfc_date">parsing of RFC dates</a>.</p>
+</div>
+<div class="section" id="source-code">
+<h1>Source code</h1>
+<p>Sample programs are available at <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/simd-case">github</a>.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2019-02-03-simd-switch-implementation.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:38 GMT -->
+</html>

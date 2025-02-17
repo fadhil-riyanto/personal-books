@@ -1,0 +1,492 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2014-09-11-convert-to-bin.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Conversion numbers to binary representation</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="conversion-numbers-to-binary-representation">
+<h1 class="title">Conversion numbers to binary representation</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2014-09-11</td>
+</tr>
+<tr class="update field"><th class="docinfo-name">Update:</th><td class="field-body">2016-11-20 (SWAR version 3, by <a class="reference external" href="https://github.com/bitbank2">Larry Bank</a>, updates results) 2015-04-19 (SWAR version 2, results from Core i5) 2014-09-22 (BMI2 results), 2014-09-16 (+BMI2, lookup, experiments results)</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#converting-byte-swar-version-1" id="toc-entry-1">Converting byte &mdash; SWAR version 1</a><ul>
+<li><a class="reference internal" href="#algorithm" id="toc-entry-2">Algorithm</a></li>
+<li><a class="reference internal" href="#notes" id="toc-entry-3">Notes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#converting-byte-swar-version-2-multiplication-based-approach" id="toc-entry-4">Converting byte &mdash; SWAR version 2 &mdash; multiplication-based approach</a><ul>
+<li><a class="reference internal" href="#notes-1" id="toc-entry-5">Notes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#converting-byte-swar-version-3-multiplication-based-approach" id="toc-entry-6">Converting byte &mdash; SWAR version 3 &mdash; multiplication-based approach</a><ul>
+<li><a class="reference internal" href="#notes-2" id="toc-entry-7">Notes</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#converting-word-simd-version" id="toc-entry-8">Converting word &mdash; SIMD version</a></li>
+<li><a class="reference internal" href="#converting-byte-bmi2-version" id="toc-entry-9">Converting byte &mdash; BMI2 version</a></li>
+<li><a class="reference internal" href="#converting-byte-lookup" id="toc-entry-10">Converting byte &mdash; lookup</a></li>
+<li><a class="reference internal" href="#speed-comparison" id="toc-entry-11">Speed comparison</a><ul>
+<li><a class="reference internal" href="#results-from-pentium-m-outdated" id="toc-entry-12">Results from Pentium M (outdated)</a></li>
+<li><a class="reference internal" href="#results-from-core-i5-westmere" id="toc-entry-13">Results from Core i5 (Westmere)</a></li>
+<li><a class="reference internal" href="#results-from-core-i7-skylake" id="toc-entry-14">Results from Core i7 (Skylake)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sample-program" id="toc-entry-15">Sample program</a></li>
+</ul>
+</div>
+<div class="section" id="converting-byte-swar-version-1">
+<h1>Converting byte &mdash; SWAR version 1</h1>
+<div class="section" id="algorithm">
+<h2>Algorithm</h2>
+<ol class="arabic">
+<li><p class="first">Populate byte <strong>v</strong> (bits: <cite>abcdefgh</cite>) in a 64-bit word:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">v</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mh">0x0101010101010101</span>
+</pre>
+<div class="asciidiag"><pre class="asciidiag">┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+│abcdefgh│abcdefgh│abcdefgh│abcdefgh│abcdefgh│abcdefgh│abcdefgh│abcdefgh│
+└────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘</pre></div></li>
+<li><p class="first">Isolate one bit per byte:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x8040201008040201</span>
+</pre>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+│<span style="color: blue; font-weight: bold">a</span><span style="color: gray">┈┈┈┈┈┈┈</span>│<span style="color: gray">.</span><span style="color: blue; font-weight: bold">b</span><span style="color: gray">┈┈┈┈┈┈</span>│<span style="color: gray">┈┈</span><span style="color: blue; font-weight: bold">c</span><span style="color: gray">┈┈┈┈┈</span>│<span style="color: gray">┈┈┈</span><span style="color: blue; font-weight: bold">d</span><span style="color: gray">┈┈┈┈</span>│<span style="color: gray">┈┈┈┈</span><span style="color: blue; font-weight: bold">e</span><span style="color: gray">┈┈┈</span>│<span style="color: gray">┈┈┈┈┈</span><span style="color: blue; font-weight: bold">f</span><span style="color: gray">┈┈</span>│<span style="color: gray">┈┈┈┈┈┈</span><span style="color: blue; font-weight: bold">g</span><span style="color: gray">.</span>│<span style="color: gray">┈┈┈┈┈┈┈</span><span style="color: blue; font-weight: bold">h</span>│
+└────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘</pre></div></li>
+<li><p class="first">Clone each bit to the highest position</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r2</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mh">0x00406070787c7e7f</span>
+</pre>
+<div class="asciidiag"><pre class="asciidiag">
+     ┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+r3 = │<span style="color: blue; font-weight: bold">a</span>┈┈┈┈┈┈┈│.<span style="color: blue; font-weight: bold">b</span>┈┈┈┈┈┈│┈┈<span style="color: blue; font-weight: bold">c</span>┈┈┈┈┈│┈┈┈<span style="color: blue; font-weight: bold">d</span>┈┈┈┈│┈┈┈┈<span style="color: blue; font-weight: bold">e</span>┈┈┈│┈┈┈┈┈<span style="color: blue; font-weight: bold">f</span>┈┈│┈┈┈┈┈┈<span style="color: blue; font-weight: bold">g</span>.│┈┈┈┈┈┈┈<span style="color: blue; font-weight: bold">h</span>│
+     └────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘
+
+     ┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+   + │<span style="color: gray">00000000</span>│<span style="color: gray">0</span><span style="font-weight: bold">1</span><span style="color: gray">000000</span>│<span style="color: gray">0</span><span style="font-weight: bold">11</span><span style="color: gray">00000</span>│<span style="color: gray">0</span><span style="font-weight: bold">111</span><span style="color: gray">0000</span>│<span style="color: gray">0</span><span style="font-weight: bold">1111</span><span style="color: gray">000</span>│<span style="color: gray">0</span><span style="font-weight: bold">11111</span><span style="color: gray">00</span>│<span style="color: gray">0</span><span style="font-weight: bold">111111</span><span style="color: gray">0</span>│<span style="color: gray">0</span><span style="font-weight: bold">1111111</span>│
+     └────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘
+
+     ┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+r3 = │<span style="color: blue; font-weight: bold">a</span>┈┈┈┈┈┈┈│<span style="color: blue; font-weight: bold">b</span><span style="font-weight: bold">x</span>┈┈┈┈┈┈│<span style="color: blue; font-weight: bold">c</span><span style="font-weight: bold">xx</span>┈┈┈┈┈│<span style="color: blue; font-weight: bold">d</span><span style="font-weight: bold">xxx</span>┈┈┈┈│<span style="color: blue; font-weight: bold">e</span><span style="font-weight: bold">xxxx</span>┈┈┈│<span style="color: blue; font-weight: bold">f</span><span style="font-weight: bold">xxxxx</span>┈┈│<span style="color: blue; font-weight: bold">g</span><span style="font-weight: bold">xxxxxx</span>.│<span style="color: blue; font-weight: bold">h</span><span style="font-weight: bold">xxxxxxx</span>│
+     └────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘</pre></div></li>
+<li><p class="first">Move 7th bits to the 0th position and mask the lowest bits:</p>
+<pre class="code literal-block">
+const uint64_t r4 = (r3 &gt;&gt; 7) &amp; 0x0101010101010101
+</pre>
+<div class="asciidiag"><pre class="asciidiag">
+┌────────┬────────┬────────┬────────┬────────┬────────┬────────┬────────┐
+│┈┈┈┈┈┈┈<span style="font-weight: bold">a</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">b</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">c</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">d</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">e</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">f</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">g</span>│┈┈┈┈┈┈┈<span style="font-weight: bold">h</span>│
+└────────┴────────┴────────┴────────┴────────┴────────┴────────┴────────┘</pre></div></li>
+<li><p class="first">Finally convert to ASCII:</p>
+<pre class="literal-block">
+const uint64_t result = 0x3030303030303030 + r4  // ord('0') == 0x30
+</pre>
+</li>
+</ol>
+</div>
+<div class="section" id="notes">
+<h2>Notes</h2>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">convert_swar</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">v</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">=</span><span class="w">  </span><span class="n">v</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mh">0x0101010101010101</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x8040201008040201</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r2</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mh">0x00406070787c7e7f</span><span class="p">;</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">r3</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">7</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0101010101010101</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="mh">0x3030303030303030</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">r4</span><span class="p">;</span><span class="w">  </span><span class="c1">// ord('0') == 0x30
+</span><span class="p">}</span>
+</pre>
+<p>This algorithm requires:</p>
+<ul class="simple">
+<li>1 multiplication,</li>
+<li>1 right shift,</li>
+<li>1 bit-and,</li>
+<li>1 bit-or,</li>
+<li>2 additions.</li>
+</ul>
+<p>Multiplication and shift are the slowest operations.</p>
+</div>
+</div>
+<div class="section" id="converting-byte-swar-version-2-multiplication-based-approach">
+<h1>Converting byte &mdash; SWAR version 2 &mdash; multiplication-based approach</h1>
+<p>In this approach <strong>single multiplication</strong> is used to scatter 4 bits on
+4 bytes, then a single bit-and is used to isolate bits:</p>
+<pre class="literal-block">
+input   = 0b0000_abcd                                  (8-bit number)
+output  = 0b0000_000a bcd0_00ab cd00_0abc d000_abcd    (32-bit number)
+output' = 0b0000_000a 0000_000b 0000_000c 0000_000d
+</pre>
+<p>The magic multiplication constant is build as follows:</p>
+<ol class="arabic simple">
+<li>the bit <tt class="docutils literal">d</tt> must stay at position 0, so the first term of is <span class="math">1</span>;</li>
+<li>the bit <tt class="docutils literal">c</tt> must appear at position 8, so we have to shift left
+by <span class="math">8 &minus; 1</span>;</li>
+<li>likewise to move the bit <tt class="docutils literal">b</tt> at position 16 we have to shift left
+by <span class="math">16 &minus; 2</span></li>
+<li>and finally shift left by <span class="math">24 &minus; 3</span> to move the bit <cite>a</cite>.</li>
+</ol>
+<p>The constant is <tt class="docutils literal">1 + (1 &lt;&lt; (8 - 1)) + (1 &lt;&lt; (16 - 2)) + (1 &lt;&lt; (24 - 3))</tt>
+or <tt class="docutils literal">0x204081</tt>.</p>
+<p>Downside of this method is processing only 4 bits per step.</p>
+<div class="section" id="notes-1">
+<h2>Notes</h2>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">mul</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="mi">8</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="mi">16</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="mi">24</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">3</span><span class="p">));</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0xf</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">mul</span><span class="p">;</span><span class="w">            </span><span class="c1">// expand bits 0..3
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint32_t</span><span class="w"> </span><span class="n">r2</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">&gt;&gt;</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">mul</span><span class="p">;</span><span class="w">             </span><span class="c1">// expand bits 4..7
+</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r3</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">(</span><span class="kt">uint64_t</span><span class="p">(</span><span class="n">r2</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">32</span><span class="p">);</span><span class="w">  </span><span class="c1">// merge 32-bit values
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r4</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">r3</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0101010101010101</span><span class="p">;</span><span class="w">    </span><span class="c1">// isolate bits
+</span><span class="w">
+</span><span class="k">return</span><span class="w"> </span><span class="mh">0x3030303030303030</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">r4</span><span class="p">;</span><span class="w">                 </span><span class="c1">// to ASCII</span>
+</pre>
+<p>This algorithm requires:</p>
+<ul class="simple">
+<li>2 32-bit multiplications (32-bit muls are faster than 64-bit multiplication);</li>
+<li>2 shifts;</li>
+<li>2 bit-and;</li>
+<li>1 bit-or;</li>
+<li>1 add.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="converting-byte-swar-version-3-multiplication-based-approach">
+<h1>Converting byte &mdash; SWAR version 3 &mdash; multiplication-based approach</h1>
+<p>Author of this method is <strong>Larry Bank</strong>. We exchanged a few mails and
+Larry has gave me permission to describe his clever method here.</p>
+<p>Similarly to the previous SWAR method, this one also uses <strong>a single
+multiplication</strong>. The multiplication scatters 7 lowest bit of an 8-bit
+number. Thus the method is suitable for 64-bit numbers.</p>
+<p>Assuming we have a 7-bit number <tt class="docutils literal">abcdefg</tt>, following shifts are needed
+(example for a 32-bit number):</p>
+<pre class="literal-block">
+bits: 76543210 76543210 76543210 76543210
+
+t0 =  ........ ........ ........ .abcdefg   (shift by 0*7)
+t1 =  ........ ........ ..abcdef g.......   (shift by 1*7)
+t2 =  ........ ...abcde fg...... ........   (shift by 2*7)
+t3 =  ....abcd efg..... ........ ........   (shift by 3*7)
+
+t4 =  t1 | t2 | t3 | t4
+   =  ....abcd efgabcde fgabcdef gabcdefg
+
+t5 = t4 &amp; 0x01010101
+   = .......d .......e .......f .......g
+</pre>
+<p>To covert all bits of a byte, the specialised path for the MSB is needed.</p>
+<div class="section" id="notes-2">
+<h2>Notes</h2>
+<p>Sample implementation:</p>
+<pre class="code cpp literal-block">
+<span class="c1">// convert lowest 7 bits
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">mul</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0x02040810204081</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r1</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x7f</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">mul</span><span class="p">;</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r2</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">r1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x0101010101010101</span><span class="p">;</span><span class="w">
+
+</span><span class="c1">// move the most significant bit to 56th bit
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r3</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="kt">uint64_t</span><span class="p">(</span><span class="n">v</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="mh">0x80</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="p">(</span><span class="mi">56</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">7</span><span class="p">);</span><span class="w">
+</span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">r4</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">r2</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">r3</span><span class="p">;</span><span class="w">
+
+</span><span class="k">return</span><span class="w"> </span><span class="mh">0x3030303030303030</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">r4</span><span class="p">;</span>
+</pre>
+<p>This algorithm requires:</p>
+<ul class="simple">
+<li>1 64-bit multiplication</li>
+<li>1 shift;</li>
+<li>3 bit-and;</li>
+<li>1 bit-or;</li>
+<li>1 add.</li>
+</ul>
+<p>Moving the MSB to desired position may be also accomplished with range
+extending (casting). First we cast unsigned char (<tt class="docutils literal">v</tt>) to signed
+value, extending this value to 64-bit word, efficiently broadcasting MSB
+on bits 8 thou 63. Then single bit-and forms proper word:</p>
+<pre class="literal-block">
+const uint64_t r3  = uint64_t(int64_t(int8_t(v))) &amp; 0x0100000000000000;
+</pre>
+<p>This strange cast chain compiles to a single instruction <tt class="docutils literal">movsx</tt>,
+which is as cheap as a normal move. The modified implementation doesn't
+require a bit-shift.</p>
+</div>
+</div>
+<div class="section" id="converting-word-simd-version">
+<h1>Converting word &mdash; SIMD version</h1>
+<p>The algorithm is similar to SWAR version 1. Instead of cloning bits, shift
+and mask (points 3 &amp; 4) just a single instruction <tt class="docutils literal">PCMPEQB</tt> is used:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint8_t</span><span class="w"> </span><span class="n">bit_mask</span><span class="p">[</span><span class="mi">16</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="mh">0x01</span><span class="p">,</span><span class="w"> </span><span class="mh">0x02</span><span class="p">,</span><span class="w"> </span><span class="mh">0x04</span><span class="p">,</span><span class="w"> </span><span class="mh">0x08</span><span class="p">,</span><span class="w"> </span><span class="mh">0x10</span><span class="p">,</span><span class="w"> </span><span class="mh">0x20</span><span class="p">,</span><span class="w"> </span><span class="mh">0x40</span><span class="p">,</span><span class="w"> </span><span class="mh">0x80</span><span class="w"> </span><span class="cm">/* x 2*/</span><span class="p">};</span><span class="w">
+</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">ascii</span><span class="p">[</span><span class="mi">16</span><span class="p">]</span><span class="w">    </span><span class="o">=</span><span class="w"> </span><span class="n">packed_byte</span><span class="p">(</span><span class="sc">'0'</span><span class="p">);</span><span class="w">
+
+</span><span class="c1">// assember:
+</span><span class="w">
+</span><span class="c1">// load input
+</span><span class="n">movdqa</span><span class="w">  </span><span class="n">packed_byte</span><span class="p">(</span><span class="n">v</span><span class="p">),</span><span class="w"> </span><span class="o">%</span><span class="n">xmm0</span><span class="w">
+
+</span><span class="c1">// 2. isolate bits
+</span><span class="n">movdqa</span><span class="w">   </span><span class="n">bit_mask</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="n">xmm7</span><span class="w">
+</span><span class="n">pand</span><span class="w">     </span><span class="o">%</span><span class="n">xmm7</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="n">xmm0</span><span class="w">
+</span><span class="n">pcmpeqb</span><span class="w">  </span><span class="o">%</span><span class="n">xmm7</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="n">xmm0</span><span class="w">     </span><span class="c1">// xmm0 = {0x00 or 0xff}
+</span><span class="w">
+</span><span class="c1">// 3. convert to ASCII
+</span><span class="n">movdqa</span><span class="w">   </span><span class="n">ascii</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="n">xmm7</span><span class="w">
+</span><span class="n">psub</span><span class="w">     </span><span class="o">%</span><span class="n">xmm7</span><span class="p">,</span><span class="w"> </span><span class="o">%</span><span class="n">xmm0</span><span class="w">     </span><span class="c1">// xmm7 - result</span>
+</pre>
+<p>Full implementation is available at github (see Sample Programs below).</p>
+</div>
+<div class="section" id="converting-byte-bmi2-version">
+<h1>Converting byte &mdash; BMI2 version</h1>
+<p><strong>Bit Manipulation Instruction</strong> is a new Intel's ISA extension, that add
+some interesting instructions. One of them is <tt class="docutils literal">PDEP</tt>, <em>parallel deposit</em>,
+following pseudocode shows how <tt class="docutils literal">PDEP</tt> works (example for 64-bit words):</p>
+<pre class="literal-block">
+src1 - mask
+src2 - input
+dst  - result
+
+dst := 0
+k   := 0
+for i := 0 .. 64 loop
+    if src1.bit[i] is set then
+        dst.bit[i] := src2.bit[k]
+        k := k + 1
+    end if
+end loop
+</pre>
+<p>Equivalent procedure in C (64-bit mode):</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">pdep</span><span class="p">(</span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">src1</span><span class="p">,</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">src2</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">int</span><span class="w"> </span><span class="n">k</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">64</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">i</span><span class="p">);</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">((</span><span class="n">src1</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="n">mask</span><span class="p">)</span><span class="w">
+            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">src2</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">k</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="n">result</span><span class="w"> </span><span class="o">|=</span><span class="w"> </span><span class="n">mask</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+
+            </span><span class="n">k</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+
+    </span><span class="n">result</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Binary conversion is trivial, single <tt class="docutils literal">PDEB</tt> realizes steps from 2 through 4 of
+the algorithm. Procedure <tt class="docutils literal">bswap</tt> performs byte-swap and it's simply a wrapper
+for <tt class="docutils literal">BSWAP</tt> instruction:</p>
+<pre class="code cpp literal-block">
+<span class="kt">uint64_t</span><span class="w"> </span><span class="nf">convert_pdep</span><span class="p">(</span><span class="kt">uint8_t</span><span class="w"> </span><span class="n">byte</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">expanded</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">pdep</span><span class="p">(</span><span class="n">byte</span><span class="p">,</span><span class="w"> </span><span class="mh">0x0101010101010101</span><span class="p">);</span><span class="w">
+    </span><span class="k">const</span><span class="w"> </span><span class="kt">uint64_t</span><span class="w"> </span><span class="n">swapped</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">bswap</span><span class="p">(</span><span class="n">expanded</span><span class="p">);</span><span class="w">
+
+    </span><span class="k">return</span><span class="w"> </span><span class="mh">0x3030303030303030</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">swapped</span><span class="p">;</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>Yes, only three instructions!</p>
+</div>
+<div class="section" id="converting-byte-lookup">
+<h1>Converting byte &mdash; lookup</h1>
+<p>Using simple lookup requires 256 * 8 = 2kB, this might be a performance
+problem.</p>
+</div>
+<div class="section" id="speed-comparison">
+<h1>Speed comparison</h1>
+<p>Results produced by program <tt class="docutils literal">speedup</tt> from the samples.</p>
+<div class="section" id="results-from-pentium-m-outdated">
+<h2>Results from Pentium M (outdated)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="14%" />
+<col width="12%" />
+<col width="62%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">method</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>0.4061</td>
+<td>1.00</td>
+<td><tt class="docutils literal"><span class="pre">██████</span></tt></td>
+</tr>
+<tr><td>lookup</td>
+<td>0.0636</td>
+<td>6.35</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SWAR</td>
+<td>0.2226</td>
+<td>1.82</td>
+<td><tt class="docutils literal"><span class="pre">███████████</span></tt></td>
+</tr>
+<tr><td>SIMD</td>
+<td>0.1708</td>
+<td>2.38</td>
+<td><tt class="docutils literal"><span class="pre">███████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+<p>Notes:</p>
+<ul class="simple">
+<li>The lookup table size is really big, it would destroy L1 cache.</li>
+<li>The SIMD version is not well written, it just convert 8 bits, while a 16-byte
+register can hold the result of conversion for two bytes.</li>
+<li>Pentium M is a 32-bit processor, conversion routines use type <tt class="docutils literal">uint64_t</tt>,
+i.e. most 64-bit operations in the SWAR version were performed by more
+than one CPU instruction.</li>
+</ul>
+</div>
+<div class="section" id="results-from-core-i5-westmere">
+<h2>Results from Core i5 (Westmere)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="14%" />
+<col width="12%" />
+<col width="62%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">method</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>2.4826</td>
+<td>1.00</td>
+<td><tt class="docutils literal">███</tt></td>
+</tr>
+<tr><td>lookup</td>
+<td>0.1992</td>
+<td>12.46</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SWAR</td>
+<td>0.2732</td>
+<td>9.09</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████</span></tt></td>
+</tr>
+<tr><td>SWAR2</td>
+<td>0.2274</td>
+<td>10.92</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SWAR3</td>
+<td>0.2743</td>
+<td>9.05</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████</span></tt></td>
+</tr>
+<tr><td>SIMD</td>
+<td>0.3622</td>
+<td>6.85</td>
+<td><tt class="docutils literal"><span class="pre">████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="results-from-core-i7-skylake">
+<h2>Results from Core i7 (Skylake)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="13%" />
+<col width="12%" />
+<col width="64%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">method</th>
+<th class="head">time [s]</th>
+<th class="head">speedup</th>
+<th class="head">&nbsp;</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>naive</td>
+<td>1.1796</td>
+<td>1.00</td>
+<td><tt class="docutils literal">███</tt></td>
+</tr>
+<tr><td>lookup</td>
+<td>0.0805</td>
+<td>14.66</td>
+<td><tt class="docutils literal"><span class="pre">███████████████████████████████████████████</span></tt></td>
+</tr>
+<tr><td>SWAR</td>
+<td>0.3824</td>
+<td>3.08</td>
+<td><tt class="docutils literal"><span class="pre">█████████</span></tt></td>
+</tr>
+<tr><td>SWAR2</td>
+<td>0.2781</td>
+<td>4.24</td>
+<td><tt class="docutils literal"><span class="pre">████████████</span></tt></td>
+</tr>
+<tr><td>SWAR3</td>
+<td>0.4508</td>
+<td>2.62</td>
+<td><tt class="docutils literal"><span class="pre">███████</span></tt></td>
+</tr>
+<tr><td>SIMD</td>
+<td>0.7077</td>
+<td>1.67</td>
+<td><tt class="docutils literal"><span class="pre">█████</span></tt></td>
+</tr>
+<tr><td>PDEP</td>
+<td>0.1067</td>
+<td>11.05</td>
+<td><tt class="docutils literal"><span class="pre">█████████████████████████████████</span></tt></td>
+</tr>
+</tbody>
+</table>
+<p>Notes:</p>
+<ul class="simple">
+<li>Lookup is the fastest.</li>
+<li>But all register-only implementations aren't very bad, and PDEP version
+is the best in this group.</li>
+<li>The SIMD version performance is really poor.</li>
+</ul>
+</div>
+</div>
+<div class="section" id="sample-program">
+<h1>Sample program</h1>
+<p><a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/conv_to_bin">Sample programs</a> are available at github.</p>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2014-09-11-convert-to-bin.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:49 GMT -->
+</html>

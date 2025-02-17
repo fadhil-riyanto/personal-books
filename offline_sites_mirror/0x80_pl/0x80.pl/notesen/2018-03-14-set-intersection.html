@@ -1,0 +1,985 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/notesen/2018-03-14-set-intersection.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="author" content="Wojciech Muła" />
+<title>Intersection of ordered sets</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body><script src="../switch_theme.js" type="text/javascript"></script>
+<div class="document" id="intersection-of-ordered-sets">
+<h1 class="title">Intersection of ordered sets</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td>Wojciech Muła</td></tr>
+<tr class="added-on field"><th class="docinfo-name">Added on:</th><td class="field-body">2018-03-14</td>
+</tr>
+<tr class="updated-on field"><th class="docinfo-name">Updated on:</th><td class="field-body">2018-03-16</td>
+</tr>
+</tbody>
+</table>
+<div class="contents topic" id="contents">
+<p class="topic-title">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#introduction" id="toc-entry-1">Introduction</a></li>
+<li><a class="reference internal" href="#binary-search" id="toc-entry-2">Binary search</a><ul>
+<li><a class="reference internal" href="#when-it-is-profitable" id="toc-entry-3">When it is profitable?</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#simd-algorithm" id="toc-entry-4">SIMD algorithm</a></li>
+<li><a class="reference internal" href="#evaluation" id="toc-entry-5">Evaluation</a><ul>
+<li><a class="reference internal" href="#westmere-m540-core-i5" id="toc-entry-6">Westmere M540 (Core i5)</a></li>
+<li><a class="reference internal" href="#skylake-6700-core-i7" id="toc-entry-7">Skylake 6700 (Core i7)</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#conclusions" id="toc-entry-8">Conclusions</a></li>
+</ul>
+</div>
+<div class="section" id="introduction">
+<h1>Introduction</h1>
+<p>The intersection of two sets represented by sorted collections (like lists or
+arrays) can be done in linear time. If we label with <span class="math"><i>k</i></span> the size of one
+collection, and with <span class="math"><i>n</i></span> the size of another collection, then the
+complexity of intersection is <span class="math">O(<i>n</i> + <i>k</i>)</span>.</p>
+<p>Below is a naive C++ implementation; the C++ standard library comes with
+<a class="reference external" href="http://en.cppreference.com/w/cpp/algorithm/set_intersection">std::set_intersection</a>.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">INSERTER</span><span class="o">&gt;</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="n">custom_set_intersection</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">vec</span><span class="o">&amp;</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">vec</span><span class="o">&amp;</span><span class="w"> </span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="n">INSERTER</span><span class="w"> </span><span class="n">output</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">j</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">size</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">B</span><span class="p">[</span><span class="n">j</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">B</span><span class="p">[</span><span class="n">j</span><span class="p">]</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">j</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// A[i] == B[j]
+</span><span class="w">            </span><span class="o">*</span><span class="n">output</span><span class="o">++</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">i</span><span class="p">];</span><span class="w">
+
+            </span><span class="n">i</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+            </span><span class="n">j</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<p>If there is a huge difference between sizes of collections, then we might
+use two different approaches described below. I use terms &quot;smaller&quot;
+(<span class="math"><i>k</i></span> items) and &quot;larger&quot; collection/set (<span class="math"><i>n</i></span> items).</p>
+</div>
+<div class="section" id="binary-search">
+<h1>Binary search</h1>
+<p>In this approach we iterate over the smaller collection. For each item the
+binary search on the larger collection is performed. The complexity of this
+solution is <span class="math">O(<i>k</i> &sdot; log<i>n</i>)</span>.</p>
+<p>A clear disadvantage is that at least the larger collection must support
+random access. It must be an array, a vector or something similar.</p>
+<p>To make a practical implementation faster, we utilize the fact that both
+collections are sorted. In each iteration we are not looking for an equal
+element but for the first element which is greater or equal to the searched
+one.  Thanks to that the searched range is narrowed after each iteration:
+the part of the larger collection containing elements smaller than the
+elements already tested is never touched again. It doesn't change the
+asymptotic complexity, though.</p>
+<p>In C++ the function <a class="reference external" href="http://en.cppreference.com/w/cpp/algorithm/lower_bound">std::lower_bound</a> implements this look up; it's a
+modification of the binary search algorithm.</p>
+<p>Below is a C++ implementation.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">INSERTER</span><span class="o">&gt;</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="n">binsearch_set_intersection</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">vec</span><span class="o">&amp;</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">vec</span><span class="o">&amp;</span><span class="w"> </span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="n">INSERTER</span><span class="w"> </span><span class="n">output</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="k">auto</span><span class="w"> </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">begin</span><span class="p">();</span><span class="w">
+
+    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="k">auto</span><span class="o">&amp;</span><span class="w"> </span><span class="n">a</span><span class="o">:</span><span class="w"> </span><span class="n">A</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="n">it</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">lower_bound</span><span class="p">(</span><span class="n">it</span><span class="p">,</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">end</span><span class="p">(),</span><span class="w"> </span><span class="n">a</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">it</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">end</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// since there are no values greater or equal the current,
+</span><span class="w">            </span><span class="c1">// there also won't be any for subsequent value (all greater than current)
+</span><span class="w">            </span><span class="k">return</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">it</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">a</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="n">output</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">a</span><span class="p">;</span><span class="w">
+            </span><span class="o">++</span><span class="n">it</span><span class="p">;</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+<div class="section" id="when-it-is-profitable">
+<h2>When it is profitable?</h2>
+<p>Lets assume that the number of operations in the linear algorithm is exactly
+<span class="math"><i>n</i> + <i>k</i></span>. Likewise, for binary search we may assume that on average
+there are <span class="math"><i>k</i> &sdot; log<sub>2</sub><i>n</i></span> operations. It is of course a simplification,
+because we are unable to derive the exact numbers of operations, as they
+depend on input values and their distribution.</p>
+<p>We start with an obvious inequality:</p>
+<blockquote>
+<p><span class="math"><i>k</i> + <i>n</i> &lt <i>k</i> &sdot; log<sub>2</sub>(<i>n</i>)</span></p>
+<p><span class="math"><i>n</i> &lt <i>k</i>(log<sub>2</sub>(<i>n</i>) &minus; 1)</span></p>
+<p><span class="math"><i>n</i>/<i>k</i> &lt log<sub>2</sub>(<i>n</i>) &minus; 1</span></p>
+</blockquote>
+<p>If the proportion <span class="math"><i>n</i>/<i>k</i></span> is smaller than <span class="math">log<sub>2</sub>(<i>n</i>) &minus; 1</span> then
+<strong>the linear algorithm will perform better</strong>. After a simple transformation
+we get the threshold for size of the smaller set:</p>
+<blockquote>
+<span class="math"><i>k</i> &gt <i>n</i>/(log<sub>2</sub>(<i>n</i>) &minus; 1)</span></blockquote>
+<p>For example, if <span class="math"><i>n</i> = 1.000.000</span> then <span class="math"><i>k</i>&approx; 50.000</span>;
+the proportion of sizes is 18-19. In practise, we may approximate
+function <span class="math">log<sub>2</sub></span> with the position of the first bit set in the
+number <span class="math"><i>k</i></span>.</p>
+</div>
+</div>
+<div class="section" id="simd-algorithm">
+<h1>SIMD algorithm</h1>
+<p>A SIMD approach is vectorized linear algorithm in which a single value from
+the smaller set is compared with vectors read from the larger set. Thanks to
+that the number of comparisons is smaller and we can faster skip parts of
+the larger collection.</p>
+<p>In the example below we assume that the first element of the smaller
+collection is 9, and the head of the larger collection contains values [-5,
+1, 2, 5, 7, 8, 9, 12].</p>
+<ul>
+<li><p class="first">Fill the vector <strong>A</strong> with the first item from the smaller collection:</p>
+<div class="asciidiag"><pre class="asciidiag">┌─────┬─────┬─────┬─────┐
+│  9  │  9  │  9  │  9  │
+└─────┴─────┴─────┴─────┘</pre></div></li>
+<li><p class="first">Load into another vector <strong>B</strong> a part of the larger collection:</p>
+<div class="asciidiag"><pre class="asciidiag">┌─────┬─────┬─────┬─────┐
+│ -5  │  1  │  2  │  5  │
+└─────┴─────┴─────┴─────┘</pre></div></li>
+<li><p class="first">Compare <strong>B &lt; A</strong>:</p>
+<div class="asciidiag"><pre class="asciidiag">┌─────┬─────┬─────┬─────┐
+│ -1  │ -1  │ -1  │ -1  │
+└─────┴─────┴─────┴─────┘</pre></div></li>
+<li><p class="first">If all items in <strong>B</strong> are smaller (all bits of the comparison vector are set),
+then load the next chunk into <strong>B</strong>:</p>
+<div class="asciidiag"><pre class="asciidiag">┌─────┬─────┬─────┬─────┐
+│  7  │  8  │  9  │ 12  │
+└─────┴─────┴─────┴─────┘</pre></div></li>
+<li><p class="first">And keep comparing with <strong>A</strong>; now <strong>B &lt; A</strong> vector is equal:</p>
+<div class="asciidiag"><pre class="asciidiag">
+┌─────┬─────┬─────┬─────┐
+│ -1  │ -1  │  <span style="font-weight: bold; color: blue">0</span>  │  <span style="font-weight: bold; color: blue">0</span>  │
+└─────┴─────┴─────┴─────┘</pre></div></li>
+<li><p class="first">The result vector contains some zero items. It means that <strong>B</strong> may
+contain the value present in <strong>A</strong>. If it's true (in the example it is),
+save this value in the output collection. In either case fill <strong>A</strong> with
+the next value from the smaller collection and again compare with <strong>B</strong>.</p>
+</li>
+</ul>
+<p>Below is a sample implementation that uses SSE instructions.</p>
+<pre class="code cpp literal-block">
+<span class="k">template</span><span class="w"> </span><span class="o">&lt;</span><span class="k">typename</span><span class="w"> </span><span class="nc">INSERTER</span><span class="o">&gt;</span><span class="w">
+</span><span class="kt">void</span><span class="w"> </span><span class="n">sse_set_intersection</span><span class="p">(</span><span class="k">const</span><span class="w"> </span><span class="n">vec</span><span class="o">&amp;</span><span class="w"> </span><span class="n">A</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">vec</span><span class="o">&amp;</span><span class="w"> </span><span class="n">B</span><span class="p">,</span><span class="w"> </span><span class="n">INSERTER</span><span class="w"> </span><span class="n">output</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">a_rep</span><span class="p">;</span><span class="w">
+    </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">b</span><span class="p">;</span><span class="w">
+
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">ai</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+    </span><span class="kt">size_t</span><span class="w"> </span><span class="n">bi</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w">
+
+    </span><span class="n">a_rep</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="n">A</span><span class="p">[</span><span class="n">ai</span><span class="p">]);</span><span class="w">
+    </span><span class="n">b</span><span class="w">     </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="o">&amp;</span><span class="n">B</span><span class="p">[</span><span class="n">bi</span><span class="p">]));</span><span class="w">
+
+    </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">ai</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">A</span><span class="p">.</span><span class="n">size</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">bi</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">B</span><span class="p">.</span><span class="n">size</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="w"> </span><span class="n">lt</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_cmplt_epi32</span><span class="p">(</span><span class="n">b</span><span class="p">,</span><span class="w"> </span><span class="n">a_rep</span><span class="p">);</span><span class="w">
+        </span><span class="k">const</span><span class="w"> </span><span class="kt">uint16_t</span><span class="w"> </span><span class="n">mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_movemask_epi8</span><span class="p">(</span><span class="n">lt</span><span class="p">);</span><span class="w">
+        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mask</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mh">0xffff</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// all elements in b are smaller, fetch the next chunk from B
+</span><span class="w">            </span><span class="n">bi</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w">
+            </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_loadu_si128</span><span class="p">(</span><span class="k">reinterpret_cast</span><span class="o">&lt;</span><span class="k">const</span><span class="w"> </span><span class="kr">__m128i</span><span class="o">*&gt;</span><span class="p">(</span><span class="o">&amp;</span><span class="n">B</span><span class="p">[</span><span class="n">bi</span><span class="p">]));</span><span class="w">
+        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="c1">// there might be element equal to A[ai]
+</span><span class="w">            </span><span class="c1">// a simple linear search, as there're only 4 elements to search in
+</span><span class="w">            </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mi">4</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">B</span><span class="p">[</span><span class="n">bi</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">i</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">ai</span><span class="p">])</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="n">output</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">A</span><span class="p">[</span><span class="n">ai</span><span class="p">];</span><span class="w">
+                    </span><span class="k">break</span><span class="p">;</span><span class="w">
+                </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+
+            </span><span class="c1">// fetch the next value from A
+</span><span class="w">            </span><span class="n">ai</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+            </span><span class="n">a_rep</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_mm_set1_epi32</span><span class="p">(</span><span class="n">A</span><span class="p">[</span><span class="n">ai</span><span class="p">]);</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span>
+</pre>
+</div>
+<div class="section" id="evaluation">
+<h1>Evaluation</h1>
+<p>Experiment:</p>
+<ul class="simple">
+<li>The larger collection is a C++ <tt class="docutils literal"><span class="pre">std::vector&lt;int32_t&gt;</span></tt> that has got
+1024 * 1024 random elements.</li>
+<li>The size of smaller table varies. It is always a subset of the
+larger collection.</li>
+<li>Intersection is done 1000 times and the <strong>minimum time</strong> is noted.</li>
+</ul>
+<p>Full source code is <a class="reference external" href="https://github.com/WojciechMula/toys/tree/master/set-intersection">available</a>.</p>
+<div class="section" id="westmere-m540-core-i5">
+<h2>Westmere M540 (Core i5)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="12%" />
+<col width="14%" />
+<col width="18%" />
+<col width="15%" />
+<col width="15%" />
+<col width="25%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">size A</th>
+<th class="head">size B</th>
+<th class="head">size ratio</th>
+<th class="head">std [us]</th>
+<th class="head">SSE [us]</th>
+<th class="head">binsearch [us]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>128</td>
+<td>1048576</td>
+<td>8192.00</td>
+<td>1802</td>
+<td>666</td>
+<td>16</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.71</td>
+<td>x 112.62</td>
+</tr>
+<tr><td>256</td>
+<td>1048576</td>
+<td>4096.00</td>
+<td>1803</td>
+<td>670</td>
+<td>37</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.69</td>
+<td>x 48.73</td>
+</tr>
+<tr><td>384</td>
+<td>1048576</td>
+<td>2730.67</td>
+<td>1807</td>
+<td>672</td>
+<td>53</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.69</td>
+<td>x 34.09</td>
+</tr>
+<tr><td>512</td>
+<td>1048576</td>
+<td>2048.00</td>
+<td>1807</td>
+<td>674</td>
+<td>69</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.68</td>
+<td>x 26.19</td>
+</tr>
+<tr><td>640</td>
+<td>1048576</td>
+<td>1638.40</td>
+<td>1816</td>
+<td>684</td>
+<td>84</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.65</td>
+<td>x 21.62</td>
+</tr>
+<tr><td>768</td>
+<td>1048576</td>
+<td>1365.33</td>
+<td>1817</td>
+<td>685</td>
+<td>97</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.65</td>
+<td>x 18.73</td>
+</tr>
+<tr><td>896</td>
+<td>1048576</td>
+<td>1170.29</td>
+<td>1820</td>
+<td>690</td>
+<td>112</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.64</td>
+<td>x 16.25</td>
+</tr>
+<tr><td>1024</td>
+<td>1048576</td>
+<td>1024.00</td>
+<td>1823</td>
+<td>698</td>
+<td>127</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.61</td>
+<td>x 14.35</td>
+</tr>
+<tr><td>1152</td>
+<td>1048576</td>
+<td>910.22</td>
+<td>1824</td>
+<td>695</td>
+<td>146</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.62</td>
+<td>x 12.49</td>
+</tr>
+<tr><td>1280</td>
+<td>1048576</td>
+<td>819.20</td>
+<td>1825</td>
+<td>705</td>
+<td>159</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.59</td>
+<td>x 11.48</td>
+</tr>
+<tr><td>2560</td>
+<td>1048576</td>
+<td>409.60</td>
+<td>1844</td>
+<td>738</td>
+<td>433</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.50</td>
+<td>x 4.26</td>
+</tr>
+<tr><td>6400</td>
+<td>1048576</td>
+<td>163.84</td>
+<td>1889</td>
+<td>819</td>
+<td>1009</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.31</td>
+<td>x 1.87</td>
+</tr>
+<tr><td>2048</td>
+<td>1048576</td>
+<td>512.00</td>
+<td>1837</td>
+<td>724</td>
+<td>319</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.54</td>
+<td>x 5.76</td>
+</tr>
+<tr><td>3072</td>
+<td>1048576</td>
+<td>341.33</td>
+<td>1851</td>
+<td>750</td>
+<td>549</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.47</td>
+<td>x 3.37</td>
+</tr>
+<tr><td>4096</td>
+<td>1048576</td>
+<td>256.00</td>
+<td>1863</td>
+<td>770</td>
+<td>719</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.42</td>
+<td>x 2.59</td>
+</tr>
+<tr><td>5120</td>
+<td>1048576</td>
+<td>204.80</td>
+<td>1875</td>
+<td>796</td>
+<td>863</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.36</td>
+<td>x 2.17</td>
+</tr>
+<tr><td>6144</td>
+<td>1048576</td>
+<td>170.67</td>
+<td>1888</td>
+<td>817</td>
+<td>982</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.31</td>
+<td>x 1.92</td>
+</tr>
+<tr><td>7168</td>
+<td>1048576</td>
+<td>146.29</td>
+<td>1900</td>
+<td>836</td>
+<td>1092</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.27</td>
+<td>x 1.74</td>
+</tr>
+<tr><td>8192</td>
+<td>1048576</td>
+<td>128.00</td>
+<td>1913</td>
+<td>857</td>
+<td>1180</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.23</td>
+<td>x 1.62</td>
+</tr>
+<tr><td>9216</td>
+<td>1048576</td>
+<td>113.78</td>
+<td>1927</td>
+<td>876</td>
+<td>1274</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.20</td>
+<td>x 1.51</td>
+</tr>
+<tr><td>10240</td>
+<td>1048576</td>
+<td>102.40</td>
+<td>1938</td>
+<td>893</td>
+<td>1349</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.17</td>
+<td>x 1.44</td>
+</tr>
+<tr><td>20480</td>
+<td>1048576</td>
+<td>51.20</td>
+<td>2059</td>
+<td>1100</td>
+<td>1892</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.87</td>
+<td>x 1.09</td>
+</tr>
+<tr><td>51200</td>
+<td>1048576</td>
+<td>20.48</td>
+<td>2388</td>
+<td>1741</td>
+<td>2878</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.37</td>
+<td>x 0.83</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="skylake-6700-core-i7">
+<h2>Skylake 6700 (Core i7)</h2>
+<table border="1" class="docutils">
+<colgroup>
+<col width="11%" />
+<col width="12%" />
+<col width="16%" />
+<col width="13%" />
+<col width="13%" />
+<col width="14%" />
+<col width="21%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">size A</th>
+<th class="head">size B</th>
+<th class="head">size ratio</th>
+<th class="head">std [us]</th>
+<th class="head">SSE [us]</th>
+<th class="head">AVX2 [us]</th>
+<th class="head">binsearch [us]</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>128</td>
+<td>1048576</td>
+<td>8192.00</td>
+<td>771</td>
+<td>313</td>
+<td>190</td>
+<td>2</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.46</td>
+<td>x 4.06</td>
+<td>x 385.50</td>
+</tr>
+<tr><td>256</td>
+<td>1048576</td>
+<td>4096.00</td>
+<td>772</td>
+<td>316</td>
+<td>192</td>
+<td>8</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.44</td>
+<td>x 4.02</td>
+<td>x 96.50</td>
+</tr>
+<tr><td>384</td>
+<td>1048576</td>
+<td>2730.67</td>
+<td>774</td>
+<td>318</td>
+<td>193</td>
+<td>24</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.43</td>
+<td>x 4.01</td>
+<td>x 32.25</td>
+</tr>
+<tr><td>512</td>
+<td>1048576</td>
+<td>2048.00</td>
+<td>775</td>
+<td>320</td>
+<td>195</td>
+<td>38</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.42</td>
+<td>x 3.97</td>
+<td>x 20.39</td>
+</tr>
+<tr><td>640</td>
+<td>1048576</td>
+<td>1638.40</td>
+<td>780</td>
+<td>324</td>
+<td>197</td>
+<td>50</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.41</td>
+<td>x 3.96</td>
+<td>x 15.60</td>
+</tr>
+<tr><td>768</td>
+<td>1048576</td>
+<td>1365.33</td>
+<td>780</td>
+<td>326</td>
+<td>199</td>
+<td>59</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.39</td>
+<td>x 3.92</td>
+<td>x 13.22</td>
+</tr>
+<tr><td>896</td>
+<td>1048576</td>
+<td>1170.29</td>
+<td>782</td>
+<td>329</td>
+<td>201</td>
+<td>70</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.38</td>
+<td>x 3.89</td>
+<td>x 11.17</td>
+</tr>
+<tr><td>1024</td>
+<td>1048576</td>
+<td>1024.00</td>
+<td>784</td>
+<td>331</td>
+<td>203</td>
+<td>81</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.37</td>
+<td>x 3.86</td>
+<td>x 9.68</td>
+</tr>
+<tr><td>1152</td>
+<td>1048576</td>
+<td>910.22</td>
+<td>785</td>
+<td>334</td>
+<td>204</td>
+<td>90</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.35</td>
+<td>x 3.85</td>
+<td>x 8.72</td>
+</tr>
+<tr><td>1280</td>
+<td>1048576</td>
+<td>819.20</td>
+<td>786</td>
+<td>336</td>
+<td>206</td>
+<td>98</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.34</td>
+<td>x 3.82</td>
+<td>x 8.02</td>
+</tr>
+<tr><td>2560</td>
+<td>1048576</td>
+<td>409.60</td>
+<td>801</td>
+<td>361</td>
+<td>224</td>
+<td>178</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.22</td>
+<td>x 3.58</td>
+<td>x 4.50</td>
+</tr>
+<tr><td>6400</td>
+<td>1048576</td>
+<td>163.84</td>
+<td>844</td>
+<td>438</td>
+<td>274</td>
+<td>364</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.93</td>
+<td>x 3.08</td>
+<td>x 2.32</td>
+</tr>
+<tr><td>2048</td>
+<td>1048576</td>
+<td>512.00</td>
+<td>796</td>
+<td>351</td>
+<td>217</td>
+<td>148</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.27</td>
+<td>x 3.67</td>
+<td>x 5.38</td>
+</tr>
+<tr><td>3072</td>
+<td>1048576</td>
+<td>341.33</td>
+<td>807</td>
+<td>372</td>
+<td>230</td>
+<td>206</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.17</td>
+<td>x 3.51</td>
+<td>x 3.92</td>
+</tr>
+<tr><td>4096</td>
+<td>1048576</td>
+<td>256.00</td>
+<td>818</td>
+<td>391</td>
+<td>244</td>
+<td>258</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.09</td>
+<td>x 3.35</td>
+<td>x 3.17</td>
+</tr>
+<tr><td>5120</td>
+<td>1048576</td>
+<td>204.80</td>
+<td>830</td>
+<td>412</td>
+<td>259</td>
+<td>305</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 2.01</td>
+<td>x 3.20</td>
+<td>x 2.72</td>
+</tr>
+<tr><td>6144</td>
+<td>1048576</td>
+<td>170.67</td>
+<td>841</td>
+<td>431</td>
+<td>271</td>
+<td>351</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.95</td>
+<td>x 3.10</td>
+<td>x 2.40</td>
+</tr>
+<tr><td>7168</td>
+<td>1048576</td>
+<td>146.29</td>
+<td>853</td>
+<td>451</td>
+<td>285</td>
+<td>396</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.89</td>
+<td>x 2.99</td>
+<td>x 2.15</td>
+</tr>
+<tr><td>8192</td>
+<td>1048576</td>
+<td>128.00</td>
+<td>864</td>
+<td>471</td>
+<td>299</td>
+<td>438</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.83</td>
+<td>x 2.89</td>
+<td>x 1.97</td>
+</tr>
+<tr><td>9216</td>
+<td>1048576</td>
+<td>113.78</td>
+<td>875</td>
+<td>490</td>
+<td>312</td>
+<td>480</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.79</td>
+<td>x 2.80</td>
+<td>x 1.82</td>
+</tr>
+<tr><td>10240</td>
+<td>1048576</td>
+<td>102.40</td>
+<td>886</td>
+<td>510</td>
+<td>325</td>
+<td>520</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.74</td>
+<td>x 2.73</td>
+<td>x 1.70</td>
+</tr>
+<tr><td>20480</td>
+<td>1048576</td>
+<td>51.20</td>
+<td>995</td>
+<td>704</td>
+<td>459</td>
+<td>880</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.41</td>
+<td>x 2.17</td>
+<td>x 1.13</td>
+</tr>
+<tr><td>51200</td>
+<td>1048576</td>
+<td>20.48</td>
+<td>1302</td>
+<td>1292</td>
+<td>881</td>
+<td>1811</td>
+</tr>
+<tr><td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>x 1.01</td>
+<td>x 1.48</td>
+<td>x 0.72</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="section" id="conclusions">
+<h1>Conclusions</h1>
+<ul class="simple">
+<li>When differences in size of sets is huge the presented
+approaches might be significantly faster.</li>
+<li>The algorithm that use binary search is faster, but the size
+ratio is strictly limited.</li>
+<li>Both SSE and AVX2 implementations perform better than linear
+search in circumstances when binary search become slower.</li>
+</ul>
+</div>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/notesen/2018-03-14-set-intersection.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:43:41 GMT -->
+</html>

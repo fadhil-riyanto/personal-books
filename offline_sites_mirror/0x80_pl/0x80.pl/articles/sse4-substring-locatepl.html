@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+
+<!-- Mirrored from 0x80.pl/articles/sse4-substring-locatepl.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<title>SSE4: MPSADBW &mdash; pomoc w wyszukiwaniu wzorców</title>
+<link rel="stylesheet" href="style.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="sse4-mpsadbw-pomoc-w-wyszukiwaniu-wzorcow">
+<h1 class="title">SSE4: MPSADBW &mdash; pomoc w wyszukiwaniu wzorców</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr class="autor field"><th class="docinfo-name">Autor:</th><td class="field-body">Wojciech Muła</td>
+</tr>
+<tr class="dodany field"><th class="docinfo-name">Dodany:</th><td class="field-body">13.04.2008</td>
+</tr>
+</tbody>
+</table>
+<p>Przyznaję, że jest dość problematyczne, czy rzeczywiście użycie rozkazów
+<a class="reference external" href="http://pl.wikipedia.org/wiki/SSE4">SIMD</a> może w tej klasie algorytmów pomóc, niemniej ciekawe to
+zastosowanie.  <strong>Dopisek 7.04.2008</strong> &mdash; owszem pomaga, testy które
+przeprowdziłem wykazują przyspieszenie 2, 3, 4 i więcej razy w stosunku do
+standardowej funckji <tt class="docutils literal">strstr</tt>.  Zobacz <a class="reference external" href="../notesen/2008-05-27-sse4-substring-locate.html">artykuł</a>, tam również dostępne są
+źródła przetestowanych funkcji.</p>
+<p>Skojarzyłem rozkaz <tt class="docutils literal">MPSADBW</tt> z <a class="reference external" href="http://pl.wikipedia.org/wiki/Algorytm_Karpa-Rabina">algorytmem
+Karpa-Rabina</a>, w którym dokładne porównania wzorca i podciągu są wykonywane
+dopiero wtedy, gdy wartości funkcji haszującej dla wyszukiwanego wzorca i
+testowanego podciągu są równe.</p>
+<p>Co prawda <tt class="docutils literal">MPSADBW</tt> nie liczy żadnej funkcji skrótu, za to pozwala za
+jednym zamachem stwierdzić, na których pozycjach w zakresie 12 znaków
+jest zlokalizowany 4-znakowy wzorzec (SAD=0).  Dopiero gdy ten fakt
+stwierdzimy można testować dokładniej, tzn. jeśli ów wzorzec był ledwie
+prefiksem dłuższego ciągu porównujemy kolejne znaki.</p>
+<p>Oczywista wada tego rozwiązania: nie można wyszukiwać wzorców krótszych
+niż 4 znaki.</p>
+<p>Szkic programu:</p>
+<pre class="literal-block">
+; edi -&gt; wzorzec
+; esi -&gt; przeszukiwany łańcuch znaków
+; ecx -&gt; długość
+
+        movdqa  (edi), %xmm0            ; xmm0 - prefiks wzorca
+        pxor    %xmm7, %xmm7            ; xmm7 = packed_word(0)
+0:
+        movdqu  (esi), %xmm1            ; xmm1 - 12-bajtowy fragment łańcucha
+        movdqa  %xmm1, %xmm2
+
+        ; wyszukanie wystąpień
+                                        ; xmm0 = [abcd .... .... ....] '.' - nieuwzględniane
+                                        ; xmm2 = [XYab cdYa bcdX ....] '?' - liczba &gt; 0
+        mpsadbw $0, %xmm0, %xmm1        ; xmm1 = [??0? ???0] (packed word)
+                                        ;        słowo = 0 -&gt; podciągi równe (odległość między nimi zerowa)
+        pcmpeqw %xmm7, %xmm1            ; xmm1 = [0010 0001]
+
+        ; sprawdzenie wyniku
+
+        ptest   %xmm1, %xmm1            ; ZF := 1, gdy xmm1 = 0, czyli w ogóle nie znaleziono prefiksu
+        jz      1f                      ; przeskakujemy testy
+
+        ; ... tutaj wykorzystujemy wyniki zapisane xmm1, np. tak
+
+        ; w eax maska bitowa
+        pmovmskb %xmm1, %eax
+
+        ; interesują nas wyłącznie bity na pozycjach parzystych
+        for i:=0 to 16 step 2 do
+                begin
+                        if %eax[i] = 1 then
+                                if strcmp(%edi + 4, %esi + 4 + i/2) = 0 then
+                                        ...
+                end;
+
+1:
+        addl $8, %esi
+
+        subl $8, %ecx
+        jnz 0b
+</pre>
+<p>Można też uwzględniać prefiksy 8-bajtowe, co wymaga 2-krotnego wywołania
+<tt class="docutils literal">MPSADBW</tt> i zmiany przyrostu ESI z 8 na 12, choć nie wydaje mi się to
+lepszym rozwiązaniem.  Dla porządku jednak kawałek kodu:</p>
+<pre class="literal-block">
+; ...
+movdqa  %xmm1, %xmm2
+
+; wyszukanie wystąpień
+                                ; xmm0 = [abcd .... .... ....] '.' - nieuwzględniane
+                                ; xmm2 = [XYab cdYa bcde ....] '?' - liczba &gt; 0
+mpsadbw $0, %xmm0, %xmm1        ; xmm1 = [??0? ???0] (packed word)
+                                ; xmm0 = [.... efgh .... ....] '.' - nieuwzględniane
+                                ; xmm2 = [.... cdYa bcde fghZ] '?' - liczba &gt; 0
+mpsadbw $6, %xmm0, %xmm2        ; xmm2 = [???? ???0]
+paddw   %xmm2, %xmm1            ; xmm1 = [???? ???0]
+pcmpeqw %xmm7, %xmm1            ; xmm1 = [0000 0001]
+; ...
+
+addl $12, %esi
+subl $12, %ecx
+; ...
+</pre>
+<p>Firma Intel dla architektury Enhanced Core 2 podaje, że opóźnienie
+<tt class="docutils literal">MPSADBW</tt> wynosi 4 cykle, zaś przepustowość 2 cykle.  Zatem po 4
+cyklach dostępna jest informacja, które z 8 kolejnych 4-bajtowych
+podciągów zawierają 4 bajtowy wzorzec &mdash; to daje pół cykla na
+porównanie (efektownie, ale czy efektywnie?); następnie wykonywany jest
+<tt class="docutils literal">PCMPEQW</tt> (1 cykl), <tt class="docutils literal">PTEST</tt> (1 cykl) i ewentualny skok (&gt;= 1 cykl).
+W sumie 7 cykli.</p>
+<p>Moje testy wskazują, że tego rodzaju predykcja nie zmusza do
+wykonywania dużej liczby dokładnych porównań &mdash; jednak kwestia,
+czy w praktyce będzie rzeczywiście tak różowo, jest otwarta.</p>
+</div>
+</body>
+
+<!-- Mirrored from 0x80.pl/articles/sse4-substring-locatepl.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:48:31 GMT -->
+</html>

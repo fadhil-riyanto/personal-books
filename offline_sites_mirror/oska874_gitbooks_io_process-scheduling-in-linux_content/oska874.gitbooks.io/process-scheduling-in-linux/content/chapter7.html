@@ -1,0 +1,576 @@
+<!DOCTYPE html><html lang="zh">
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter7.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+<head>
+        <title>7 Completely Fair Scheduler (CFS) &#xB7; Linux Process Schedule</title>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content>
+        <meta name="generator" content="GitBook 3.1.1">
+        <meta name="author" content="Ezio Zhang">
+        
+        
+    
+    <link rel="stylesheet" href="gitbook/style.css">
+
+    
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-comment/plugin.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-highlight/website.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-search/search.css">
+                
+            
+                
+                <link rel="stylesheet" href="gitbook/gitbook-plugin-fontsettings/website.css">
+                
+            
+        
+
+    
+
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+        
+    
+
+        
+    
+    
+    <meta name="HandheldFriendly" content="true">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="apple-touch-icon-precomposed" sizes="152x152" href="gitbook/images/apple-touch-icon-precomposed-152.png">
+    <link rel="shortcut icon" href="https://gstatic.gitbook.com/images/b1c4c86ca817a71628d2debe73be9a64.ico" type="image/x-icon">
+
+    
+    <link rel="next" href="chapter8.html">
+    
+    
+    <link rel="prev" href="chapter6.html">
+    
+
+    
+<style>
+    .book .book-summary .book-search,
+    .book .book-summary ul.summary {
+        position: relative;
+        top: auto;
+        left: auto;
+        right: auto;
+        bottom: auto;
+    }
+    .book-summary {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        display: flex;
+        flex-direction: column;
+        -webkit-box-orient: vertical;
+        -webkit-box-direction: normal;
+        overflow-y: auto;
+    }
+    .book-summary > nav {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        overflow-y: overlay;
+    }
+    .gl-wrapper {
+        margin: 0;
+        display: block;
+        padding: 0;
+        position: relative;
+        line-height: 15px;
+        background: #fafafa;
+    }
+    .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        background: -moz-linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+        top: -24px;
+        width: 100%;
+        height: 24px;
+        content: "";
+        display: block;
+        position: absolute;
+        background: linear-gradient(to bottom, rgba(250,250,250,0) 0%, #fafafa 100%);
+    }
+    .book.color-theme-1 .gl-wrapper {
+        background: #121212;
+    }
+    .book.color-theme-1 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: -moz-linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+        background: linear-gradient(to bottom, rgba(18,18,18,0) 0%, #121212 100%);
+    }
+    .book.color-theme-2 .gl-wrapper {
+        background: #2e3243;
+    }
+    .book.color-theme-2 .gl-wrapper:before {
+        background: -webkit-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: -moz-linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+        background: linear-gradient(to bottom, rgba(46,50,67,0) 0%, #2e3243 100%);
+    }
+    .gl-wrapper .gitbook-link {
+        display: -webkit-box;
+        display: -moz-box;
+        display: -ms-flexbox;
+        display: -webkit-flex;
+        color: #9DAAB6;
+        margin: 16px;
+        display: flex;
+        padding: 0;
+        align-items: center;
+        margin-left: 32px;
+        padding-top: 8px;
+        padding-left: 16px;
+        border-radius: 3px;
+        padding-right: 16px;
+        padding-bottom: 8px;
+        text-decoration: none;
+        background-color: #E6ECF1;
+        -webkit-box-align: center;
+    }
+    .gl-wrapper .tm-logo {
+        margin: 0;
+        display: block;
+        padding: 0;
+        font-size: 40px;
+    }
+    .gl-wrapper .tm-content {
+        flex: 1;
+        margin: 0;
+        display: block;
+        padding: 0;
+        padding-left: 16px;
+    }
+    .gl-wrapper .tm-content .container {
+        margin: 0;
+        display: block;
+        padding: 0;
+    }
+    .gl-wrapper .tm-content .tm-container .tm-text {
+        font-size: 12px;
+        font-family: "Roboto", sans-serif;
+        font-weight: 400;
+        line-height: 1.625;
+    }
+</style></head>
+    <body>
+        
+<div class="book">
+    <div class="book-summary">
+        
+            
+<div id="book-search-input" role="search">
+    <input type="text" placeholder="Type to search">
+</div>
+
+            
+                <nav role="navigation">
+                
+
+
+<ul class="summary">
+    
+    
+    
+        
+        <li>
+            <a href="https://www.gitbook.com/book/oska874/process-scheduling-in-linux" target="_blank" class="custom-link">Linux Process Schedule</a>
+        </li>
+    
+    
+
+    
+    <li class="divider"></li>
+    
+
+    
+        
+        
+    
+        <li class="chapter " data-level="1.1" data-path="./">
+            
+                <a href="index.html">
+            
+                    
+                    Introduction
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.2" data-path="chapter1.html">
+            
+                <a href="chapter1.html">
+            
+                    
+                    1 Process Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.3" data-path="chapter2.html">
+            
+                <a href="chapter2.html">
+            
+                    
+                    2 Task Classification
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.4" data-path="chapter3.html">
+            
+                <a href="chapter3.html">
+            
+                    
+                    3 Scheduling Classes
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.5" data-path="chapter4.html">
+            
+                <a href="chapter4.html">
+            
+                    
+                    4 Main Runqueue
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.6" data-path="chapter5.html">
+            
+                <a href="chapter5.html">
+            
+                    
+                    5 Scheduler Skeleton
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.7" data-path="chapter6.html">
+            
+                <a href="chapter6.html">
+            
+                    
+                    6 Short Scheduling Algorithm History
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter active" data-level="1.8" data-path="chapter7.html">
+            
+                <a href="chapter7.html">
+            
+                    
+                    7 Completely Fair Scheduler (CFS)
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.9" data-path="chapter8.html">
+            
+                <a href="chapter8.html">
+            
+                    
+                    8 CFS Implementation Details
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.10" data-path="chapter9.html">
+            
+                <a href="chapter9.html">
+            
+                    
+                    9 Soft Real-Time Scheduling
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.11" data-path="chapter10.html">
+            
+                <a href="chapter10.html">
+            
+                    
+                    10 Load Balancing on SMP Systems
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.12" data-path="chapter11.html">
+            
+                <a href="chapter11.html">
+            
+                    
+                    11 Real Time Load Balancing
+            
+                </a>
+            
+
+            
+        </li>
+    
+        <li class="chapter " data-level="1.13" data-path="chapter12.html">
+            
+                <a href="chapter12.html">
+            
+                    
+                    12. Resources
+            
+                </a>
+            
+
+            
+        </li>
+    
+
+    
+
+    <li class="divider"></li>
+
+    
+</ul>
+
+
+                </nav>
+            
+        
+    
+<div class="gl-wrapper">
+    <a class="gitbook-link" href="https://www.gitbook.com/?utm_source=public_site_legacy&amp;utm_medium=referral&amp;utm_campaign=trademark&amp;utm_term=oska874&amp;utm_content=powered_by" target="blank">
+        <div class="tm-logo">
+            <svg preserveAspectRatio="xMidYMid meet" height="1em" width="1em" fill="currentColor" viewBox="0 0 1067 769" xmlns="http://www.w3.org/2000/svg" stroke="none" class="icon-7f6730be--text-3f89f380"><g><path d="M480.026 640.677c17.205 0 31.2 13.997 31.2 31.194s-13.995 31.193-31.2 31.193c-17.197 0-31.193-13.996-31.193-31.193 0-17.197 13.996-31.194 31.193-31.194m489.93-193.226c-17.203 0-31.2-13.998-31.2-31.195 0-17.204 13.997-31.2 31.2-31.2 17.198 0 31.194 13.996 31.194 31.2 0 17.197-13.996 31.195-31.193 31.195m0-127.804c-53.269 0-96.609 43.34-96.609 96.609 0 10.373 1.723 20.702 5.123 30.741L559.328 616.879c-18.132-26.128-47.521-41.617-79.302-41.617-36.821 0-70.391 21.065-86.63 54.003L106.68 478.109c-30.288-15.927-52.965-65.817-50.56-111.223 1.248-23.687 9.438-42.071 21.897-49.17 7.916-4.493 17.436-4.099 27.526 1.188l1.916 1.01c75.96 40.022 324.6 170.981 335.063 175.844 16.157 7.47 25.14 10.5 52.659-2.547l513.958-267.3c7.53-2.844 16.315-10.062 16.315-21.023 0-15.205-15.72-21.199-15.765-21.199-29.218-14.018-74.163-35.054-117.987-55.57C798.033 84.26 691.861 34.547 645.23 10.132c-40.253-21.072-72.655-3.311-78.432.282l-11.227 5.555C345.727 119.743 64.898 258.826 48.911 268.553 20.278 285.973 2.547 320.679.252 363.768c-3.586 68.304 31.261 139.506 81.069 165.634l303.172 156.354c6.83 47.306 47.55 82.725 95.532 82.725 52.78 0 95.808-42.546 96.603-95.14L910.541 492.38c16.93 13.233 37.92 20.486 59.416 20.486 53.268 0 96.61-43.341 96.61-96.61s-43.342-96.61-96.61-96.61" fill-rule="evenodd"/></g></svg>
+        </div>
+        <div class="tm-content">
+            <div class="tm-container">
+                <span class="tm-text">
+                    Powered by <b>GitBook</b>
+                </span>
+            </div>
+        </div>
+    </a>
+</div></div>
+
+    <div class="book-body">
+        
+            <div class="body-inner">
+                
+                    
+
+<div class="book-header" role="navigation">
+    
+
+    <!-- Title -->
+    <h1>
+        <i class="fa fa-circle-o-notch fa-spin"></i>
+        <a href=".html">7 Completely Fair Scheduler (CFS)</a>
+    </h1>
+</div>
+
+
+
+
+                    <div class="page-wrapper" tabindex="-1" role="main">
+                        <div class="page-inner">
+                            
+<div id="book-search-results">
+    <div class="search-noresults">
+    
+                                <section class="normal markdown-section">
+                                
+                                <h1 id="7-completely-fair-scheduler-cfs">7. Completely Fair Scheduler (CFS)</h1>
+<p>Lets now describe the scheduling algorithm used for the NORMAL category tasks: The current scheduler is the completely fair scheduler by Ingo Molnar based on the Rotating Staircase Deadline Scheduler (RSDL) by Con Kolivas. CFS&apos; implementation hides behind the fair_sched_class in /kernel/sched_fair.c.</p>
+<p>The CFS algorithm is based on the idea of an ideal multi-tasking processor. Such a processor would run all currently active tasks literally at the same time while each task gets a portion of its processing power. For example, if two tasks would be runnable, they would run at the same time with 50% processing power each. That means, assuming the two tasks started at the same time, the execution time or runtime of each task is at any moment in time exactly the same, therefore completely fair. You could also say, each tasks runs for an infinitesimal small amount of time but with full processing power.</p>
+<p>Since it is physically not possible to drive current processors in that way and it is highly inefficient to run for very short times due to switching cost, CFS tries to approximate this behaviour as closely as possible. It keeps track of the runtime of each runnable task, called virtual runtime, and tries to maintain an overall balance between all runnable tasks at all times.</p>
+<p>The concept is based on giving all runnable tasks a fair share of the processor. The total share grows and shrinks with the total number of running processes and the relative share is inflated or deflated based on the tasks&apos; priorities.</p>
+<h2 id="71-time-slices-vs-virtual-runtime">7.1. Time Slices vs. Virtual Runtime</h2>
+<p>In CFS, the traditional model of an epoch divided into fixed time slice for each task does not exist any more. Instead, a virtual runtime (vruntime) was introduced for each task. In every call of scheduler_tick() for a scheduled CFS task, its vruntime is updated with the elapsed time since it was scheduled. As soon as the vruntime of another task in the runqueue is smaller than the current tasks&apos;, a rescheduling is executed and the task with the smallest vruntime is selected to run next.</p>
+<p>To avoid an immense overhead of scheduling runs due to frequent task switches, a scheduling latency and a minimum task runtime granularity were introduced.</p>
+<p>The target scheduling latency (TSL) is a constant which is used to calculate a minimum task runtime. Lets assume TSL is 20ms and we have 2 running tasks of the same priority. Each task would then run for a total of 10ms before pre-empting in favour of the other.</p>
+<p>If the number of tasks grows, this portion of runtime would shrink towards zero which again would lead to an inefficient switching rate. To counter this, a constant minimum granularity is used to stretch the TSL depending on the amount of running tasks.</p>
+<h2 id="72-priorities">7.2. Priorities</h2>
+<p>A task is prioritised above another by weighting how fast its vruntime grows while being scheduled. The time delta since the task was scheduled is weighted by the task&apos;s priority. That means, a high priority tasks&apos; vruntime grows slower than the vruntime of a low priority one.</p>
+<h2 id="73-handling-io-and-cpu-bound-tasks">7.3. Handling I/O and CPU bound tasks</h2>
+<p>The previous scheduling algorithm, the O(1) scheduler, tried to use heuristic of sleep and runtimes to determine if a task is I/O or CPU bound. It would then benefit one or the other. As it turned out later, this concept did not work quite as satisfying as expected due to the complex and error prone heuristics.</p>
+<p>CFS&apos; concept of giving tasks a fair share of the processor works quite well and is easy to apply. I would like to explain how this works using the example given in Robert Love&apos;s Linux Kernel Development:</p>
+<p>Consider a system with two runnable tasks: a text editor and a video encoder. The text editor is I/Obound because it spends nearly all its time waiting for user key presses. However, when the text editor does receive a key press, the user expects the editor to respond immediately. Conversely, the video encoder is processor-bound.</p>
+<p>Aside from reading the raw data stream from the disk and later writing the resulting video, the encoder spends all its time applying the video codec to the raw data, easily consuming 100% of the processor. The video encoder does not have any strong time constraints on when it runs&#x2014;if it started running now or in half a second, the user could not tell and would not care. Of course, the sooner it finishes the better, but latency is not a primary concern. In this scenario, ideally the scheduler gives the text editor a larger proportion of the available processor than the video encoder, because the text editor is interactive. We have two goals for the text editor. First, we want it to have a large amount of processor time available to it; not because it needs a lot of processor (it does not) but because we want it to always have processor time available the moment it needs it. Second, we want the text editor to pre-empt the video encoder the moment it wakes up (say, when the user presses a key). This can ensure the text editor has good interactive performance and is responsive to user input.</p>
+<p>CFS solves this issue in the following way: Instead of assigning the text editor a specific priority and timeslice, it guarantees the text editor a specific proportion of the processor. If the video encoder and text editor are the only running processes and both are at the same nice level, this proportion would be 50% &#x2014; each would be guaranteed half of the processor&#x2019;s time. Because the text editor spends most of its time blocked, waiting for user key presses, it does not use anywhere near 50% of the processor. Conversely, the video encoder is free to use more than its allotted 50%, enabling it to finish the encoding quickly.</p>
+<p>The crucial concept is what happens when the text editor wakes up. Our primary goal is to ensure it runs immediately upon user input. In this case, when the editor wakes up, CFS notes that it is allotted 50% of the processor but has used considerably less. Specifically, CFS determines that the text editor has run for less time than the video encoder. Attempting to give all processes a fair share of the processor, it then pre-empts the video encoder and enables the text editor to run. The text editor runs, quickly processes the user&#x2019;s key press, and again sleeps, waiting for more input. As the text editor has not consumed its allotted 50%, we continue in this manner, with CFS always enabling the text editor to run when it wants and the video encoder to run the rest of the time.</p>
+<h2 id="74-spawning-a-new-task">7.4 Spawning a new Task</h2>
+<p>CFS maintains a vruntime_min value, which is a monotonic increasing value tracking the smallest vruntime among all tasks in the runqueue. This value is used for new tasks that are added to the runqueue to give them a chance of being scheduled quickly.</p>
+<h2 id="75-the-runqueue-&#x2013;-red-black-tree">7.5 The Runqueue &#x2013; Red-Black-Tree</h2>
+<p>As a runqueue, CFS uses a Red-Black-Tree data structure. This data structure is a self balancing binary search tree. Following a certain set of rules, no path in the tree will ever be more than twice as long as any other. Furthermore, operations on the tree occur in O(log n) time, which allows insertion and deletion of nodes to be quick and efficient.</p>
+<p>Each node represents a task and they are ordered by the task&apos;s vruntime. That means the left most node in the tree always points to the task with the smallest vruntime, say the task that has the gravest need for the processor. Caching of the left most node makes it quick and easy to access.</p>
+<h2 id="76-fair-group-scheduling">7.6 Fair Group Scheduling</h2>
+<p>Group scheduling is another way to bring fairness to scheduling, particularly in the face of tasks that spawn many other tasks. Consider a server that spawns many tasks to parallelise incoming connections. Instead of all tasks being treated fairly uniformly, CFS introduces groups to account for this behaviour. The server process that spawns tasks share their vruntimes across the group (in a hierarchy), while the single task maintains its own independent vruntime. In this way, the single task receives roughly the same scheduling time as the group.</p>
+<p>Let&apos;s say that next to the server tasks another user has only one task running on the machine. Without group scheduling, the second user would be treated unfairly in opposition to the server. With group scheduling, CFS would first try to be fair to the group and then fair to the processes in the group. Therefore, both users would get 50% share of the CPU.</p>
+<p>Groups can be configured via a /proc interface.</p>
+<hr>
+<h1 id="7-&#x5B8C;&#x5168;&#x516C;&#x5E73;&#x8C03;&#x5EA6;&#x5668;">7. &#x5B8C;&#x5168;&#x516C;&#x5E73;&#x8C03;&#x5EA6;&#x5668;</h1>
+<p>&#x73B0;&#x5728;&#x8BA9;&#x6211;&#x4EEC;&#x63CF;&#x8FF0;&#x4E00;&#x4E0B;&#x7528;&#x4E8E; NORMAL &#x7C7B;&#x578B;&#x4EFB;&#x52A1;&#x7684;&#x8C03;&#x5EA6;&#x7B97;&#x6CD5;&#xFF1A;&#x76EE;&#x524D;&#x7684;&#x8C03;&#x5EA6;&#x5668;&#x662F; Ingo Molnar &#x57FA;&#x4E8E; Con Kolivas &#x5F00;&#x53D1;&#x7684; Rotating Staircase Deadline Scheduler&#xFF08;RSDL&#xFF09; &#x5F00;&#x53D1;&#x7684;&#x5B8C;&#x5168;&#x516C;&#x5E73;&#x8C03;&#x5EA6;&#x7B97;&#x6CD5;&#x3002; CFS &#x7684;&#x5B9E;&#x73B0;&#x5C31;&#x9690;&#x85CF;&#x5728; <code>/kernel/sched_fair.c</code> &#x7684; <code>fair_sched_class</code> &#x8C03;&#x5EA6;&#x7C7B;&#x3002;</p>
+<p>CFS &#x7B97;&#x6CD5;&#x662F;&#x57FA;&#x4E8E;&#x4E00;&#x4E2A;&#x5B8C;&#x7F8E;&#x7684;&#x591A;&#x4EFB;&#x52A1;&#x5904;&#x7406;&#x5668;&#x7406;&#x5FF5;&#x5B9E;&#x73B0;&#x7684;&#x3002;&#x8FD9;&#x6837;&#x4E00;&#x4E2A;&#x5904;&#x7406;&#x5668;&#x7CFB;&#x7EDF;&#x8868;&#x9762;&#x4E0A;&#x4F1A;&#x540C;&#x65F6;&#x8FD0;&#x884C;&#x5F53;&#x524D;&#x6240;&#x6709;&#x7684;&#x6D3B;&#x52A8;&#x4EFB;&#x52A1;&#xFF0C;&#x800C;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x90FD;&#x4F1A;&#x83B7;&#x53D6;&#x4E00;&#x4EFD;&#x5C5E;&#x4E8E;&#x81EA;&#x5DF1;&#x7684;&#x5904;&#x7406;&#x5668;&#x8FD0;&#x7B97;&#x80FD;&#x529B;&#x3002;&#x4E3E;&#x4E2A;&#x4F8B;&#x5B50;&#xFF0C;&#x5982;&#x679C;&#x4E24;&#x4E2A;&#x4EFB;&#x52A1;&#x90FD;&#x662F;&#x53EF;&#x8FD0;&#x884C;&#x7684;&#xFF0C;&#x90A3;&#x4E48;&#x4ED6;&#x4EEC;&#x5C31;&#x53EF;&#x4EE5;&#x540C;&#x65F6;&#x8FD0;&#x884C;&#xFF0C;&#x5206;&#x522B;&#x5360;&#x6709; 50% &#x7684;&#x5904;&#x7406;&#x5668;&#x8FD0;&#x7B97;&#x80FD;&#x529B;&#x3002;&#x8FD9;&#x4E5F;&#x5C31;&#x610F;&#x5473;&#x7740;&#xFF0C;&#x52A0;&#x5165;&#x8FD9;&#x4E24;&#x4E2A;&#x4EFB;&#x52A1;&#x540C;&#x65F6;&#x542F;&#x52A8;&#xFF0C;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x7684;&#x6267;&#x884C;&#x65F6;&#x95F4;&#x6216;&#x8005;&#x8FD0;&#x884C;&#x65F6;&#x95F4;&#x5728;&#x4EFB;&#x4F55;&#x65F6;&#x5019;&#x90FD;&#x662F;&#x76F8;&#x540C;&#x7684;&#xFF0C;&#x56E0;&#x6B64;&#x662F;&#x5B8C;&#x5168;&#x516C;&#x5E73;&#x7684;&#x3002;&#x4F60;&#x4E5F;&#x53EF;&#x4EE5;&#x8BF4;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x90FD;&#x8FD0;&#x884C;&#x4E00;&#x4E2A;&#x65E0;&#x7A77;&#x5C0F;&#x7684;&#x65F6;&#x95F4;&#x4F46;&#x662F;&#x5B8C;&#x5168;&#x5360;&#x7528;&#x5168;&#x90E8;&#x7684;&#x5904;&#x7406;&#x5668;&#x8FD0;&#x7B97;&#x80FD;&#x529B;&#x3002;
+&#x65E2;&#x7136;&#x7269;&#x7406;&#x4E0A;&#x662F;&#x4E0D;&#x53EF;&#x80FD;&#x4EE5;&#x8FD9;&#x79CD;&#x65B9;&#x5F0F;&#x4F7F;&#x7528;&#x5904;&#x7406;&#x5668;&#xFF0C;&#x5E76;&#x4E14;&#x8FD9;&#x6837;&#x5B50;&#x4E5F;&#x662F;&#x6781;&#x5EA6;&#x6CA1;&#x6709;&#x6548;&#x7387;&#x7684;&#xFF0C;&#x56E0;&#x4E3A;&#x4EFB;&#x52A1;&#x5207;&#x6362;&#x7684;&#x635F;&#x8017;&#x4F1A;&#x5BFC;&#x81F4;&#x5B9E;&#x9645;&#x4EFB;&#x52A1;&#x8FD0;&#x884C;&#x65F6;&#x95F4;&#x5F88;&#x77ED;&#x3002;&#x8C03;&#x5EA6;&#x5668;&#x4F1A;&#x8BB0;&#x5F55;&#x6BCF;&#x4E2A;&#x53EF;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#x7684;&#x8FD0;&#x884C;&#x65F6;&#xFF0C;&#x5373;&#x6240;&#x8C13;&#x7684;&#x865A;&#x62DF;&#x8FD0;&#x884C;&#x65F6;&#xFF0C;&#x5E76;&#x4E14;&#x5C1D;&#x8BD5;&#x968F;&#x65F6;&#x5728;&#x5168;&#x90E8;&#x53EF;&#x8FD0;&#x884C;&#x4EFB;&#x52A1;&#x4E4B;&#x95F4;&#x7EF4;&#x62A4;&#x5747;&#x8861;&#x3002;</p>
+<p>&#x8FD9;&#x4E2A;&#x539F;&#x5219;&#x7684;&#x57FA;&#x7840;&#x662F;&#x6307;&#x5B9A;&#x7684;&#x5168;&#x90E8;&#x53EF;&#x8FD0;&#x884C;&#x4EFB;&#x52A1;&#x662F;&#x516C;&#x5E73;&#x5206;&#x4EAB;&#x5904;&#x7406;&#x5668;&#x7684;&#x3002;&#x5168;&#x90E8;&#x4EFD;&#x989D;&#x4F1A;&#x968F;&#x7740;&#x8FD0;&#x884C;&#x4E2D;&#x7684;&#x5904;&#x7406;&#x5668;&#x4E2A;&#x6570;&#x53D8;&#x5316;&#x800C;&#x589E;&#x52A0;&#x6216;&#x8005;&#x51CF;&#x5C11;&#xFF0C;&#x800C;&#x76F8;&#x5BF9;&#x4EFD;&#x989D;&#x4F1A;&#x57FA;&#x4E8E;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x53D8;&#x5316;&#x800C;&#x589E;&#x52A0;&#x6216;&#x51CF;&#x5C11;&#x3002;</p>
+<h2 id="71-&#x65F6;&#x95F4;&#x7247;-vs-&#x865A;&#x62DF;&#x8FD0;&#x884C;&#x65F6;">7.1. &#x65F6;&#x95F4;&#x7247; vs. &#x865A;&#x62DF;&#x8FD0;&#x884C;&#x65F6;</h2>
+<p>&#x5728; CFS &#x8C03;&#x5EA6;&#x7B97;&#x6CD5;&#x4E2D;&#xFF0C;&#x5C06;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x7684;&#x65F6;&#x95F4;&#x5212;&#x5206;&#x6210;&#x56FA;&#x5B9A;&#x957F;&#x5EA6;&#x7684;&#x65F6;&#x95F4;&#x7247;&#x8FD9;&#x79CD;&#x4F20;&#x7EDF;&#x6A21;&#x578B;&#x5DF2;&#x7ECF;&#x4E0D;&#x518D;&#x5B58;&#x5728;&#x4E86;&#x3002;&#x4F5C;&#x4E3A;&#x66FF;&#x4EE3;&#xFF0C;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x90FD;&#x5F15;&#x5165;&#x4E86;&#x865A;&#x62DF;&#x8FD0;&#x884C;&#x65F6;&#xFF08;vruntime&#xFF09;&#x3002;&#x5728;&#x4E3A;&#x6BCF;&#x4E00;&#x4E2A;&#x4F7F;&#x7528; CFS &#x8C03;&#x5EA6;&#x7684;&#x4EFB;&#x52A1;&#x6267;&#x884C; <code>scheduler_tick()</code> &#x65F6;&#xFF0C;&#x4EFB;&#x52A1;&#x88AB;&#x8C03;&#x5EA6;&#x4EE5;&#x540E;&#xFF0C;&#x5B83;&#x7684; vruntime &#x4F1A;&#x548C;&#x5DF2;&#x7ECF;&#x6D41;&#x901D;&#x7684;&#x65F6;&#x95F4;&#x4E00;&#x8D77;&#x66F4;&#x65B0;&#x3002;&#x4E00;&#x65E6;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x53E6;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x7684; vruntime &#x6BD4;&#x5F53;&#x524D;&#x4EFB;&#x52A1;&#x7684;&#x5C0F;&#xFF0C;&#x90A3;&#x4E48;&#x5C31;&#x4F1A;&#x6267;&#x884C;&#x4E00;&#x6B21;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#xFF0C;&#x63A5;&#x4E0B;&#x6765; vruntime &#x6700;&#x5C0F;&#x7684;&#x4EFB;&#x52A1;&#x5C31;&#x4F1A;&#x5F97;&#x5230;&#x6267;&#x884C;&#x3002;</p>
+<p>&#x4E3A;&#x4E86;&#x907F;&#x514D;&#x56E0;&#x4E3A;&#x9891;&#x7E41;&#x8FDB;&#x884C;&#x4EFB;&#x52A1;&#x5207;&#x6362;&#x800C;&#x9020;&#x6210;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#x5F00;&#x9500;&#x8FC7;&#x5927;&#xFF0C; Linux &#x5F15;&#x5165;&#x4E86;&#x8C03;&#x5EA6;&#x5EF6;&#x8FDF;&#x548C;&#x6700;&#x5C0F;&#x4EFB;&#x52A1;&#x8FD0;&#x884C;&#x65F6;&#x95F4;&#x7C92;&#x5EA6;&#x3002;</p>
+<p>&#x76EE;&#x6807;&#x8C03;&#x5EA6;&#x5EF6;&#x8FDF;&#xFF08;TSL&#xFF09;&#x662F;&#x4E00;&#x4E2A;&#x7528;&#x6765;&#x8BA1;&#x7B97;&#x6700;&#x5C0F;&#x4EFB;&#x52A1;&#x8FD0;&#x884C;&#x65F6;&#x95F4;&#x7684;&#x5E38;&#x91CF;&#x3002;&#x5047;&#x5982; TSL &#x662F; 20 ms&#xFF0C;&#x800C;&#x6211;&#x4EEC;&#x6709;&#x4E24;&#x4E2A;&#x540C;&#x7B49;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x5728;&#x8FD0;&#x884C;&#x3002;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x90FD;&#x4F1A;&#x5728;&#x88AB;&#x5BF9;&#x65B9;&#x62A2;&#x5360;&#x524D;&#x8FD0;&#x884C; 10ms&#x3002;</p>
+<p>&#x5982;&#x679C;&#x4EFB;&#x52A1;&#x7684;&#x6570;&#x91CF;&#x5728;&#x589E;&#x52A0;&#xFF0C;&#x5219;&#x8FD9;&#x90E8;&#x5206;&#x7684;&#x8FD0;&#x884C;&#x65F6;&#x4F1A;&#x51CF;&#x5C11;&#xFF0C;&#x751A;&#x81F3;&#x4E3A; 0 &#xFF0C;&#x8FD9;&#x5C31;&#x4F1A;&#x5BFC;&#x81F4;&#x4E00;&#x4E2A;&#x6BEB;&#x65E0;&#x6548;&#x7387;&#x7684;&#x5207;&#x6362;&#x9891;&#x7387;&#x3002;&#x8981;&#x5E94;&#x5BF9;&#x8FD9;&#x70B9;&#xFF0C;CFS &#x5F15;&#x5165;&#x4E86;&#x5E38;&#x91CF;&#x201C;&#x6700;&#x5C0F;&#x7C92;&#x5EA6;&#x201D;&#xFF0C;&#x6839;&#x636E;&#x8FD0;&#x884C;&#x4E2D;&#x4EFB;&#x52A1;&#x7684;&#x6570;&#x91CF;&#x6765;&#x6269;&#x5927; TSL &#x3002;</p>
+<h2 id="72-&#x4F18;&#x5148;&#x7EA7;">7.2. &#x4F18;&#x5148;&#x7EA7;</h2>
+<p>&#x8C03;&#x5EA6;&#x4E2D;&#x4EFB;&#x52A1;&#x7684; vruntime &#x589E;&#x957F;&#x7684;&#x901F;&#x5EA6;&#x6765;&#x51B3;&#x5B9A;&#x4E86;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x662F;&#x5426;&#x6BD4;&#x53E6;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x4F18;&#x5148;&#x7EA7;&#x9AD8;&#x3002;&#x65F6;&#x95F4;&#x5DEE;&#x4EA7;&#x751F;&#x7684;&#x539F;&#x56E0;&#x662F;&#x4EFB;&#x52A1;&#x7684;&#x8C03;&#x5EA6;&#x662F;&#x6839;&#x636E;&#x4EFB;&#x52A1;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x51B3;&#x5B9A;&#x7684;&#x3002;&#x8FD9;&#x4E5F;&#x610F;&#x5473;&#x7740;&#x9AD8;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x7684; vruntime &#x589E;&#x957F;&#x7684;&#x901F;&#x5EA6;&#x8981;&#x6BD4;&#x4F4E;&#x4F18;&#x5148;&#x7EA7;&#x4EFB;&#x52A1;&#x6162;&#x3002;&#xFF08;&#x8BD1;&#x6CE8;&#xFF1A;&#x5373;&#x589E;&#x957F;&#x7684;&#x8D8A;&#x6162;&#xFF0C;&#x53EF;&#x80FD;&#x8FD0;&#x884C;&#x7684;&#x65F6;&#x95F4;&#x8D8A;&#x957F;&#xFF09;</p>
+<h2 id="73-&#x5E94;&#x5BF9;-io-&#x9650;&#x5236;&#x578B;&#x548C;-cpu-&#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;">7.3. &#x5E94;&#x5BF9; I/O &#x9650;&#x5236;&#x578B;&#x548C; CPU &#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;</h2>
+<p>&#x5728;&#x4E4B;&#x524D;&#x7684;&#x8C03;&#x5EA6;&#x7B97;&#x6CD5;&#x4E2D;&#xFF0C; O(1) &#x8C03;&#x5EA6;&#x5176;&#x5C1D;&#x8BD5;&#x4F7F;&#x7528;&#x542F;&#x53D1;&#x5F0F;&#x7684;&#x7761;&#x7720;&#x548C;&#x8FD0;&#x884C;&#x65F6;&#x6765;&#x51B3;&#x5B9A;&#x4E00;&#x4E2A;&#x4EFB;&#x52A1;&#x662F; I/O &#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;&#x8FD8;&#x662F; CPU &#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;&#x3002;&#x8FD9;&#x6837;&#x5C31;&#x53EF;&#x4EE5;&#x8BA9;&#x67D0;&#x4E2A;&#x6BD4;&#x53E6;&#x4E00;&#x4E2A;&#x66F4;&#x5360;&#x4F18;&#x52BF;&#x3002;&#x6839;&#x636E;&#x4E4B;&#x540E;&#x7684;&#x7ED3;&#x679C;&#x53D1;&#x73B0;&#x8FD9;&#x4E2A;&#x539F;&#x5219;&#x5E76;&#x4E0D;&#x80FD;&#x6EE1;&#x8DB3;&#x9884;&#x671F;&#x7684;&#x5DE5;&#x4F5C;&#x8981;&#x6C42;&#xFF0C;&#x56E0;&#x4E3A;&#x542F;&#x53D1;&#x6CD5;&#x592A;&#x590D;&#x6742;&#x4E86;&#x800C;&#x4E14;&#x5BB9;&#x6613;&#x51FA;&#x9519;&#x3002;</p>
+<p>&#x800C; CFS &#x7684;&#x539F;&#x5219;&#x662F;&#x4E3A;&#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x63D0;&#x4F9B;&#x516C;&#x5E73;&#x7684;&#x8BA1;&#x7B97;&#x673A;&#x4F7F;&#x7528;&#xFF0C;&#x5B9E;&#x9645;&#x5DE5;&#x4F5C;&#x6548;&#x679C;&#x76F8;&#x5F53;&#x597D;&#xFF0C;&#x4E5F;&#x5BB9;&#x6613;&#x5E94;&#x7528;&#x3002;&#x6211;&#x6253;&#x7B97;&#x7528; Robert Love &#x7684; Linux Kernel Development &#x4E2D;&#x7684;&#x4F8B;&#x5B50;&#x6765;&#x89E3;&#x91CA; CFS &#x662F;&#x600E;&#x4E48;&#x5DE5;&#x4F5C;&#x7684; &#xFF1A;</p>
+<p>&#x8003;&#x8651;&#x4E00;&#x4E2A;&#x7CFB;&#x7EDF;&#x6709;&#x4E24;&#x4E2A;&#x53EF;&#x8FD0;&#x884C;&#x7684;&#x4EFB;&#x52A1;&#xFF1A;&#x4E00;&#x4E2A;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x548C;&#x4E00;&#x4E2A;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x3002;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x662F; I/O &#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;&#x56E0;&#x4E3A;&#x5B83;&#x82B1;&#x8D39;&#x4E86;&#x51E0;&#x4E4E;&#x5168;&#x90E8;&#x7684;&#x65F6;&#x95F4;&#x5728;&#x7B49;&#x5F85;&#x7528;&#x6237;&#x7684;&#x6309;&#x952E;&#x8F93;&#x5165;&#x3002;&#x7136;&#x800C;&#x5F53;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x6355;&#x83B7;&#x5230;&#x952E;&#x76D8;&#x6309;&#x4E0B;&#x540E;&#xFF0C;&#x7528;&#x6237;&#x5C31;&#x671F;&#x5F85;&#x5B83;&#x7ACB;&#x5373;&#x54CD;&#x5E94;&#x3002;&#x5BF9;&#x5E94;&#x7684;&#xFF0C;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x5C31;&#x662F;&#x4E00;&#x4E2A;&#x5904;&#x7406;&#x5668;&#x9650;&#x5236;&#x578B;&#x4EFB;&#x52A1;&#x3002;</p>
+<p>&#x9664;&#x4E86;&#x4ECE;&#x78C1;&#x76D8;&#x8BFB;&#x53D6;&#x539F;&#x59CB;&#x7684;&#x6570;&#x636E;&#x6D41;&#x548C;&#x5C06;&#x7ED3;&#x679C;&#x5199;&#x5165;&#x89C6;&#x9891;&#x6587;&#x4EF6;&#xFF0C;&#x7F16;&#x7801;&#x5668;&#x51E0;&#x4E4E;&#x5168;&#x90E8;&#x7684;&#x65F6;&#x95F4;&#x90FD;&#x7528;&#x5728;&#x4E86;&#x7F16;&#x89E3;&#x7801;&#x89C6;&#x9891;&#x539F;&#x59CB;&#x6570;&#x636E;&#x4E0A;&#xFF0C;&#x5F88;&#x8F7B;&#x677E;&#x7684;&#x5C31;&#x4F1A;&#x4F7F;&#x7528;&#x4E86; 100% &#x7684;&#x5904;&#x7406;&#x5668;&#x3002;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5BF9;&#x4F55;&#x65F6;&#x8FD0;&#x884C;&#x5E76;&#x6CA1;&#x6709;&#x5F88;&#x5F3A;&#x7684;&#x9650;&#x5236;&#x2014;&#x2014;&#x7528;&#x6237;&#x662F;&#x4E0D;&#x53EF;&#x80FD;&#x533A;&#x5206;&#x51FA;&#x662F;&#x7ACB;&#x523B;&#x8FD0;&#x884C;&#x8FD8;&#x662F;&#x534A;&#x79D2;&#x4E4B;&#x540E;&#x8FD0;&#x884C;&#x7684;&#xFF0C;&#x4ED6;&#x4EEC;&#x4E5F;&#x4E0D;&#x5173;&#x5FC3;&#x8FD9;&#x4E00;&#x70B9;&#x3002;&#x5F53;&#x7136;&#x4E86;&#xFF0C;&#x8D8A;&#x5FEB;&#x5B8C;&#x6210;&#x8D8A;&#x597D;&#xFF0C;&#x4F46;&#x662F;&#x5EF6;&#x8FDF;&#x5E76;&#x4E0D;&#x4E00;&#x4E2A;&#x4E3B;&#x8981;&#x8003;&#x8651;&#x7684;&#x56E0;&#x7D20;&#x3002;&#x5728;&#x8FD9;&#x79CD;&#x573A;&#x666F;&#x4E0B;&#xFF0C;&#x7406;&#x60F3;&#x7684;&#x8C03;&#x5EA6;&#x5176;&#x4F1A;&#x7ED9;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x76F8;&#x8F83;&#x4E8E;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x66F4;&#x591A;&#x7684;&#x5904;&#x7406;&#x5668;&#x65F6;&#x95F4;&#xFF0C;&#x56E0;&#x4E3A;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x662F;&#x4EA4;&#x4E92;&#x578B;&#x7684;&#x3002;&#x6211;&#x4EEC;&#x5BF9;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x6709;&#x4E24;&#x4E2A;&#x76EE;&#x6807;&#x3002;&#x7B2C;&#x4E00;&#xFF0C;&#x6211;&#x4EEC;&#x5E0C;&#x671B;&#x4ED6;&#x6709;&#x5927;&#x91CF;&#x53EF;&#x7528;&#x7684;&#x5904;&#x7406;&#x5668;&#x65F6;&#x95F4;&#xFF1B;&#x4E0D;&#x662F;&#x56E0;&#x4E3A;&#x4ED6;&#x9700;&#x8981;&#x5927;&#x91CF;&#x5904;&#x7406;&#x5668;&#x65F6;&#x95F4;&#xFF08;&#x5B83;&#x5E76;&#x4E0D;&#x9700;&#x8981;&#xFF09;&#x800C;&#x662F;&#x56E0;&#x4E3A;&#x6211;&#x4EEC;&#x5E0C;&#x671B;&#x4ED6;&#x5728;&#x9700;&#x8981;&#x5904;&#x7406;&#x5668;&#x65F6;&#x603B;&#x53EF;&#x4EE5;&#x4F7F;&#x7528;&#x5904;&#x7406;&#x5668;&#x3002;&#x7B2C;&#x4E8C;&#xFF0C;&#x6211;&#x4EEC;&#x5E0C;&#x671B;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x5728;&#x88AB;&#x5524;&#x9192;&#x65F6;&#x53EF;&#x4EE5;&#x62A2;&#x5360;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#xFF08;&#x4E5F;&#x5C31;&#x662F;&#x5728;&#x5F53;&#x7528;&#x6237;&#x6309;&#x4E0B;&#x6309;&#x952E;&#x65F6;&#xFF09;&#x3002;&#x8FD9;&#x4E00;&#x70B9;&#x53EF;&#x4EE5;&#x4FDD;&#x8BC1;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x80FD;&#x591F;&#x63D0;&#x4F9B;&#x5F88;&#x597D;&#x7684;&#x4EA4;&#x4E92;&#x6027;&#x80FD;&#x548C;&#x53CA;&#x65F6;&#x7684;&#x54CD;&#x5E94;&#x7528;&#x6237;&#x8F93;&#x5165;&#x3002;</p>
+<p>CFS &#x901A;&#x8FC7;&#x4E0B;&#x9762;&#x7684;&#x529E;&#x6CD5;&#x89E3;&#x51B3;&#x4E86;&#x8FD9;&#x4E2A;&#x95EE;&#x9898;&#xFF1A;&#x8C03;&#x5EA6;&#x5668;&#x4FDD;&#x8BC1;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x6709;&#x7279;&#x5B9A;&#x7684;&#x5904;&#x7406;&#x5668;&#x65F6;&#x95F4;&#x6BD4;&#x4F8B;&#x800C;&#x4E0D;&#x662F;&#x8D4B;&#x7ED9;&#x4ED6;&#x7279;&#x5B9A;&#x7684;&#x4F18;&#x5148;&#x7EA7;&#x548C;&#x65F6;&#x95F4;&#x7247;&#x3002;&#x5982;&#x679C;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x548C;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x662F;&#x4EC5;&#x6709;&#x7684;&#x8FD0;&#x884C;&#x4E2D;&#x7684;&#x8FDB;&#x7A0B;&#xFF0C;&#x5E76;&#x4E14;&#x6709;&#x7740;&#x76F8;&#x540C;&#x7684;&#x53CB;&#x597D;&#x7EA7;&#xFF08;nice level&#xFF09;&#xFF0C;&#x8FD9;&#x4E2A;&#x6BD4;&#x4F8B;&#x53EF;&#x4EE5;&#x662F; 50% &#x2014;&#x2014; &#x6BCF;&#x4E2A;&#x4EFB;&#x52A1;&#x90FD;&#x4FDD;&#x8BC1;&#x5360;&#x6709;&#x4E00;&#x534A;&#x7684;&#x5904;&#x7406;&#x5668;&#x65F6;&#x95F4;&#x3002;&#x56E0;&#x4E3A;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x628A;&#x5927;&#x90E8;&#x5206;&#x7684;&#x65F6;&#x95F4;&#x82B1;&#x8D39;&#x5230;&#x4E86;&#x963B;&#x585E;&#x4E0A;&#xFF0C;&#x7B49;&#x5F85;&#x7528;&#x8F93;&#x5165;&#xFF0C;&#x6240;&#x4EE5;&#x4ED6;&#x5B83;&#x6CA1;&#x6709;&#x7528;&#x5C3D; 10% &#x7684;&#x5904;&#x7406;&#x5668;&#x3002;&#x76F8;&#x5BF9;&#x7684;&#xFF0C;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x80FD;&#x591F;&#x81EA;&#x7531;&#x4F7F;&#x7528;&#x8D85;&#x8FC7;&#x5206;&#x914D;&#x7ED9;&#x81EA;&#x5DF1;&#x7684; 50% &#x7684;&#x5904;&#x7406;&#x5668;&#xFF0C;&#x8FD9;&#x5C31;&#x662F;&#x4ED6;&#x80FD;&#x591F;&#x5FEB;&#x901F;&#x7684;&#x5B8C;&#x6210;&#x7F16;&#x7801;&#x5DE5;&#x4F5C;&#x3002;</p>
+<p>&#x4E00;&#x4E2A;&#x91CD;&#x8981;&#x7684;&#x539F;&#x5219;&#x5F53;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x88AB;&#x5524;&#x9192;&#x65F6;&#x3002;&#x6211;&#x4EEC;&#x7684;&#x4E3B;&#x8981;&#x76EE;&#x6807;&#x662F;&#x4FDD;&#x8BC1;&#x5B83;&#x80FD;&#x6839;&#x636E;&#x7528;&#x6237;&#x7684;&#x8F93;&#x5165;&#x7ACB;&#x5373;&#x8FD0;&#x884C;&#x3002;&#x5728;&#x8FD9;&#x79CD;&#x60C5;&#x51B5;&#x4E0B;&#xFF0C;&#x5F53;&#x7F16;&#x8F91;&#x5668;&#x5524;&#x9192;&#x540E;&#xFF0C; CFS &#x6CE8;&#x610F;&#x5230;&#x5B83;&#x5206;&#x914D;&#x4E86; 50% &#x7684;&#x5904;&#x7406;&#x5668;&#x4F46;&#x662F;&#x76F8;&#x5F53;&#x5927;&#x7684;&#x90E8;&#x5206;&#x5E76;&#x6CA1;&#x6709;&#x4F7F;&#x7528;&#x3002;&#x7279;&#x522B;&#x7684;&#x662F;&#xFF0C; CFS &#x786E;&#x5B9A;&#x4E86;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x5DF2;&#x7ECF;&#x8FD0;&#x884C;&#x7684;&#x65F6;&#x95F4;&#x6BD4;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x8981;&#x5C11;&#x3002;&#x8C03;&#x5EA6;&#x5668;&#x4F1A;&#x5C1D;&#x8BD5;&#x7ED9;&#x5168;&#x90E8;&#x8FDB;&#x7A0B;&#x5206;&#x914D;&#x516C;&#x5E73;&#x7684;&#x7684;&#x5904;&#x7406;&#x5668;&#x65F6;&#x95F4;&#xFF0C;&#x7136;&#x540E;&#x62A2;&#x5360;&#x4E86;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x5E76;&#x8BA9;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x5F00;&#x59CB;&#x8FD0;&#x884C;&#x3002;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x5F00;&#x59CB;&#x8FD0;&#x884C;&#xFF0C;&#x8FC5;&#x901F;&#x7684;&#x5904;&#x7406;&#x7528;&#x6237;&#x7684;&#x6309;&#x4E0B;&#x7684;&#x6309;&#x952E;&#xFF0C;&#x7136;&#x540E;&#x5C31;&#x8FDB;&#x5165;&#x7761;&#x7720;&#x7B49;&#x5F85;&#x66F4;&#x591A;&#x7684;&#x8F93;&#x5165;&#x3002;&#x56E0;&#x4E3A;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x5E76;&#x6CA1;&#x6709;&#x6D88;&#x8017;&#x5B8C;&#x5206;&#x914D;&#x7ED9;&#x5B83;&#x7684; 50% &#x5904;&#x7406;&#x5668;&#xFF0C;&#x6211;&#x4EEC;&#x7EE7;&#x7EED;&#x8FD9;&#x4E2A;&#x65B9;&#x5F0F;&#xFF0C; CFS &#x603B;&#x4F1A;&#x8BA9;&#x6587;&#x672C;&#x7F16;&#x8F91;&#x5668;&#x80FD;&#x591F;&#x5728;&#x5B83;&#x60F3;&#x8FD0;&#x884C;&#x7684;&#x65F6;&#x523B;&#x8FD0;&#x884C;&#xFF0C;&#x7136;&#x540E;&#x89C6;&#x9891;&#x7F16;&#x7801;&#x5668;&#x4F1A;&#x8FD0;&#x884C;&#x5728;&#x5269;&#x4F59;&#x7684;&#x65F6;&#x95F4;&#x3002;</p>
+<h2 id="74-&#x521B;&#x5EFA;&#x65B0;&#x4EFB;&#x52A1;">7.4. &#x521B;&#x5EFA;&#x65B0;&#x4EFB;&#x52A1;</h2>
+<p>CFS &#x7EF4;&#x62A4;&#x4E86;&#x4E00;&#x4E2A; <code>vruntime_min</code> &#x503C;&#xFF0C;&#x8FD9;&#x662F;&#x4E2A;&#x5355;&#x8C03;&#x9012;&#x589E;&#x7684;&#x503C;&#xFF0C;&#x8BB0;&#x5F55;&#x4E86;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x5168;&#x90E8;&#x4EFB;&#x52A1;&#x6700;&#x5C0F;&#x7684; vruntime &#x503C;&#x3002;&#x8FD9;&#x4E2A;&#x503C;&#x4F1A;&#x52A0;&#x5230;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E0A;&#x4EE5;&#x6B64;&#x6765;&#x7ED9;&#x65B0;&#x4EFB;&#x52A1;&#x4E00;&#x4E2A;&#x66F4;&#x5FEB;&#x7684;&#x8C03;&#x5EA6;&#x673A;&#x4F1A;&#x3002;</p>
+<h2 id="75-&#x8FD0;&#x884C;&#x961F;&#x5217;---&#x7EA2;&#x9ED1;&#x6811;">7.5. &#x8FD0;&#x884C;&#x961F;&#x5217; - &#x7EA2;&#x9ED1;&#x6811;</h2>
+<p>CFS &#x5728;&#x8FD0;&#x884C;&#x961F;&#x5217;&#x4E2D;&#x4F7F;&#x7528;&#x7EA2;&#x9ED1;&#x6811;&#x6570;&#x636E;&#x7ED3;&#x6784;&#x3002;&#x8FD9;&#x4E2A;&#x6570;&#x636E;&#x7ED3;&#x6784;&#x662F;&#x4E00;&#x4E2A;&#x81EA;&#x5E73;&#x8861;&#x4E8C;&#x53C9;&#x641C;&#x7D22;&#x6811;&#x3002;&#x9075;&#x5FAA;&#x4E00;&#x5957;&#x786E;&#x5B9A;&#x7684;&#x89C4;&#x5219;&#xFF0C;&#x6811;&#x4E2D;&#x4E0D;&#x4F1A;&#x6709;&#x4E00;&#x6761;&#x8DEF;&#x5F84;&#x4F1A;&#x662F;&#x53E6;&#x4E00;&#x6761;&#x7684;&#x4E24;&#x500D;&#x957F;&#x3002;&#x66F4;&#x8FDB;&#x4E00;&#x6B65;&#xFF0C;&#x8FD9;&#x79CD;&#x6811;&#x7684;&#x64CD;&#x4F5C;&#x65F6;&#x95F4;&#x590D;&#x6742;&#x5EA6;&#x662F; O(log n)&#xFF0C;&#x8FD9;&#x5C31;&#x5141;&#x8BB8;&#x5FEB;&#x901F;&#x3001;&#x9AD8;&#x6548;&#x7684;&#x63D2;&#x5165;&#x548C;&#x5220;&#x9664;&#x8282;&#x70B9;&#x7684;&#x64CD;&#x4F5C;&#x3002;</p>
+<p>&#x6811;&#x4E2D;&#x6CA1;&#x4E00;&#x4E2A;&#x8282;&#x70B9;&#x4EE3;&#x8868;&#x4E00;&#x4E2A;&#x800C;&#x4EFB;&#x52A1;&#xFF0C;&#x4ED6;&#x4EEC;&#x6839;&#x636E;&#x4EFB;&#x52A1;&#x7684; vruntime &#x6392;&#x5E8F;&#x3002;&#x8FD9;&#x5C31;&#x610F;&#x5473;&#x7740;&#x4E8C;&#x53C9;&#x6811;&#x6700;&#x5DE6;&#x8FB9;&#x7684;&#x8282;&#x70B9;&#x603B;&#x662F;&#x6307;&#x5411; vruntime &#x6700;&#x5C0F;&#x7684;&#x4EFB;&#x52A1;&#xFF0C;&#x4E5F;&#x5C31;&#x662F;&#x8BF4;&#x8FD9;&#x4E2A;&#x4EFB;&#x52A1;&#x6700;&#x9700;&#x8981;&#x5904;&#x7406;&#x5668;&#x3002;&#x7F13;&#x5B58;&#x6700;&#x5DE6;&#x8FB9;&#x7684;&#x8282;&#x70B9;&#x53EF;&#x4EE5;&#x66F4;&#x5FEB;&#x548C;&#x66F4;&#x65B9;&#x4FBF;&#x7684;&#x8BBF;&#x95EE;&#x8282;&#x70B9;&#x3002;</p>
+<h2 id="76-&#x516C;&#x5E73;&#x7EC4;&#x8C03;&#x5EA6;">7.6. &#x516C;&#x5E73;&#x7EC4;&#x8C03;&#x5EA6;</h2>
+<p>&#x7EC4;&#x8C03;&#x5EA6;&#x662F;&#x53E6;&#x4E00;&#x79CD;&#x7ED9;&#x4EFB;&#x52A1;&#x8C03;&#x5EA6;&#x589E;&#x52A0;&#x516C;&#x5E73;&#x6027;&#x7684;&#x9014;&#x5F84;&#xFF0C;&#x7279;&#x522B;&#x662F;&#x9762;&#x5BF9;&#x4EFB;&#x52A1;&#x53C8;&#x751F;&#x6210;&#x5F88;&#x591A;&#x4EFB;&#x52A1;&#x7684;&#x60C5;&#x51B5;&#x3002;&#x8003;&#x8651;&#x5230;&#x670D;&#x52A1;&#x5668;&#x4F1A;&#x751F;&#x6210;&#x5F88;&#x591A;&#x4EFB;&#x52A1;&#x6765;&#x5E76;&#x884C;&#x5904;&#x7406;&#x6536;&#x5230;&#x7684;&#x63A5;&#x5165;&#x8FDE;&#x63A5;&#x3002; CFS &#x5F15;&#x5165;&#x4E86;&#x7EC4;&#x6765;&#x63CF;&#x8FF0;&#x8FD9;&#x79CD;&#x884C;&#x4E3A;&#x800C;&#x4E0D;&#x662F;&#x7EDF;&#x4E00;&#x7684;&#x516C;&#x5E73;&#x5BF9;&#x5F85;&#x5168;&#x90E8;&#x4EFB;&#x52A1;&#x3002;&#x751F;&#x6210;&#x4EFB;&#x52A1;&#x7684;&#x670D;&#x52A1;&#x5668;&#x8FDB;&#x7A0B;&#x5728;&#x7EC4;&#x5185;&#xFF08;&#x6839;&#x636E;&#x5C42;&#x7EA7;&#xFF09;&#x5171;&#x4EAB;&#x4ED6;&#x4EEC;&#x7684; vruntime &#xFF0C;&#x800C;&#x5355;&#x72EC;&#x4EFB;&#x52A1;&#x4F1A;&#x7EF4;&#x62A4;&#x81EA;&#x5DF1;&#x72EC;&#x7ACB;&#x7684; vruntime&#x3002;&#x5728;&#x8FD9;&#x79CD;&#x529E;&#x6CD5;&#x4E2D;&#xFF0C;&#x4F46;&#x4EFB;&#x52A1;&#x63A5;&#x6536;&#x548C;&#x7EC4;&#x7C97;&#x7565;&#x76F8;&#x7B49;&#x8C03;&#x5EA6;&#x65F6;&#x95F4;&#x3002;</p>
+<p>&#x8BA9;&#x6211;&#x4EEC;&#x5047;&#x8BBE;&#x673A;&#x5668;&#x4E0A;&#x9664;&#x4E86;&#x670D;&#x52A1;&#x5668;&#x4EFB;&#x52A1;&#xFF0C;&#x53E6;&#x4E00;&#x4E2A;&#x7528;&#x6237;&#x53EA;&#x6709;&#x4E00;&#x4E2A;&#x8FD0;&#x884C;&#x4E2D;&#x7684;&#x4EFB;&#x52A1;&#x3002;&#x5982;&#x679C;&#x6CA1;&#x6709;&#x7EC4;&#x8C03;&#x5EA6;&#xFF0C;&#x7B2C;&#x4E8C;&#x4E2A;&#x7528;&#x6237;&#x76F8;&#x5BF9;&#x4E8E;&#x670D;&#x52A1;&#x5668;&#x4F1A;&#x53D7;&#x5230;&#x4E0D;&#x516C;&#x5E73;&#x7684;&#x5BF9;&#x5F85;&#x3002;&#x901A;&#x8FC7;&#x7EC4;&#x8C03;&#x5EA6;&#xFF0C; CFS &#x4F1A;&#x9996;&#x5148;&#x5C1D;&#x8BD5;&#x5BF9;&#x7EC4;&#x516C;&#x5E73;&#xFF0C;&#x7136;&#x540E;&#x518D;&#x5BF9;&#x7EC4;&#x5185;&#x8FDB;&#x7A0B;&#x516C;&#x5E73;&#x3002;&#x56E0;&#x6B64;&#x4E24;&#x4E2A;&#x7528;&#x6237;&#x90FD;&#x83B7;&#x5F97; 50% &#x7684; CPU&#x3002;</p>
+<p>&#x7EC4;&#x53EF;&#x4EE5;&#x901A;&#x8FC7; <code>/proc</code> &#x63A5;&#x53E3;&#x8FDB;&#x884C;&#x914D;&#x7F6E;&#x3002;</p>
+
+                                
+                                </section>
+                            
+    </div>
+    <div class="search-results">
+        <div class="has-results">
+            
+            <h1 class="search-results-title"><span class="search-results-count"></span> results matching &quot;<span class="search-query"></span>&quot;</h1>
+            <ul class="search-results-list"></ul>
+            
+        </div>
+        <div class="no-results">
+            
+            <h1 class="search-results-title">No results matching &quot;<span class="search-query"></span>&quot;</h1>
+            
+        </div>
+    </div>
+</div>
+
+                        </div>
+                    </div>
+                
+            </div>
+
+            
+                
+                <a href="chapter6.html" class="navigation navigation-prev " aria-label="Previous page: 6 Short Scheduling Algorithm History">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+                
+                
+                <a href="chapter8.html" class="navigation navigation-next " aria-label="Next page: 8 CFS Implementation Details">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+                
+            
+        
+    </div>
+
+    <script>
+        var gitbook = gitbook || [];
+        gitbook.push(function() {
+            gitbook.page.hasChanged({"page":{"title":"7 Completely Fair Scheduler (CFS)","level":"1.8","depth":1,"next":{"title":"8 CFS Implementation Details","level":"1.9","depth":1,"path":"chapter8.md","ref":"chapter8.md","articles":[]},"previous":{"title":"6 Short Scheduling Algorithm History","level":"1.7","depth":1,"path":"chapter6.md","ref":"chapter6.md","articles":[]},"dir":"ltr"},"config":{"plugins":["comment"],"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"pluginsConfig":{"comment":{"highlightCommented":true},"highlight":{},"search":{},"lunr":{"maxIndexSize":1000000},"sharing":{"facebook":true,"twitter":true,"google":false,"weibo":false,"instapaper":false,"vk":false,"all":["facebook","google","twitter","weibo","instapaper"]},"fontsettings":{"theme":"white","family":"sans","size":2},"theme-default":{"styles":{"website":"styles/website.css","pdf":"styles/pdf.css","epub":"styles/epub.css","mobi":"styles/mobi.css","ebook":"styles/ebook.css","print":"styles/print.css"},"showLevel":false}},"theme":"default","author":"Ezio Zhang","pdf":{"pageNumbers":true,"fontSize":16,"fontFamily":"Arial","paperSize":"a4","chapterMark":"pagebreak","pageBreaksBefore":"/","margin":{"right":62,"left":62,"top":56,"bottom":56}},"structure":{"langs":"LANGS.md","readme":"README.md","glossary":"GLOSSARY.md","summary":"SUMMARY.md"},"variables":{},"title":"Linux Process Schedule","language":"zh","links":{"sidebar":{"Linux Process Schedule":"https://www.gitbook.com/book/oska874/process-scheduling-in-linux"},"gitbook":true},"gitbook":"*","description":"tittle : Process Scheduling in Linux\r\n\r\nauthor : Volker Seeker – University of Edinburgh\r\n\r\ntype : technology translation\r\n\r\ninterpret : Ezio"},"file":{"path":"chapter7.md","mtime":"2016-08-11T15:51:40.000Z","type":"markdown"},"gitbook":{"version":"3.1.1","time":"2016-08-12T02:04:09.535Z"},"basePath":".","book":{"language":""}});
+        });
+    </script>
+</div>
+
+        
+    <script src="gitbook/gitbook.js"></script>
+    <script src="gitbook/theme.js"></script>
+    
+        
+        <script src="gitbook/gitbook-plugin-comment/plugin.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search-engine.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-search/search.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/lunr.min.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-lunr/search-lunr.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-sharing/buttons.js"></script>
+        
+    
+        
+        <script src="gitbook/gitbook-plugin-fontsettings/fontsettings.js"></script>
+        
+    
+
+    
+
+
+</body>
+<!-- Mirrored from oska874.gitbooks.io/process-scheduling-in-linux/content/chapter7.html by HTTrack Website Copier/3.x [XR&CO'2014], Sun, 16 Feb 2025 16:23:51 GMT -->
+</html>
